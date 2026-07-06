@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import api from '../api';
 
-export default function Login({ setSession, t }) {
+export default function Login({ setSession, t, theme, setTheme, lang, setLang }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -35,7 +35,16 @@ export default function Login({ setSession, t }) {
   };
 
   return (
-    <div className="login-container">
+    <div className="login-container" style={{ position: 'relative' }}>
+      <div className="no-print" style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center', zIndex: 10 }}>
+        <button className="language-btn" onClick={() => setLang(lang === 'en' ? 'ta' : 'en')}>
+          🌐 {lang === 'en' ? 'தமிழ்' : 'English'}
+        </button>
+        <button className="theme-toggle-btn" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} title="Toggle Theme">
+          {theme === 'light' ? '🌙' : '☀️'}
+        </button>
+      </div>
+
       <div className="glass-card login-card">
         <div className="login-header">
           <h1>🥤 {t('title')}</h1>

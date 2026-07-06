@@ -22,7 +22,17 @@ export default function App() {
   const [session, setSession] = useState(null); // logged in user session
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedOrderId, setSelectedOrderId] = useState(null);
-  const [menuHidden, setMenuHidden] = useState(false);
+  const [menuHidden, setMenuHidden] = useState(() => window.innerWidth <= 768);
+
+  // Theme state defaulting to light theme
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('theme') || 'light';
+  });
+
+  useEffect(() => {
+    document.body.className = theme === 'light' ? 'light-theme' : '';
+    localStorage.setItem('theme', theme);
+  }, [theme]);
   
   // Notifications
   const [notifications, setNotifications] = useState([]);
@@ -67,7 +77,16 @@ export default function App() {
   };
 
   if (!session) {
-    return <Login setSession={setSession} t={t} />;
+    return (
+      <Login
+        setSession={setSession}
+        t={t}
+        theme={theme}
+        setTheme={setTheme}
+        lang={lang}
+        setLang={setLang}
+      />
+    );
   }
 
   // Sidebar link details
@@ -136,7 +155,7 @@ export default function App() {
       case 'routes':
         return <RouteMgr t={t} lang={lang} />;
       case 'shops':
-        return <ShopMgr t={t} lang={lang} />;
+        return <ShopMgr t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} />;
       case 'products':
         return <ProductMgr t={t} lang={lang} />;
       case 'purchases':
@@ -172,6 +191,11 @@ export default function App() {
         </div>
 
         <div className="nav-controls">
+          {/* Theme Toggle */}
+          <button className="theme-toggle-btn" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} title="Toggle theme">
+            {theme === 'light' ? '🌙' : '☀️'}
+          </button>
+
           {/* Instant Translation Switch */}
           <button className="language-btn" onClick={() => setLang(lang === 'en' ? 'ta' : 'en')}>
             🌐 {t('switch_language')}
@@ -235,6 +259,9 @@ export default function App() {
               onClick={() => {
                 setActiveTab(link.id);
                 setSelectedOrderId(null);
+                if (window.innerWidth <= 768) {
+                  setMenuHidden(true);
+                }
               }}
               className={`sidebar-link ${activeTab === link.id ? 'active' : ''}`}
             >

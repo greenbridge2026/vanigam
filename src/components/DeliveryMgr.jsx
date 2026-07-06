@@ -108,7 +108,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected }) {
         <p style={{ color: 'var(--text-muted)' }}>Fulfill orders, collect outstanding payments, and issue final shop receipts</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: activeDelivery ? '1fr 400px' : '1fr', gap: '1.5rem', alignItems: 'start' }}>
+      <div className={`delivery-mgr-grid ${activeDelivery ? 'has-panel' : ''}`}>
         
         {/* Deliveries list */}
         <div className="glass-card">

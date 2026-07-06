@@ -5,7 +5,9 @@ import ConfirmModal from './ConfirmModal';
 export default function RouteMgr({ t, lang }) {
   const [routes, setRoutes] = useState([]);
   const [users, setUsers] = useState([]);
+  const [shops, setShops] = useState([]);
   const [editingRoute, setEditingRoute] = useState(null);
+  const [selectedRouteForShops, setSelectedRouteForShops] = useState(null);
   
   // Form fields
   const [nameEn, setNameEn] = useState('');
@@ -17,11 +19,16 @@ export default function RouteMgr({ t, lang }) {
   useEffect(() => {
     async function loadData() {
       try {
-        const [rData, uData] = await Promise.all([api.getRoutes(), api.getUsers()]);
+        const [rData, uData, sData] = await Promise.all([
+          api.getRoutes(),
+          api.getUsers(),
+          api.getShops()
+        ]);
         setRoutes(rData);
         setUsers(uData);
+        setShops(sData);
       } catch (err) {
-        console.error('Failed to load routes/users', err);
+        console.error('Failed to load routes/users/shops', err);
       } finally {
         setLoading(false);
       }
@@ -197,6 +204,9 @@ export default function RouteMgr({ t, lang }) {
                     <td style={{ color: r.delivery_man_id ? 'var(--success)' : 'var(--text-muted)' }}>🚚 {deliveryName}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                        <button className="language-btn" onClick={() => setSelectedRouteForShops(r)} style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', background: 'rgba(59, 130, 246, 0.05)' }} title={lang === 'ta' ? 'கடைகளைக் காட்டு' : 'Show Shops'}>
+                          👁️ {lang === 'ta' ? 'கடைகள்' : 'Shops'}
+                        </button>
                         <button className="language-btn" onClick={() => handleEdit(r)} style={{ borderStyle: 'dashed' }}>
                           ✏️ Edit
                         </button>
@@ -219,6 +229,79 @@ export default function RouteMgr({ t, lang }) {
           </table>
         </div>
       </div>
+
+      {/* Shops under Route Modal */}
+      {selectedRouteForShops && (
+        <div className="modal-overlay">
+          <div className="glass-card modal-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1.4rem', fontWeight: '700' }}>
+                🏢 {lang === 'ta' ? selectedRouteForShops.name_ta : selectedRouteForShops.name_en} - {lang === 'ta' ? 'கடைகள்' : 'Shops'} ({shops.filter(s => s.route_id === selectedRouteForShops.id).length})
+              </h3>
+              <button 
+                onClick={() => setSelectedRouteForShops(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1, marginBottom: '1.5rem' }} className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>{lang === 'ta' ? 'கடையின் பெயர்' : 'Shop Name'}</th>
+                    <th>{lang === 'ta' ? 'தொடர்பு நபர்' : 'Contact'}</th>
+                    <th>{lang === 'ta' ? 'கைபேசி எண்' : 'Mobile'}</th>
+                    <th>{lang === 'ta' ? 'வகை' : 'Type'}</th>
+                    <th style={{ textAlign: 'right' }}>{lang === 'ta' ? 'நிலுவை தொகை' : 'Outstanding'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shops.filter(s => s.route_id === selectedRouteForShops.id).map(s => (
+                    <tr key={s.id}>
+                      <td>
+                        <strong>{lang === 'ta' ? s.name_ta : s.name_en}</strong>
+                      </td>
+                      <td>{s.contact_person}</td>
+                      <td>{s.mobile}</td>
+                      <td>
+                        <span style={{
+                          fontSize: '0.75rem',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: s.shop_type === 'wholesale' ? 'rgba(6, 182, 212, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                          color: s.shop_type === 'wholesale' ? 'var(--accent-cyan)' : 'var(--success)',
+                          border: s.shop_type === 'wholesale' ? '1px solid var(--accent-cyan)' : '1px solid var(--success)'
+                        }}>
+                          {s.shop_type === 'wholesale' ? (lang === 'ta' ? 'மொத்த விற்பனை' : 'Wholesale') : (lang === 'ta' ? 'சில்லறை விற்பனை' : 'Retail')}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 'bold', color: s.outstanding_amount > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                        ₹{s.outstanding_amount}
+                      </td>
+                    </tr>
+                  ))}
+                  {shops.filter(s => s.route_id === selectedRouteForShops.id).length === 0 && (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                        {lang === 'ta' ? 'இந்த வழித்தடத்தில் கடைகள் எதுவும் இல்லை.' : 'No shops found under this route.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setSelectedRouteForShops(null)}>
+                {lang === 'ta' ? 'மூடுக' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmModal
         isOpen={confirmOpen}
         title={t('confirm_title')}

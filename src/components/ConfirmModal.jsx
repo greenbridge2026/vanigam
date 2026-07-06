@@ -4,30 +4,8 @@ export default function ConfirmModal({ isOpen, title, message, onConfirm, onCanc
   if (!isOpen) return null;
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.7)',
-      backdropFilter: 'blur(6px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1100,
-      animation: 'fadeIn 0.2s ease-out'
-    }}>
-      <div className="glass-card" style={{
-        maxWidth: '450px',
-        width: '95%',
-        padding: '2rem',
-        textAlign: 'center',
-        boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5)',
-        border: '1px solid rgba(255, 255, 255, 0.08)',
-        borderRadius: '16px',
-        margin: '0 1rem'
-      }}>
+    <div className="modal-overlay">
+      <div className="glass-card modal-card modal-confirm">
         <h3 style={{
           fontSize: '1.4rem',
           fontWeight: '700',

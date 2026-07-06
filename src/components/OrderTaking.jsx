@@ -14,6 +14,11 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // Dropdown product selection inputs
+  const [selectedProduct, setSelectedProduct] = useState('');
+  const [inputCases, setInputCases] = useState('');
+  const [inputBottles, setInputBottles] = useState('');
+
   useEffect(() => {
     async function loadData() {
       try {
@@ -37,6 +42,8 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
   // Filter shops by selected route and active status
   const routeShops = shops.filter(s => s.route_id === selectedRoute && s.status === 'active');
   const shopObj = shops.find(s => s.id === selectedShop);
+  const activeProducts = products.filter(p => p.status === 'active');
+  const selectedProdObj = products.find(p => p.id === selectedProduct);
 
   const handleQtyChange = (prodId, type, val) => {
     const value = Math.max(0, parseInt(val) || 0);
@@ -59,6 +66,44 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
       ...cart,
       [prodId]: updatedItem
     });
+  };
+
+  const handleAddToCart = () => {
+    if (!selectedProduct) return alert(lang === 'ta' ? 'பொருளைத் தேர்வு செய்க' : 'Select a product');
+    const prod = products.find(p => p.id === selectedProduct);
+    if (!prod) return;
+
+    const casesVal = Math.max(0, parseInt(inputCases) || 0);
+    const bottlesVal = Math.max(0, parseInt(inputBottles) || 0);
+
+    if (casesVal === 0 && bottlesVal === 0) {
+      return alert(lang === 'ta' ? 'அளவை உள்ளிடவும்' : 'Enter quantity');
+    }
+
+    const currentCartItem = cart[prod.id] || { cases: 0, bottles: 0 };
+    const newCases = currentCartItem.cases + casesVal;
+    const newBottles = currentCartItem.bottles + bottlesVal;
+    const totalRequested = (newCases * prod.case_qty_rule) + newBottles;
+
+    if (totalRequested > prod.current_stock_bottles) {
+      return alert(`Insufficient Stock! / போதிய இருப்பு இல்லை! Available: ${formatStock(prod.current_stock_bottles, prod.case_qty_rule)} (${prod.current_stock_bottles} B).`);
+    }
+
+    setCart({
+      ...cart,
+      [prod.id]: { cases: newCases, bottles: newBottles }
+    });
+
+    // Reset inputs
+    setSelectedProduct('');
+    setInputCases('');
+    setInputBottles('');
+  };
+
+  const handleRemoveFromCart = (prodId) => {
+    const newCart = { ...cart };
+    delete newCart[prodId];
+    setCart(newCart);
   };
 
   const getProductPrice = (prod) => {
@@ -147,7 +192,7 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
             <select
               className="form-select"
               value={selectedRoute}
-              onChange={e => { setSelectedRoute(e.target.value); setSelectedShop(''); setCart({}); }}
+              onChange={e => { setSelectedRoute(e.target.value); setSelectedShop(''); setSelectedProduct(''); setCart({}); }}
             >
               <option value="">-- Select Route --</option>
               {routes.map(r => (
@@ -161,7 +206,7 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
             <select
               className="form-select"
               value={selectedShop}
-              onChange={e => { setSelectedShop(e.target.value); setCart({}); }}
+              onChange={e => { setSelectedShop(e.target.value); setSelectedProduct(''); setCart({}); }}
               disabled={!selectedRoute}
             >
               <option value="">-- {t('select_shop')} --</option>
@@ -192,63 +237,181 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
       )}
 
       {selectedShop ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1.5rem', alignItems: 'start' }}>
+        <div className="order-taking-grid">
           
           {/* Products Catalog */}
-          <div className="glass-card">
-            <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>📦 {t('select_products')}</h2>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {products.filter(p => p.status === 'active').map(p => {
-                const isOutOfStock = p.current_stock_bottles === 0;
-                const pricePerCase = getProductPrice(p);
-                const pricePerBottle = pricePerCase / p.case_qty_rule;
-                
-                const itemCart = cart[p.id] || { cases: 0, bottles: 0 };
+          {/* Products Catalog Revamp */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div>
+              <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem' }}>📦 {lang === 'ta' ? 'பொருட்களைச் சேர்த்தல்' : 'Add Product to Order'}</h2>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div className="form-group">
+                  <label>{lang === 'ta' ? 'பொருள்' : 'Product'}</label>
+                  <select
+                    className="form-select"
+                    value={selectedProduct}
+                    onChange={e => {
+                      setSelectedProduct(e.target.value);
+                      setInputCases('');
+                      setInputBottles('');
+                    }}
+                  >
+                    <option value="">-- {lang === 'ta' ? 'பொருளைத் தேர்வு செய்க' : 'Select Product'} --</option>
+                    {activeProducts.map(p => (
+                      <option key={p.id} value={p.id} disabled={p.current_stock_bottles === 0}>
+                        {lang === 'ta' ? p.name_ta : p.name_en} ({p.size}) {p.current_stock_bottles === 0 ? `[${lang === 'ta' ? 'இருப்பு இல்லை' : 'Out of Stock'}]` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                return (
-                  <div key={p.id} className={`order-product-card ${isOutOfStock ? 'out-of-stock' : ''}`}>
-                    <div style={{ flex: 1 }}>
-                      <h3 style={{ fontSize: '1.05rem', color: isOutOfStock ? 'var(--text-muted)' : 'var(--text-main)' }}>
-                        {lang === 'ta' ? p.name_ta : p.name_en} ({p.size})
-                      </h3>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                        {t('available')}: <strong style={{ color: isOutOfStock ? 'var(--danger)' : 'var(--success)' }}>{formatStock(p.current_stock_bottles, p.case_qty_rule)}</strong>
-                      </p>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--accent-cyan)', marginTop: '0.25rem' }}>
-                        Rate: ₹{pricePerCase} / Case (₹{pricePerBottle.toFixed(1)} / Bottle)
-                      </p>
+                {selectedProdObj && (
+                  <div style={{
+                    padding: '1rem',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    fontSize: '0.9rem',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '0.5rem 1.5rem'
+                  }}>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', display: 'block' }}>{t('brand')}:</span>
+                      <strong>{selectedProdObj.brand} ({selectedProdObj.size})</strong>
                     </div>
-
-                    <div className="order-product-actions">
-                      <div className="form-group" style={{ gap: '2px' }}>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('cases')}</span>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={itemCart.cases || ''}
-                          onChange={e => handleQtyChange(p.id, 'cases', e.target.value)}
-                          disabled={isOutOfStock}
-                          min="0"
-                          placeholder="Cases"
-                        />
-                      </div>
-                      <div className="form-group" style={{ gap: '2px' }}>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t('bottles')}</span>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={itemCart.bottles || ''}
-                          onChange={e => handleQtyChange(p.id, 'bottles', e.target.value)}
-                          disabled={isOutOfStock}
-                          min="0"
-                          placeholder="Bottles"
-                        />
-                      </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', display: 'block' }}>Rate:</span>
+                      <strong style={{ color: 'var(--accent-cyan)' }}>₹{getProductPrice(selectedProdObj)} / Case</strong>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1', marginTop: '0.25rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.5rem' }}>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', display: 'block' }}>{t('available')}:</span>
+                      <strong style={{ color: selectedProdObj.current_stock_bottles === 0 ? 'var(--danger)' : 'var(--success)' }}>
+                        {formatStock(selectedProdObj.current_stock_bottles, selectedProdObj.case_qty_rule)} ({selectedProdObj.current_stock_bottles} B)
+                      </strong>
                     </div>
                   </div>
-                );
-              })}
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="form-group">
+                    <label>{t('cases')}</label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      value={inputCases}
+                      onChange={e => setInputCases(e.target.value)}
+                      placeholder="0"
+                      min="0"
+                      disabled={!selectedProduct}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('bottles')}</label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      value={inputBottles}
+                      onChange={e => setInputBottles(e.target.value)}
+                      placeholder="0"
+                      min="0"
+                      disabled={!selectedProduct}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ width: '100%', marginTop: '0.5rem', background: 'linear-gradient(135deg, var(--accent-cyan), var(--accent-blue))' }}
+                  onClick={handleAddToCart}
+                  disabled={!selectedProduct}
+                >
+                  ➕ {lang === 'ta' ? 'ஆர்டரில் சேர்க்க' : 'Add to Order'}
+                </button>
+              </div>
+            </div>
+
+            {/* Added Products List/Table */}
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
+              <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>
+                📋 {lang === 'ta' ? 'சேர்க்கப்பட்ட பொருட்கள்' : 'Added Products'} ({Object.keys(cart).filter(id => cart[id].cases > 0 || cart[id].bottles > 0).length})
+              </h3>
+              
+              <div className="table-container">
+                <table className="custom-table" style={{ fontSize: '0.9rem' }}>
+                  <thead>
+                    <tr>
+                      <th>{lang === 'ta' ? 'பொருள்' : 'Product'}</th>
+                      <th style={{ width: '90px' }}>{t('cases')}</th>
+                      <th style={{ width: '90px' }}>{t('bottles')}</th>
+                      <th style={{ textAlign: 'right' }}>Total</th>
+                      <th style={{ width: '50px', textAlign: 'center' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.keys(cart).map(id => {
+                      const prod = products.find(p => p.id === id);
+                      const item = cart[id];
+                      if (!prod || (!item.cases && !item.bottles)) return null;
+
+                      const rate = getProductPrice(prod);
+                      const cost = (item.cases * rate) + (item.bottles * (rate / prod.case_qty_rule));
+
+                      return (
+                        <tr key={id}>
+                          <td>
+                            <strong>{lang === 'ta' ? prod.name_ta : prod.name_en}</strong>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{prod.size} | ₹{rate}/C</div>
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              className="form-input"
+                              value={item.cases || ''}
+                              onChange={e => handleQtyChange(prod.id, 'cases', e.target.value)}
+                              min="0"
+                              style={{ padding: '0.35rem 0.5rem', width: '70px', fontSize: '0.85rem' }}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              className="form-input"
+                              value={item.bottles || ''}
+                              onChange={e => handleQtyChange(prod.id, 'bottles', e.target.value)}
+                              min="0"
+                              style={{ padding: '0.35rem 0.5rem', width: '70px', fontSize: '0.85rem' }}
+                            />
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                            ₹{Math.round(cost)}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              className="btn btn-danger"
+                              onClick={() => handleRemoveFromCart(prod.id)}
+                              style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem', borderRadius: '4px' }}
+                              title={lang === 'ta' ? 'நீக்கு' : 'Remove'}
+                            >
+                              🗑️
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {Object.keys(cart).filter(id => cart[id].cases > 0 || cart[id].bottles > 0).length === 0 && (
+                      <tr>
+                        <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          {lang === 'ta' ? 'ஆர்டரில் பொருட்கள் எதுவும் இல்லை.' : 'No products added to the order yet.'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 

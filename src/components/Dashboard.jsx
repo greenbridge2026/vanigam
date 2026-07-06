@@ -129,7 +129,7 @@ export default function Dashboard({ t, lang }) {
       )}
 
       {/* Two Columns Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '1.5rem', marginTop: '1.5rem' }}>
+      <div className="dashboard-two-cols">
         
         {/* Route-wise Sales Chart */}
         <div className="glass-card">

@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
 
-export default function ShopMgr({ t, lang }) {
+export default function ShopMgr({ t, lang, onBillSelected }) {
   const [shops, setShops] = useState([]);
   const [routes, setRoutes] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [editingShop, setEditingShop] = useState(null);
   const [filterRoute, setFilterRoute] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedShopForBills, setSelectedShopForBills] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Form Fields
@@ -25,11 +27,16 @@ export default function ShopMgr({ t, lang }) {
   useEffect(() => {
     async function loadData() {
       try {
-        const [sData, rData] = await Promise.all([api.getShops(), api.getRoutes()]);
+        const [sData, rData, oData] = await Promise.all([
+          api.getShops(),
+          api.getRoutes(),
+          api.getOrders()
+        ]);
         setShops(sData);
         setRoutes(rData);
+        setOrders(oData);
       } catch (err) {
-        console.error('Failed to load shop/route lists', err);
+        console.error('Failed to load shop/route/order lists', err);
       } finally {
         setLoading(false);
       }
@@ -303,6 +310,9 @@ export default function ShopMgr({ t, lang }) {
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                        <button className="language-btn" onClick={() => setSelectedShopForBills(s)} style={{ borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)', background: 'rgba(6, 182, 212, 0.05)' }} title={lang === 'ta' ? 'விலைப்பட்டியல் வரலாறு' : 'Bill History'}>
+                          📄 {lang === 'ta' ? 'பில்கள்' : 'Bills'}
+                        </button>
                         <button className="language-btn" onClick={() => handleEdit(s)}>
                           ✏️ Edit
                         </button>
@@ -325,6 +335,98 @@ export default function ShopMgr({ t, lang }) {
           </table>
         </div>
       </div>
+
+      {/* Bill History Modal */}
+      {selectedShopForBills && (
+        <div className="modal-overlay">
+          <div className="glass-card modal-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1.4rem', fontWeight: '700' }}>
+                📄 {lang === 'ta' ? selectedShopForBills.name_ta : selectedShopForBills.name_en} - {lang === 'ta' ? 'விலைப்பட்டியல் வரலாறு' : 'Bill History'} ({orders.filter(o => o.shop_id === selectedShopForBills.id).length})
+              </h3>
+              <button 
+                onClick={() => setSelectedShopForBills(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1, marginBottom: '1.5rem' }} className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>{lang === 'ta' ? 'விலைப்பட்டியல் எண்' : 'Invoice No'}</th>
+                    <th>{lang === 'ta' ? 'தேதி' : 'Date'}</th>
+                    <th>{lang === 'ta' ? 'மொத்த தொகை' : 'Net Amount'}</th>
+                    <th>{lang === 'ta' ? 'நிலை' : 'Status'}</th>
+                    <th style={{ textAlign: 'right' }}>{lang === 'ta' ? 'செயல்கள்' : 'Actions'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.filter(o => o.shop_id === selectedShopForBills.id).map(o => (
+                    <tr key={o.id}>
+                      <td>
+                        <strong>{o.invoice_number}</strong>
+                      </td>
+                      <td>
+                        {new Date(o.order_date).toLocaleDateString(lang === 'ta' ? 'ta-IN' : 'en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        })}
+                      </td>
+                      <td style={{ fontWeight: 'bold' }}>
+                        ₹{o.net_amount}
+                      </td>
+                      <td>
+                        <span style={{
+                          fontSize: '0.75rem',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: o.status === 'delivered' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                          color: o.status === 'delivered' ? 'var(--success)' : 'var(--warning)',
+                          border: o.status === 'delivered' ? '1px solid var(--success)' : '1px solid var(--warning)'
+                        }}>
+                          {o.status === 'delivered' ? (lang === 'ta' ? 'விநியோகிக்கப்பட்டது' : 'Delivered') : (lang === 'ta' ? 'நிலுவையில் உள்ளது' : 'Pending')}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {onBillSelected && (
+                          <button 
+                            className="language-btn" 
+                            style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', background: 'rgba(59, 130, 246, 0.05)', padding: '0.2rem 0.5rem', fontSize: '0.8rem' }}
+                            onClick={() => {
+                              setSelectedShopForBills(null);
+                              onBillSelected(o.id);
+                            }}
+                          >
+                            👁️ {lang === 'ta' ? 'பார்வை' : 'View'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {orders.filter(o => o.shop_id === selectedShopForBills.id).length === 0 && (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                        {lang === 'ta' ? 'இந்த கடைக்கு பில்கள் எதுவும் இல்லை.' : 'No bills found for this shop.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setSelectedShopForBills(null)}>
+                {lang === 'ta' ? 'மூடுக' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmModal
         isOpen={confirmOpen}
         title={t('confirm_title')}

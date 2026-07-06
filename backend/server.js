@@ -1240,8 +1240,12 @@ async function cleanupRecycleBin() {
 }
 
 // Launch server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, async () => {
-  console.log(`Distribution Backend running on port ${PORT}`);
-  await cleanupRecycleBin();
-});
+const PORT = process.env.PORT || 5001;
+if (!process.env.VERCEL) {
+  app.listen(PORT, async () => {
+    console.log(`Distribution Backend running on port ${PORT}`);
+    await cleanupRecycleBin();
+  });
+}
+
+export default app;
