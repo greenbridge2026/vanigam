@@ -3,6 +3,7 @@ import cors from 'cors';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { db as firestoreDb, isMock as isFirebaseMock } from './firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,23 +26,108 @@ function releaseLock() {
 }
 
 // Database Helpers
+let cachedDB = null;
+let cachedTimestamp = 0;
+
 async function readDB() {
+  if (isFirebaseMock) {
+    try {
+      const data = await fs.readFile(dbPath, 'utf8');
+      const db = JSON.parse(data);
+      if (!db.vehicles) db.vehicles = [];
+      if (!db.vehicle_stock) db.vehicle_stock = [];
+      if (!db.vehicle_dispatches) db.vehicle_dispatches = [];
+      if (!db.vehicle_sales) db.vehicle_sales = [];
+      if (!db.vehicle_reconciliations) db.vehicle_reconciliations = [];
+      return db;
+    } catch (error) {
+      return await seedDB();
+    }
+  }
+
   try {
-    const data = await fs.readFile(dbPath, 'utf8');
-    const db = JSON.parse(data);
-    if (!db.vehicles) db.vehicles = [];
-    if (!db.vehicle_stock) db.vehicle_stock = [];
-    if (!db.vehicle_dispatches) db.vehicle_dispatches = [];
-    if (!db.vehicle_sales) db.vehicle_sales = [];
-    if (!db.vehicle_reconciliations) db.vehicle_reconciliations = [];
-    return db;
-  } catch (error) {
+    const metaRef = firestoreDb.collection('tables').doc('_metadata');
+    const metaSnap = await metaRef.get();
+    
+    let lastUpdated = 0;
+    if (metaSnap.exists) {
+      lastUpdated = metaSnap.data().last_updated || 0;
+    }
+
+    if (cachedDB && cachedTimestamp >= lastUpdated) {
+      return cachedDB;
+    }
+
+    // Cache missing or stale: load all docs from 'tables' collection
+    const snapshot = await firestoreDb.collection('tables').get();
+    const dbData = {};
+    snapshot.forEach(doc => {
+      if (doc.id !== '_metadata') {
+        dbData[doc.id] = doc.data().data || [];
+      }
+    });
+
+    const tableKeys = [
+      'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
+      'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
+      'bills', 'notifications', 'vehicles', 'vehicle_stock',
+      'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin'
+    ];
+    for (const key of tableKeys) {
+      if (!dbData[key]) dbData[key] = [];
+    }
+
+    cachedDB = dbData;
+    cachedTimestamp = lastUpdated || Date.now();
+    return cachedDB;
+  } catch (err) {
+    console.error('Error reading from Firestore:', err);
     return await seedDB();
   }
 }
 
 async function writeDB(data) {
-  await fs.writeFile(dbPath, JSON.stringify(data, null, 2), 'utf8');
+  if (isFirebaseMock) {
+    await fs.writeFile(dbPath, JSON.stringify(data, null, 2), 'utf8');
+    return;
+  }
+
+  try {
+    const tableKeys = [
+      'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
+      'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
+      'bills', 'notifications', 'vehicles', 'vehicle_stock',
+      'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin'
+    ];
+
+    const batch = firestoreDb.batch();
+    let hasChanges = false;
+
+    for (const key of tableKeys) {
+      const oldDataStr = cachedDB ? JSON.stringify(cachedDB[key] || []) : '';
+      const newDataStr = JSON.stringify(data[key] || []);
+
+      if (oldDataStr !== newDataStr) {
+        const docRef = firestoreDb.collection('tables').doc(key);
+        batch.set(docRef, { data: data[key] || [] });
+        hasChanges = true;
+      }
+    }
+
+    if (hasChanges) {
+      const timestamp = Date.now();
+      const metaRef = firestoreDb.collection('tables').doc('_metadata');
+      batch.set(metaRef, { last_updated: timestamp }, { merge: true });
+      
+      await batch.commit();
+      
+      // Update cache
+      cachedDB = JSON.parse(JSON.stringify(data));
+      cachedTimestamp = timestamp;
+    }
+  } catch (err) {
+    console.error('Error writing to Firestore:', err);
+  }
 }
 
 // Initial Data Seeding

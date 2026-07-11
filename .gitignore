@@ -39,3 +39,8 @@ out/
 
 # Vite
 src/vite-env.d.ts
+
+# Firebase Credentials
+*serviceAccountKey*.json
+serviceAccountKey.json
+

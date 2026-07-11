@@ -41,10 +41,45 @@ export default function App() {
 
   useEffect(() => {
     if (session) {
-      loadNotifications();
-      // Setup periodic poll for live notifications (every 8 seconds)
-      const timer = setInterval(loadNotifications, 8000);
-      return () => clearInterval(timer);
+      let unsubscribe = null;
+      let pollingTimer = null;
+
+      const setupRealtimeNotifications = async () => {
+        try {
+          const { db, isFirebaseConfigured } = await import('./firebase');
+          const { doc, onSnapshot } = await import('firebase/firestore');
+
+          if (isFirebaseConfigured && db) {
+            unsubscribe = onSnapshot(doc(db, 'tables', 'notifications'), (docSnap) => {
+              if (docSnap.exists()) {
+                setNotifications(docSnap.data().data || []);
+              } else {
+                setNotifications([]);
+              }
+            }, (err) => {
+              console.warn('Firestore notifications listener failed, falling back to polling:', err);
+              startPolling();
+            });
+          } else {
+            startPolling();
+          }
+        } catch (err) {
+          console.warn('Failed to setup Firebase real-time notifications, falling back to polling:', err);
+          startPolling();
+        }
+      };
+
+      const startPolling = () => {
+        loadNotifications();
+        pollingTimer = setInterval(loadNotifications, 8000);
+      };
+
+      setupRealtimeNotifications();
+
+      return () => {
+        if (unsubscribe) unsubscribe();
+        if (pollingTimer) clearInterval(pollingTimer);
+      };
     }
   }, [session]);
 
