@@ -1,4 +1,25 @@
+import { db, isFirebaseConfigured } from './firebase';
+import { doc, getDoc } from 'firebase/firestore';
+
 const API_BASE = '/api';
+
+// Helper to load table data from Firestore directly (for real-time fallback/speed)
+async function getTableData(tableName, fallbackUrl) {
+  if (isFirebaseConfigured && db) {
+    try {
+      const docRef = doc(db, 'tables', tableName);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        return docSnap.data().data || [];
+      }
+      return [];
+    } catch (err) {
+      console.warn(`Firestore read failed for "${tableName}", falling back to REST API:`, err);
+    }
+  }
+  const res = await fetch(fallbackUrl);
+  return res.json();
+}
 
 export const api = {
   // Auth
@@ -16,14 +37,12 @@ export const api = {
   },
 
   async getUsers() {
-    const res = await fetch(`${API_BASE}/users`);
-    return res.json();
+    return getTableData('users', `${API_BASE}/users`);
   },
 
   // Routes
   async getRoutes() {
-    const res = await fetch(`${API_BASE}/routes`);
-    return res.json();
+    return getTableData('routes', `${API_BASE}/routes`);
   },
   async createRoute(routeData) {
     const res = await fetch(`${API_BASE}/routes`, {
@@ -50,8 +69,7 @@ export const api = {
 
   // Shops
   async getShops() {
-    const res = await fetch(`${API_BASE}/shops`);
-    return res.json();
+    return getTableData('shops', `${API_BASE}/shops`);
   },
   async createShop(shopData) {
     const res = await fetch(`${API_BASE}/shops`, {
@@ -76,8 +94,7 @@ export const api = {
 
   // Products
   async getProducts() {
-    const res = await fetch(`${API_BASE}/products`);
-    return res.json();
+    return getTableData('products', `${API_BASE}/products`);
   },
   async createProduct(productData) {
     const res = await fetch(`${API_BASE}/products`, {
@@ -98,8 +115,7 @@ export const api = {
 
   // Purchases
   async getPurchases() {
-    const res = await fetch(`${API_BASE}/purchases`);
-    return res.json();
+    return getTableData('purchases', `${API_BASE}/purchases`);
   },
   async createPurchase(purchaseData) {
     const res = await fetch(`${API_BASE}/purchases`, {
@@ -116,18 +132,15 @@ export const api = {
 
   // Stock Ledger
   async getStockLedger() {
-    const res = await fetch(`${API_BASE}/stock/ledger`);
-    return res.json();
+    return getTableData('stock_ledger', `${API_BASE}/stock/ledger`);
   },
 
   // Orders
   async getOrders() {
-    const res = await fetch(`${API_BASE}/orders`);
-    return res.json();
+    return getTableData('orders', `${API_BASE}/orders`);
   },
   async getOrderItems() {
-    const res = await fetch(`${API_BASE}/orders/items`);
-    return res.json();
+    return getTableData('order_items', `${API_BASE}/orders/items`);
   },
   async createOrder(orderData) {
     const res = await fetch(`${API_BASE}/orders`, {
@@ -144,8 +157,7 @@ export const api = {
 
   // Deliveries
   async getDeliveries() {
-    const res = await fetch(`${API_BASE}/deliveries`);
-    return res.json();
+    return getTableData('deliveries', `${API_BASE}/deliveries`);
   },
   async completeDelivery(id, remarks) {
     const res = await fetch(`${API_BASE}/deliveries/${id}/complete`, {
@@ -158,8 +170,7 @@ export const api = {
 
   // Payments & Collections
   async getPayments() {
-    const res = await fetch(`${API_BASE}/payments`);
-    return res.json();
+    return getTableData('payments', `${API_BASE}/payments`);
   },
   async createPayment(paymentData) {
     const res = await fetch(`${API_BASE}/payments`, {
@@ -174,14 +185,12 @@ export const api = {
     return res.json();
   },
   async getOutstandingHistory() {
-    const res = await fetch(`${API_BASE}/outstanding/history`);
-    return res.json();
+    return getTableData('outstanding_history', `${API_BASE}/outstanding/history`);
   },
 
   // Notifications
   async getNotifications() {
-    const res = await fetch(`${API_BASE}/notifications`);
-    return res.json();
+    return getTableData('notifications', `${API_BASE}/notifications`);
   },
   async markNotificationsRead() {
     const res = await fetch(`${API_BASE}/notifications/mark-read`, {
@@ -276,8 +285,7 @@ export const api = {
 
   // Recycle Bin
   async getRecycleBin() {
-    const res = await fetch(`${API_BASE}/recycle-bin`);
-    return res.json();
+    return getTableData('recycle_bin', `${API_BASE}/recycle-bin`);
   },
   async restoreRecycleBinItem(id) {
     const res = await fetch(`${API_BASE}/recycle-bin/${id}/restore`, {
@@ -302,8 +310,7 @@ export const api = {
 
   // Vehicle Direct Sales
   async getVehicles() {
-    const res = await fetch(`${API_BASE}/vehicles`);
-    return res.json();
+    return getTableData('vehicles', `${API_BASE}/vehicles`);
   },
   async createVehicle(vehicleData) {
     const res = await fetch(`${API_BASE}/vehicles`, {
@@ -328,12 +335,10 @@ export const api = {
     return res.json();
   },
   async getVehicleStock() {
-    const res = await fetch(`${API_BASE}/vehicles/stock`);
-    return res.json();
+    return getTableData('vehicle_stock', `${API_BASE}/vehicles/stock`);
   },
   async getVehicleDispatches() {
-    const res = await fetch(`${API_BASE}/vehicles/dispatches`);
-    return res.json();
+    return getTableData('vehicle_dispatches', `${API_BASE}/vehicles/dispatches`);
   },
   async dispatchVehicleStock(dispatchData) {
     const res = await fetch(`${API_BASE}/vehicles/dispatch`, {
@@ -348,8 +353,7 @@ export const api = {
     return res.json();
   },
   async getVehicleSales() {
-    const res = await fetch(`${API_BASE}/vehicles/sales`);
-    return res.json();
+    return getTableData('vehicle_sales', `${API_BASE}/vehicles/sales`);
   },
   async createVehicleSale(saleData) {
     const res = await fetch(`${API_BASE}/vehicles/sales`, {
@@ -364,8 +368,7 @@ export const api = {
     return res.json();
   },
   async getVehicleReconciliations() {
-    const res = await fetch(`${API_BASE}/vehicles/reconciliations`);
-    return res.json();
+    return getTableData('vehicle_reconciliations', `${API_BASE}/vehicles/reconciliations`);
   },
   async reconcileVehicleStock(reconcileData) {
     const res = await fetch(`${API_BASE}/vehicles/reconcile`, {
@@ -380,4 +383,5 @@ export const api = {
     return res.json();
   }
 };
+
 export default api;
