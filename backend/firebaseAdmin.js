@@ -1,4 +1,5 @@
-import admin from 'firebase-admin';
+import { initializeApp, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
@@ -17,23 +18,35 @@ function getFirebaseCredentials() {
   // 1. Try Service Account Path
   const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   if (saPath) {
-    const resolvedPath = path.resolve(__dirname, '..', saPath);
+    // Check in root first (original logic)
+    let resolvedPath = path.resolve(__dirname, '..', saPath);
+    if (!fs.existsSync(resolvedPath)) {
+      // Fallback to checking in the backend folder directly
+      resolvedPath = path.resolve(__dirname, saPath);
+    }
+
     if (fs.existsSync(resolvedPath)) {
       try {
         const serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
-        return admin.credential.cert(serviceAccount);
+        return cert(serviceAccount);
       } catch (e) {
         console.error('Error parsing service account file:', e);
       }
     }
   }
 
-  // 2. Try individual environment variables
-  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+  // 2. Try individual environment variables (only if actual client email is provided)
+  if (
+    process.env.FIREBASE_PROJECT_ID &&
+    process.env.FIREBASE_CLIENT_EMAIL &&
+    process.env.FIREBASE_CLIENT_EMAIL !== 'your_firebase_client_email@your_project_id.iam.gserviceaccount.com' &&
+    process.env.FIREBASE_PRIVATE_KEY &&
+    !process.env.FIREBASE_PRIVATE_KEY.includes('YOUR_PRIVATE_KEY_HERE')
+  ) {
     try {
       // Replace escaped newlines
       const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
-      return admin.credential.cert({
+      return cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         privateKey: privateKey,
@@ -49,11 +62,11 @@ function getFirebaseCredentials() {
 try {
   const credential = getFirebaseCredentials();
   if (credential) {
-    admin.initializeApp({
+    initializeApp({
       credential,
       projectId: process.env.FIREBASE_PROJECT_ID || undefined
     });
-    db = admin.firestore();
+    db = getFirestore();
     console.log('✅ Firebase Admin: Connected to Firestore database');
   } else {
     console.warn('⚠️ Firebase Admin: Credentials not found in .env or serviceAccountKey.json. Server will fall back to local db.json database.');
@@ -64,4 +77,5 @@ try {
   isMock = true;
 }
 
-export { db, isMock, admin };
+export { db, isMock };
+
