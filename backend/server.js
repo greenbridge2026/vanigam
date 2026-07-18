@@ -26,8 +26,8 @@ function releaseLock() {
 }
 
 // Database Helpers
-let cachedDB = null;
-let cachedTimestamp = 0;
+let cachedDBs = {};      // { [tenantId]: dbData }
+let cachedTimestamps = {}; // { [tenantId]: timestamp }
 
 async function readDB(tenantId) {
   if (isFirebaseMock) {
@@ -41,7 +41,7 @@ async function readDB(tenantId) {
       if (!db.vehicle_reconciliations) db.vehicle_reconciliations = [];
       return db;
     } catch (error) {
-      return await seedDB();
+      return await seedDB(tenantId);
     }
   }
 
@@ -54,12 +54,12 @@ async function readDB(tenantId) {
       lastUpdated = metaSnap.data().last_updated || 0;
     }
 
-    if (cachedDB && cachedTimestamp >= lastUpdated) {
-      return cachedDB;
+    if (cachedDBs[tenantId] && cachedTimestamps[tenantId] >= lastUpdated) {
+      return cachedDBs[tenantId];
     }
 
-    // Cache missing or stale: load all docs from 'tables' collection
-    const snapshot = await firestoreDb.collection('tables').get();
+    // Cache missing or stale: load all docs from tenant-specific 'tables' collection
+    const snapshot = await firestoreDb.collection('tenants').doc(tenantId).collection('tables').get();
     const dbData = {};
     snapshot.forEach(doc => {
       if (doc.id !== '_metadata') {
@@ -77,12 +77,12 @@ async function readDB(tenantId) {
       if (!dbData[key]) dbData[key] = [];
     }
 
-    cachedDB = dbData;
-    cachedTimestamp = lastUpdated || Date.now();
-    return cachedDB;
+    cachedDBs[tenantId] = dbData;
+    cachedTimestamps[tenantId] = lastUpdated || Date.now();
+    return cachedDBs[tenantId];
   } catch (err) {
     console.error('Error reading from Firestore:', err);
-    return await seedDB();
+    return await seedDB(tenantId);
   }
 }
 
@@ -104,7 +104,7 @@ async function writeDB(tenantId, data) {
     let hasChanges = false;
 
     for (const key of tableKeys) {
-      const oldDataStr = cachedDB ? JSON.stringify(cachedDB[key] || []) : '';
+      const oldDataStr = cachedDBs[tenantId] ? JSON.stringify(cachedDBs[tenantId][key] || []) : '';
       const newDataStr = JSON.stringify(data[key] || []);
 
       if (oldDataStr !== newDataStr) {
@@ -116,14 +116,14 @@ async function writeDB(tenantId, data) {
 
     if (hasChanges) {
       const timestamp = Date.now();
-      const metaRef = firestoreDb.collection('tables').doc('_metadata');
+      const metaRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc('_metadata');
       batch.set(metaRef, { last_updated: timestamp }, { merge: true });
       
       await batch.commit();
       
       // Update cache
-      cachedDB = JSON.parse(JSON.stringify(data));
-      cachedTimestamp = timestamp;
+      cachedDBs[tenantId] = JSON.parse(JSON.stringify(data));
+      cachedTimestamps[tenantId] = timestamp;
     }
   } catch (err) {
     console.error('Error writing to Firestore:', err);
