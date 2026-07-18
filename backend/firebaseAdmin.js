@@ -73,6 +73,9 @@ function getFirebaseCredentials() {
   return null;
 }
 
+let initError = null;
+let credentialSource = 'none';
+
 try {
   const credential = getFirebaseCredentials();
   if (credential) {
@@ -81,15 +84,19 @@ try {
       projectId: process.env.FIREBASE_PROJECT_ID || undefined
     });
     db = getFirestore();
+    credentialSource = 'env-or-file';
     console.log('✅ Firebase Admin: Connected to Firestore database');
   } else {
     console.warn('⚠️ Firebase Admin: Credentials not found in .env or serviceAccountKey.json. Server will fall back to local db.json database.');
     isMock = true;
+    credentialSource = 'none-fallback';
   }
 } catch (err) {
   console.error('❌ Firebase Admin: Failed to initialize. Falling back to db.json:', err);
+  initError = err.message || err.toString();
   isMock = true;
+  credentialSource = 'error-fallback';
 }
 
-export { db, isMock };
+export { db, isMock, initError, credentialSource };
 

@@ -3,7 +3,7 @@ import cors from 'cors';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { db as firestoreDb, isMock as isFirebaseMock } from './firebaseAdmin.js';
+import { db as firestoreDb, isMock as isFirebaseMock, initError as firebaseInitError, credentialSource as firebaseCredSource } from './firebaseAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -278,7 +278,7 @@ async function seedDB(tenantId) {
 
 // Add req.tenantId middleware
 app.use((req, res, next) => {
-  if (req.path === '/api/login' || req.path.startsWith('/api/system')) {
+  if (req.path === '/api/login' || req.path === '/api/debug' || req.path.startsWith('/api/system')) {
     return next();
   }
   const tenantId = req.headers['x-tenant-id'];
@@ -290,6 +290,23 @@ app.use((req, res, next) => {
 });
 
 // ---------------- REST API ENDPOINTS ----------------
+
+// Debug endpoint for Vercel/Firebase credentials check
+app.get('/api/debug', (req, res) => {
+  res.json({
+    isFirebaseMock,
+    firebaseInitError,
+    firebaseCredSource,
+    envDetected: {
+      FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID || 'missing',
+      FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL || 'missing',
+      hasPrivateKey: !!process.env.FIREBASE_PRIVATE_KEY,
+      privateKeyLength: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.length : 0,
+      privateKeyFirstChars: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.substring(0, 30) : '',
+      privateKeyLastChars: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.substring(process.env.FIREBASE_PRIVATE_KEY.length - 30) : '',
+    }
+  });
+});
 
 // Auth
 app.post('/api/login', async (req, res) => {
