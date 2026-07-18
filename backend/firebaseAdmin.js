@@ -64,7 +64,25 @@ const cleanPrivateKey = (key) => {
 };
 
 function getFirebaseCredentials() {
-  // 1. Try Service Account Path
+  // 1. Try Entire Service Account JSON String (Best for Vercel/Production)
+  const saJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (saJson) {
+    try {
+      let cleanedJson = saJson.trim();
+      if ((cleanedJson.startsWith('"') && cleanedJson.endsWith('"')) || (cleanedJson.startsWith("'") && cleanedJson.endsWith("'"))) {
+        cleanedJson = cleanedJson.slice(1, -1);
+      }
+      const serviceAccount = JSON.parse(cleanedJson.trim());
+      debugInfo.saJsonSuccess = true;
+      credentialSource = 'env-json-string';
+      return cert(serviceAccount);
+    } catch (e) {
+      debugInfo.saJsonError = e.message || e.toString();
+      console.error('Error parsing FIREBASE_SERVICE_ACCOUNT_JSON env variable:', e);
+    }
+  }
+
+  // 2. Try Service Account Path
   const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
   debugInfo.saPath = saPath || 'undefined/empty';
   
@@ -82,6 +100,7 @@ function getFirebaseCredentials() {
     if (fs.existsSync(resolvedPath)) {
       try {
         const serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
+        credentialSource = 'service-account-file';
         return cert(serviceAccount);
       } catch (e) {
         console.error('Error parsing service account file:', e);
@@ -103,7 +122,7 @@ function getFirebaseCredentials() {
   debugInfo.cond4 = !!rawPrivateKey;
   debugInfo.cond5 = !rawPrivateKey.includes('YOUR_PRIVATE_KEY_HERE');
 
-  // 2. Try individual environment variables (only if actual client email is provided)
+  // 3. Try individual environment variables
   if (
     projectId &&
     clientEmail &&
@@ -113,6 +132,7 @@ function getFirebaseCredentials() {
   ) {
     try {
       const privateKey = cleanPrivateKey(rawPrivateKey);
+      credentialSource = 'individual-env-vars';
       return cert({
         projectId,
         clientEmail,
@@ -135,10 +155,9 @@ try {
       projectId: process.env.FIREBASE_PROJECT_ID || undefined
     });
     db = getFirestore();
-    credentialSource = 'env-or-file';
     console.log('✅ Firebase Admin: Connected to Firestore database');
   } else {
-    console.warn('⚠️ Firebase Admin: Credentials not found in .env or serviceAccountKey.json. Server will fall back to local db.json database.');
+    console.warn('⚠️ Firebase Admin: Credentials not found. Server will fall back to local db.json database.');
     isMock = true;
     credentialSource = 'none-fallback';
   }
