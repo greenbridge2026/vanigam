@@ -43,7 +43,7 @@ export default function ConfirmModal({ isOpen, title, message, onConfirm, onCanc
             type="button"
             className="btn btn-danger"
             onClick={onConfirm}
-            style={{ padding: '0.5rem 1.5rem', background: 'var(--danger)' }}
+            style={{ padding: '0.5rem 1.5rem', background: 'var(--danger)', color: '#ffffff' }}
           >
             {confirmText || 'OK'}
           </button>

@@ -46,19 +46,19 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   }, []);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [cancelTargetId, setCancelTargetId] = useState(null);
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
 
-  const handleCancelOrderTrigger = (id) => {
-    setCancelTargetId(id);
+  const handleDeleteOrderTrigger = (id) => {
+    setDeleteTargetId(id);
     setConfirmOpen(true);
   };
 
-  const executeCancelOrder = async () => {
+  const executeDeleteOrder = async () => {
     setConfirmOpen(false);
-    if (!cancelTargetId) return;
+    if (!deleteTargetId) return;
     try {
-      await api.deleteOrder(cancelTargetId);
-      setOrders(orders.filter(o => o.id !== cancelTargetId));
+      await api.deleteOrder(deleteTargetId);
+      setOrders(orders.filter(o => o.id !== deleteTargetId));
       // Reload details to keep state fresh
       const [items, prod, sh, pay, del] = await Promise.all([
         api.getOrderItems(),
@@ -72,11 +72,11 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       setShops(sh);
       setPayments(pay);
       setDeliveries(del);
-      alert('Order successfully cancelled. / ஆர்டர் வெற்றிகரமாக ரத்து செய்யப்பட்டது.');
+      alert('Order successfully deleted. / ஆர்டர் வெற்றிகரமாக நீக்கப்பட்டது.');
     } catch (err) {
-      alert(err.message || 'Failed to cancel order');
+      alert(err.message || 'Failed to delete order');
     } finally {
-      setCancelTargetId(null);
+      setDeleteTargetId(null);
     }
   };
 
@@ -184,8 +184,8 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                         <div style={{ display: 'inline-flex', gap: '0.4rem' }}>
                           <button className="language-btn" onClick={() => onBillSelected(o.id)}>View</button>
                            {session?.role === 'admin' && (
-                             <button className="btn btn-danger" onClick={() => handleCancelOrderTrigger(o.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
-                               Cancel
+                             <button className="btn btn-danger" onClick={() => handleDeleteOrderTrigger(o.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
+                                Delete
                              </button>
                            )}
                         </div>
@@ -626,7 +626,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         message={t('confirm_delete_msg')}
         confirmText={t('confirm_ok')}
         cancelText={t('confirm_cancel')}
-        onConfirm={executeCancelOrder}
+        onConfirm={executeDeleteOrder}
         onCancel={() => setConfirmOpen(false)}
       />
     </div>
