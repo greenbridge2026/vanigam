@@ -20,11 +20,35 @@ import VehicleDirectSales from './components/VehicleDirectSales';
 import SuperAdminDashboard from './components/SuperAdminDashboard';
 
 export default function App() {
-  const [lang, setLang] = useState('en'); // 'en' or 'ta'
-  const [session, setSession] = useState(null); // logged in user session
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [lang, setLang] = useState(() => {
+    return localStorage.getItem('lang') || 'en';
+  });
+  const [session, setSession] = useState(() => {
+    const saved = localStorage.getItem('session');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('activeTab') || 'dashboard';
+  });
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [menuHidden, setMenuHidden] = useState(() => window.innerWidth <= 768);
+
+  useEffect(() => {
+    localStorage.setItem('lang', lang);
+  }, [lang]);
+
+  useEffect(() => {
+    if (session) {
+      localStorage.setItem('session', JSON.stringify(session));
+      localStorage.setItem('tenantId', session.tenantId);
+    } else {
+      localStorage.removeItem('session');
+    }
+  }, [session]);
+
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
 
   // Theme state defaulting to light theme
   const [theme, setTheme] = useState(() => {

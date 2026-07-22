@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
+import html2pdf from 'html2pdf.js';
 
 export default function Billing({ orderId, t, lang, onBack }) {
   const [order, setOrder] = useState(null);
@@ -58,7 +59,18 @@ export default function Billing({ orderId, t, lang, onBack }) {
   };
 
   const handleDownloadPDF = () => {
-    alert('Simulating PDF Download. Invoice has been saved as ' + order.invoice_number + '.pdf');
+    const element = document.getElementById('printable-invoice');
+    if (!element) return;
+
+    const opt = {
+      margin:       0.3,
+      filename:     `Invoice_${order.invoice_number}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
+      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+
+    html2pdf().set(opt).from(element).save();
   };
 
   // Compile WhatsApp text
@@ -96,10 +108,12 @@ export default function Billing({ orderId, t, lang, onBack }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>📄 {t('invoice')}</h1>
-            <p style={{ color: 'var(--text-muted)' }}>Preview, print receipt, download PDF, or share via WhatsApp</p>
+            <p style={{ color: 'var(--text-muted)' }}>
+              {lang === 'ta' ? 'முன்னோட்டம், பில் அச்சிடவும், பிடிஎஃப் பதிவிறக்கவும், அல்லது வாட்ஸ்அப்பில் பகிரவும்' : 'Preview, print receipt, download PDF, or share via WhatsApp'}
+            </p>
           </div>
           <button className="btn btn-secondary" onClick={onBack}>
-            ⬅ Back
+            {lang === 'ta' ? '⬅ பின்னால்' : '⬅ Back'}
           </button>
         </div>
       </div>
@@ -107,7 +121,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2rem' }}>
         
         {/* Printable Invoice Container */}
-        <div className="invoice-card">
+        <div className="invoice-card" id="printable-invoice">
           <div className="invoice-header">
             <h2>{t('company_name')}</h2>
             <p style={{ fontSize: '9px', color: '#64748b' }}>{t('company_address')}</p>
@@ -117,23 +131,23 @@ export default function Billing({ orderId, t, lang, onBack }) {
           <div className="invoice-meta">
             <div>
               <p><strong>{t('invoice_number')}:</strong> {order.invoice_number}</p>
-              <p><strong>Date:</strong> {new Date(order.order_date).toLocaleDateString()}</p>
-              <p><strong>Route:</strong> {route ? (lang === 'ta' ? route.name_ta : route.name_en) : ''}</p>
+              <p><strong>{lang === 'ta' ? 'தேதி:' : 'Date:'}</strong> {new Date(order.order_date).toLocaleDateString()}</p>
+              <p><strong>{lang === 'ta' ? 'வழித்தடம்:' : 'Route:'}</strong> {route ? (lang === 'ta' ? route.name_ta : route.name_en) : ''}</p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <p><strong>Customer:</strong> {shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : ''}</p>
-              <p>Contact: {shop ? shop.mobile : ''}</p>
-              <p>GSTIN: {shop ? shop.gst_number || 'N/A' : ''}</p>
+              <p><strong>{lang === 'ta' ? 'வாடிக்கையாளர்:' : 'Customer:'}</strong> {shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : ''}</p>
+              <p><strong>{lang === 'ta' ? 'தொடர்பு எண்:' : 'Contact:'}</strong> {shop ? shop.mobile : ''}</p>
+              <p><strong>{lang === 'ta' ? 'ஜிஎஸ்டி எண்:' : 'GSTIN:'}</strong> {shop ? shop.gst_number || 'N/A' : ''}</p>
             </div>
           </div>
 
           <table className="invoice-table">
             <thead>
               <tr>
-                <th>Items Details</th>
-                <th style={{ textAlign: 'center' }}>Cases</th>
-                <th style={{ textAlign: 'center' }}>Bottles</th>
-                <th style={{ textAlign: 'right' }}>Rate/C</th>
+                <th>{lang === 'ta' ? 'பொருட்களின் விவரம்' : 'Items Details'}</th>
+                <th style={{ textAlign: 'center' }}>{lang === 'ta' ? 'பெட்டிகள்' : 'Cases'}</th>
+                <th style={{ textAlign: 'center' }}>{lang === 'ta' ? 'பாட்டில்கள்' : 'Bottles'}</th>
+                <th style={{ textAlign: 'right' }}>{lang === 'ta' ? 'விகிதம்/பெட்டி' : 'Rate/C'}</th>
                 <th style={{ textAlign: 'right' }}>{t('amount')}</th>
               </tr>
             </thead>
@@ -159,19 +173,19 @@ export default function Billing({ orderId, t, lang, onBack }) {
           {/* Balance Computations */}
           <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #94a3b8', paddingTop: '10px' }}>
             <div style={{ width: '50%' }}>
-              <p style={{ fontSize: '9px', color: '#64748b' }}>Outstanding Summary:</p>
-              <p>Prev Outstanding: <strong>₹{outstandingBeforeOrder}</strong></p>
-              <p>Amount Collected: <strong style={{ color: '#10b981' }}>₹{totalCollected}</strong></p>
-              <p>Net Outstanding: <strong style={{ color: '#ef4444' }}>₹{remainingOutstanding}</strong></p>
+              <p style={{ fontSize: '9px', color: '#64748b' }}>{lang === 'ta' ? 'நிலுவை விவரம்:' : 'Outstanding Summary:'}</p>
+              <p>{lang === 'ta' ? 'முந்தைய நிலுவை:' : 'Prev Outstanding:'} <strong>₹{outstandingBeforeOrder}</strong></p>
+              <p>{lang === 'ta' ? 'வசூலிக்கப்பட்ட தொகை:' : 'Amount Collected:'} <strong style={{ color: '#10b981' }}>₹{totalCollected}</strong></p>
+              <p>{lang === 'ta' ? 'நிகர நிலுவை:' : 'Net Outstanding:'} <strong style={{ color: '#ef4444' }}>₹{remainingOutstanding}</strong></p>
             </div>
             
             <div style={{ width: '40%', textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Subtotal:</span>
+                <span>{lang === 'ta' ? 'துணைத்தொகை:' : 'Subtotal:'}</span>
                 <span>₹{order.total_amount}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Discount:</span>
+                <span>{lang === 'ta' ? 'தள்ளுபடி:' : 'Discount:'}</span>
                 <span>-₹{order.discount}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '12px', color: '#0f172a', borderTop: '1.5px solid #0f172a', paddingTop: '4px' }}>
@@ -195,7 +209,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
               <rect x="40" y="40" width="20" height="20" fill="black" />
               <path d="M 35 15 H 65 V 25 H 35 Z M 15 35 H 25 V 65 H 15 Z M 45 75 H 85 V 85 H 45 Z" fill="black" />
             </svg>
-            <p style={{ fontSize: '8px', color: '#64748b' }}>Scan QR to complete direct settlement</p>
+            <p style={{ fontSize: '8px', color: '#64748b' }}>{lang === 'ta' ? 'நேரடி கட்டணத்திற்கு கியூஆர் ஸ்கேன் செய்யவும்' : 'Scan QR to complete direct settlement'}</p>
           </div>
         </div>
 

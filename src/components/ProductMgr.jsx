@@ -10,6 +10,7 @@ export default function ProductMgr({ t, lang }) {
   // Form Fields
   const [nameEn, setNameEn] = useState('');
   const [nameTa, setNameTa] = useState('');
+  const [activeField, setActiveField] = useState(null);
   const [brand, setBrand] = useState('');
   const [category, setCategory] = useState('');
   const [size, setSize] = useState('');
@@ -34,11 +35,73 @@ export default function ProductMgr({ t, lang }) {
     loadProducts();
   }, []);
 
+  // Auto-translate English to Tamil
+  useEffect(() => {
+    if (activeField !== 'en') return;
+    if (!nameEn.trim()) {
+      setNameTa('');
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const translated = await api.translate(nameEn, 'en', 'ta');
+        if (translated) setNameTa(translated);
+      } catch (err) {
+        console.error('Auto-translation to Tamil failed:', err);
+      }
+    }, 1000);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [nameEn, activeField]);
+
+  // Auto-translate Tamil to English
+  useEffect(() => {
+    if (activeField !== 'ta') return;
+    if (!nameTa.trim()) {
+      setNameEn('');
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const translated = await api.translate(nameTa, 'ta', 'en');
+        if (translated) setNameEn(translated);
+      } catch (err) {
+        console.error('Auto-translation to English failed:', err);
+      }
+    }, 1000);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [nameTa, activeField]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!nameEn.trim() && !nameTa.trim()) {
+      alert(lang === 'ta' ? 'தயாரிப்பு பெயர் தேவை' : 'Product name is required');
+      return;
+    }
+
+    let finalEn = nameEn.trim();
+    let finalTa = nameTa.trim();
+
+    // Auto-translate on submit if one is missing
+    if (finalEn && !finalTa) {
+      try {
+        finalTa = await api.translate(finalEn, 'en', 'ta');
+      } catch (err) {
+        console.warn('Failed to translate to Tamil on submit', err);
+      }
+    } else if (finalTa && !finalEn) {
+      try {
+        finalEn = await api.translate(finalTa, 'ta', 'en');
+      } catch (err) {
+        console.warn('Failed to translate to English on submit', err);
+      }
+    }
+
     const payload = {
-      name_en: nameEn,
-      name_ta: nameTa,
+      name_en: finalEn,
+      name_ta: finalTa,
       brand,
       category,
       size,
@@ -60,7 +123,7 @@ export default function ProductMgr({ t, lang }) {
       }
       resetForm();
     } catch (err) {
-      alert('Error saving product settings');
+      alert(err.message || 'Error saving product settings');
     }
   };
 
@@ -105,6 +168,7 @@ export default function ProductMgr({ t, lang }) {
     setEditingProduct(null);
     setNameEn('');
     setNameTa('');
+    setActiveField(null);
     setBrand('');
     setCategory('');
     setSize('');
@@ -144,11 +208,11 @@ export default function ProductMgr({ t, lang }) {
           <div className="form-grid">
             <div className="form-group">
               <label>{t('product_name_en')}</label>
-              <input type="text" className="form-input" value={nameEn} onChange={e => setNameEn(e.target.value)} required placeholder="e.g. Coca Cola 2.25 Litre" />
+              <input type="text" className="form-input" value={nameEn} onChange={e => setNameEn(e.target.value)} onFocus={() => setActiveField('en')} placeholder="e.g. Coca Cola 2.25 Litre" />
             </div>
             <div className="form-group">
               <label>{t('product_name_ta')}</label>
-              <input type="text" className="form-input" value={nameTa} onChange={e => setNameTa(e.target.value)} required placeholder="எ.கா. கோகோ கோலா 2.25 லிட்டர்" />
+              <input type="text" className="form-input" value={nameTa} onChange={e => setNameTa(e.target.value)} onFocus={() => setActiveField('ta')} placeholder="எ.கா. கோகோ கோலா 2.25 லிட்டர்" />
             </div>
             <div className="form-group">
               <label>{t('brand')}</label>

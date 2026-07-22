@@ -55,7 +55,7 @@ async function readDB(tenantId) {
     }
 
     if (cachedDBs[tenantId] && cachedTimestamps[tenantId] >= lastUpdated) {
-      return cachedDBs[tenantId];
+      return JSON.parse(JSON.stringify(cachedDBs[tenantId]));
     }
 
     // Cache missing or stale: load all docs from tenant-specific 'tables' collection
@@ -79,7 +79,7 @@ async function readDB(tenantId) {
 
     cachedDBs[tenantId] = dbData;
     cachedTimestamps[tenantId] = lastUpdated || Date.now();
-    return cachedDBs[tenantId];
+    return JSON.parse(JSON.stringify(cachedDBs[tenantId]));
   } catch (err) {
     console.error('Error reading from Firestore:', err);
     return await seedDB(tenantId);
@@ -175,95 +175,20 @@ async function seedDB(tenantId) {
     { id: 'u3', username: 'delivery', password: '123', role: 'delivery', name: 'Delivery Man Ramesh', mobile: '9876543212', active: true }
   ];
 
-  const routes = [
-    { id: 'r1', name_en: 'Trichy Road Route', name_ta: 'திருச்சி சாலை வழித்தடம்', salesman_id: 'u2', delivery_man_id: 'u3' },
-    { id: 'r2', name_en: 'Madurai Bypass Route', name_ta: 'மதுரை பைபாஸ் வழித்தடம்', salesman_id: 'u2', delivery_man_id: 'u3' },
-    { id: 'r3', name_en: 'Kovai Bypass Route', name_ta: 'கோவை பைபாஸ் வழித்தடம்', salesman_id: 'u2', delivery_man_id: 'u3' },
-    { id: 'r4', name_en: 'Salem Highway Route', name_ta: 'சேலம் நெடுஞ்சாலை வழித்தடம்', salesman_id: 'u2', delivery_man_id: 'u3' },
-    { id: 'r5', name_en: 'Tanjore Palace Route', name_ta: 'தஞ்சாவூர் அரண்மனை வழித்தடம்', salesman_id: 'u2', delivery_man_id: 'u3' }
-  ];
-
-  // Helper lists to generate 250 shops programmatically
-  const shopNounsEn = ['Raja', 'Annam', 'Saravana', 'Kumaran', 'Mani', 'Vasantha', 'Selvam', 'Victory', 'Murugan', 'Kavitha'];
-  const shopNounsTa = ['ராஜா', 'அன்னம்', 'சரவணா', 'குமரன்', 'மணி', 'வசந்தா', 'செல்வம்', 'விக்டரி', 'முருகன்', 'கவிதா'];
-  const shopTypesEn = ['Cool Drinks', 'Groceries', 'Supermarket', 'Sweets Shop', 'Tea Stall'];
-  const shopTypesTa = ['குளிர் பானங்கள்', 'மளிகை கடை', 'சூப்பர் மார்க்கெட்', 'ஸ்வீட்ஸ் கடை', 'டீ ஸ்டால்'];
-  
-  const shops = [];
-  let shopCounter = 1;
-
-  for (let rIdx = 0; rIdx < routes.length; rIdx++) {
-    const route = routes[rIdx];
-    for (let sIdx = 1; sIdx <= 50; sIdx++) {
-      const nounIdx = (rIdx * 50 + sIdx) % shopNounsEn.length;
-      const typeIdx = (rIdx * 50 + sIdx) % shopTypesEn.length;
-      
-      const shopNameEn = `${shopNounsEn[nounIdx]} ${shopTypesEn[typeIdx]} #${sIdx}`;
-      const shopNameTa = `${shopNounsTa[nounIdx]} ${shopTypesTa[typeIdx]} #${sIdx}`;
-      const shopType = (sIdx % 3 === 0) ? 'wholesale' : 'retail';
-
-      shops.push({
-        id: `s_${rIdx + 1}_${sIdx}`,
-        name_en: shopNameEn,
-        name_ta: shopNameTa,
-        contact_person: `Shop Owner ${shopCounter}`,
-        mobile: `90000${String(shopCounter).padStart(5, '0')}`,
-        gst_number: `33AAAAA${String(shopCounter).padStart(5, '0')}A1Z${shopCounter % 9}`,
-        address: `${sIdx}, Bazaar Street, Route ${rIdx + 1}`,
-        shop_type: shopType,
-        route_id: route.id,
-        status: 'active',
-        outstanding_amount: 0
-      });
-      shopCounter++;
-    }
-  }
-
-  const products = [
-    { id: 'p1', name_en: 'Coca Cola 2.25 Litre', name_ta: 'கோகோ கோலா 2.25 லிட்டர்', brand: 'Coca Cola', category: 'Soft Drinks', size: '2.25L', case_qty_rule: 9, purchase_price: 80, wholesale_price: 90, retail_price: 100, current_stock_bottles: 90, min_stock: 18, status: 'active' }, // 10 cases
-    { id: 'p2', name_en: 'Coca Cola 500 ml', name_ta: 'கோகோ கோலா 500 மி.லி', brand: 'Coca Cola', category: 'Soft Drinks', size: '500ml', case_qty_rule: 24, purchase_price: 30, wholesale_price: 35, retail_price: 40, current_stock_bottles: 240, min_stock: 48, status: 'active' }, // 10 cases
-    { id: 'p3', name_en: 'Coca Cola 250 ml', name_ta: 'கோகோ கோலா 250 மி.லி', brand: 'Coca Cola', category: 'Soft Drinks', size: '250ml', case_qty_rule: 24, purchase_price: 15, wholesale_price: 18, retail_price: 20, current_stock_bottles: 0, min_stock: 48, status: 'active' }, // Out of stock
-    { id: 'p4', name_en: 'Sprite 2.25 Litre', name_ta: 'ஸ்ப்ரைட் 2.25 லிட்டர்', brand: 'Sprite', category: 'Soft Drinks', size: '2.25L', case_qty_rule: 9, purchase_price: 80, wholesale_price: 90, retail_price: 100, current_stock_bottles: 45, min_stock: 18, status: 'active' }, // 5 cases
-    { id: 'p5', name_en: 'Sprite 500 ml', name_ta: 'ஸ்ப்ரைட் 500 மி.லி', brand: 'Sprite', category: 'Soft Drinks', size: '500ml', case_qty_rule: 24, purchase_price: 30, wholesale_price: 35, retail_price: 40, current_stock_bottles: 120, min_stock: 48, status: 'active' }, // 5 cases
-    { id: 'p6', name_en: 'Maaza 1 Litre', name_ta: 'மாஸா 1 லிட்டர்', brand: 'Maaza', category: 'Juices', size: '1L', case_qty_rule: 12, purchase_price: 45, wholesale_price: 52, retail_price: 60, current_stock_bottles: 12, min_stock: 12, status: 'active' } // Low stock (1 case)
-  ];
-
-  const purchases = [];
-  const stock_ledger = products.map((p, idx) => ({
-    id: `sl_${idx + 1}`,
-    product_id: p.id,
-    transaction_type: 'opening',
-    cases_change: Math.floor(p.current_stock_bottles / p.case_qty_rule),
-    bottles_change: p.current_stock_bottles % p.case_qty_rule,
-    running_stock_bottles: p.current_stock_bottles,
-    timestamp: new Date().toISOString()
-  }));
-
-  const orders = [];
-  const order_items = [];
-  const deliveries = [];
-  const payments = [];
-  const outstanding_history = [];
-  const bills = [];
-  const notifications = [
-    { id: 'n1', type: 'out_of_stock', message_en: 'Coca Cola 250 ml is Out of Stock!', message_ta: 'கோகோ கோலா 250 மி.லி கையிருப்பு இல்லை!', status: 'unread', created_at: new Date().toISOString() },
-    { id: 'n2', type: 'low_stock', message_en: 'Maaza 1 Litre stock is Low!', message_ta: 'மாஸா 1 லிட்டர் கையிருப்பு குறைவாக உள்ளது!', status: 'unread', created_at: new Date().toISOString() }
-  ];
-
   const db = {
     users,
-    routes,
-    shops,
-    products,
-    purchases,
-    stock_ledger,
-    orders,
-    order_items,
-    deliveries,
-    payments,
-    outstanding_history,
-    bills,
-    notifications,
+    routes: [],
+    shops: [],
+    products: [],
+    purchases: [],
+    stock_ledger: [],
+    orders: [],
+    order_items: [],
+    deliveries: [],
+    payments: [],
+    outstanding_history: [],
+    bills: [],
+    notifications: [],
     vehicles: [],
     vehicle_stock: [],
     vehicle_dispatches: [],
@@ -278,7 +203,7 @@ async function seedDB(tenantId) {
 
 // Add req.tenantId middleware
 app.use((req, res, next) => {
-  if (req.path === '/api/login' || req.path === '/api/debug' || req.path.startsWith('/api/system')) {
+  if (req.path === '/api/login' || req.path === '/api/debug' || req.path === '/api/translate' || req.path.startsWith('/api/system')) {
     return next();
   }
   const tenantId = req.headers['x-tenant-id'];
@@ -309,6 +234,30 @@ app.get('/api/debug', (req, res) => {
       serviceAccountJsonLength: process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? process.env.FIREBASE_SERVICE_ACCOUNT_JSON.length : 0,
     }
   });
+});
+
+// Translation Endpoint
+app.post('/api/translate', async (req, res) => {
+  const { text, from, to } = req.body;
+  if (!text || !text.trim()) {
+    return res.json({ translatedText: '' });
+  }
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Google Translate responded with status: ${response.status}`);
+    }
+    const result = await response.json();
+    if (result && result[0]) {
+      const translatedText = result[0].map(item => item[0]).join('');
+      return res.json({ translatedText });
+    }
+    throw new Error('Unexpected translation response structure');
+  } catch (err) {
+    console.error('Translation error:', err);
+    res.status(500).json({ error: 'Failed to translate text' });
+  }
 });
 
 // Auth

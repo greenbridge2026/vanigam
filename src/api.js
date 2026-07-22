@@ -99,6 +99,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(routeData)
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create route');
+    }
     return res.json();
   },
   async updateRoute(id, routeData) {
@@ -107,12 +111,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(routeData)
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update route');
+    }
     return res.json();
   },
   async deleteRoute(id) {
     const res = await apiFetch(`${API_BASE}/routes/${id}`, {
       method: 'DELETE'
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to delete route');
+    }
     return res.json();
   },
 
@@ -138,6 +150,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(shopData)
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update shop');
+    }
     return res.json();
   },
 
@@ -151,6 +167,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(productData)
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create product');
+    }
     return res.json();
   },
   async updateProduct(id, productData) {
@@ -159,6 +179,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(productData)
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update product');
+    }
     return res.json();
   },
 
@@ -214,6 +238,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ remarks })
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to complete delivery');
+    }
     return res.json();
   },
 
@@ -367,6 +395,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(vehicleData)
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create vehicle');
+    }
     return res.json();
   },
   async updateVehicle(id, vehicleData) {
@@ -375,12 +407,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(vehicleData)
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update vehicle');
+    }
     return res.json();
   },
   async deleteVehicle(id) {
     const res = await apiFetch(`${API_BASE}/vehicles/${id}`, {
       method: 'DELETE'
     });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to delete vehicle');
+    }
     return res.json();
   },
   async getVehicleStock() {
@@ -430,6 +470,20 @@ export const api = {
       throw new Error(err.error || 'Failed to reconcile vehicle stock');
     }
     return res.json();
+  },
+
+  async translate(text, from, to) {
+    const res = await apiFetch(`${API_BASE}/translate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, from, to })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to translate');
+    }
+    const data = await res.json();
+    return data.translatedText;
   }
 };
 

@@ -12,6 +12,7 @@ export default function RouteMgr({ t, lang }) {
   // Form fields
   const [nameEn, setNameEn] = useState('');
   const [nameTa, setNameTa] = useState('');
+  const [activeField, setActiveField] = useState(null);
   const [salesmanId, setSalesmanId] = useState('');
   const [deliveryManId, setDeliveryManId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -36,14 +37,76 @@ export default function RouteMgr({ t, lang }) {
     loadData();
   }, []);
 
+  // Auto-translate English to Tamil
+  useEffect(() => {
+    if (activeField !== 'en') return;
+    if (!nameEn.trim()) {
+      setNameTa('');
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const translated = await api.translate(nameEn, 'en', 'ta');
+        if (translated) setNameTa(translated);
+      } catch (err) {
+        console.error('Auto-translation to Tamil failed:', err);
+      }
+    }, 1000);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [nameEn, activeField]);
+
+  // Auto-translate Tamil to English
+  useEffect(() => {
+    if (activeField !== 'ta') return;
+    if (!nameTa.trim()) {
+      setNameEn('');
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const translated = await api.translate(nameTa, 'ta', 'en');
+        if (translated) setNameEn(translated);
+      } catch (err) {
+        console.error('Auto-translation to English failed:', err);
+      }
+    }, 1000);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [nameTa, activeField]);
+
   const salesmanList = users.filter(u => u.role === 'salesman' && u.active);
   const deliveryList = users.filter(u => u.role === 'delivery' && u.active);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!nameEn.trim() && !nameTa.trim()) {
+      alert(lang === 'ta' ? 'பெயர் தேவை' : 'Name is required');
+      return;
+    }
+
+    let finalEn = nameEn.trim();
+    let finalTa = nameTa.trim();
+
+    // Auto-translate on submit if one is missing
+    if (finalEn && !finalTa) {
+      try {
+        finalTa = await api.translate(finalEn, 'en', 'ta');
+      } catch (err) {
+        console.warn('Failed to translate to Tamil on submit', err);
+      }
+    } else if (finalTa && !finalEn) {
+      try {
+        finalEn = await api.translate(finalTa, 'ta', 'en');
+      } catch (err) {
+        console.warn('Failed to translate to English on submit', err);
+      }
+    }
+
     const payload = {
-      name_en: nameEn,
-      name_ta: nameTa,
+      name_en: finalEn,
+      name_ta: finalTa,
       salesman_id: salesmanId,
       delivery_man_id: deliveryManId
     };
@@ -58,7 +121,7 @@ export default function RouteMgr({ t, lang }) {
       }
       resetForm();
     } catch (err) {
-      alert('Error saving route data');
+      alert(err.message || 'Error saving route data');
     }
   };
 
@@ -98,6 +161,7 @@ export default function RouteMgr({ t, lang }) {
     setNameTa('');
     setSalesmanId('');
     setDeliveryManId('');
+    setActiveField(null);
   };
 
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading Route Manager...</div>;
@@ -123,7 +187,7 @@ export default function RouteMgr({ t, lang }) {
                 className="form-input"
                 value={nameEn}
                 onChange={e => setNameEn(e.target.value)}
-                required
+                onFocus={() => setActiveField('en')}
                 placeholder="e.g. Trichy Road Route"
               />
             </div>
@@ -134,7 +198,7 @@ export default function RouteMgr({ t, lang }) {
                 className="form-input"
                 value={nameTa}
                 onChange={e => setNameTa(e.target.value)}
-                required
+                onFocus={() => setActiveField('ta')}
                 placeholder="எ.கா. திருச்சி சாலை வழித்தடம்"
               />
             </div>
