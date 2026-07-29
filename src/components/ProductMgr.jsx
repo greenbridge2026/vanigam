@@ -229,6 +229,33 @@ export default function ProductMgr({ t, lang }) {
     XLSX.writeFile(wb, 'products_import_template.xlsx');
   };
 
+  const handleExportToExcel = () => {
+    if (products.length === 0) {
+      alert(lang === 'ta' ? 'ஏற்றுமதி செய்ய தயாரிப்புகள் எதுவும் இல்லை' : 'No products to export.');
+      return;
+    }
+
+    const exportData = products.map(p => ({
+      Brand: p.brand || '',
+      ProductName: p.name_en || '',
+      Size: p.size || '',
+      MRP: p.mrp || 0,
+      PackQty: p.case_qty_rule || 24,
+      PurchasePrice: p.purchase_price || 0,
+      WholesalePrice: p.wholesale_price || 0,
+      RetailPrice: p.retail_price || 0,
+      GST: p.gst || 0,
+      OpeningStock: Math.floor((p.current_stock_bottles || 0) / (p.case_qty_rule || 24)),
+      MinStock: p.min_stock || 0,
+      Status: p.status || 'active'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Products List');
+    XLSX.writeFile(wb, 'products_list.xlsx');
+  };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -333,6 +360,120 @@ export default function ProductMgr({ t, lang }) {
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>🥤 {t('product_mgmt')}</h1>
         <p style={{ color: 'var(--text-muted)' }}>Define pricing formulas, packaging options, and thresholds for inventory lines</p>
+      </div>
+
+      {/* Excel Bulk Import Card */}
+      <div className="glass-card" style={{ marginBottom: '2rem' }}>
+        <h2 style={{ marginBottom: '0.5rem', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span>📊</span> {lang === 'ta' ? 'எக்செல் மூலம் மொத்தமாக தயாரிப்புகளை இறக்குமதி செய்க' : 'Bulk Import Products via Excel'}
+        </h2>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+          {lang === 'ta' 
+            ? 'பிராண்ட், தயாரிப்பு பெயர், அளவு, விலைகள் மற்றும் துவக்க இருப்பு உள்ளிட்ட தயாரிப்புகளை இறக்குமதி செய்யவும் அல்லது தற்போதைய தயாரிப்புகளைப் பதிவிறக்கவும்.' 
+            : 'Import products including brand, product name, size, pricing, and opening stock counts, or download the current products list.'}
+        </p>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <button type="button" className="btn btn-secondary" onClick={handleDownloadTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+            📥 {lang === 'ta' ? 'மாதிரி எக்செல் கோப்பை பதிவிறக்கு' : 'Download Excel Template'}
+          </button>
+          
+          <button type="button" className="btn btn-secondary" onClick={handleExportToExcel} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+            📤 {lang === 'ta' ? 'தற்போதைய தயாரிப்புகளைப் பதிவிறக்கு' : 'Download Products (Excel)'}
+          </button>
+          
+          <div style={{ position: 'relative', overflow: 'hidden', display: 'inline-block' }}>
+            <button type="button" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+              📁 {lang === 'ta' ? 'கோப்பைத் தேர்ந்தெடு (Excel / CSV)' : 'Select Excel / CSV File'}
+            </button>
+            <input 
+              type="file" 
+              accept=".xlsx,.xls,.csv" 
+              onChange={handleFileUpload} 
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                opacity: 0,
+                fontSize: '100px',
+                cursor: 'pointer'
+              }} 
+            />
+          </div>
+        </div>
+
+        {parsedProducts.length > 0 && (
+          <div style={{ 
+            background: 'rgba(255,255,255,0.05)', 
+            borderRadius: 'var(--radius)', 
+            padding: '1rem', 
+            border: '1px solid rgba(255,255,255,0.1)',
+            marginBottom: '1.5rem'
+          }}>
+            <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--accent-cyan)' }}>
+              📋 {lang === 'ta' ? `இறக்குமதி செய்ய தயாராக உள்ளவை (${parsedProducts.length})` : `Loaded Products Ready for Import (${parsedProducts.length})`}
+            </h3>
+            
+            <div style={{ maxHeight: '200px', overflowY: 'auto', fontSize: '0.85rem' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.2)', color: 'var(--text-muted)' }}>
+                    <th style={{ padding: '0.5rem' }}>Brand</th>
+                    <th style={{ padding: '0.5rem' }}>Product Name</th>
+                    <th style={{ padding: '0.5rem' }}>Size</th>
+                    <th style={{ padding: '0.5rem' }}>Pack Qty</th>
+                    <th style={{ padding: '0.5rem' }}>MRP</th>
+                    <th style={{ padding: '0.5rem' }}>Purchase Price</th>
+                    <th style={{ padding: '0.5rem' }}>Opening Stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsedProducts.map((p, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                      <td style={{ padding: '0.5rem' }}>{p.brand}</td>
+                      <td style={{ padding: '0.5rem' }}>{p.name_en}</td>
+                      <td style={{ padding: '0.5rem' }}>{p.size}</td>
+                      <td style={{ padding: '0.5rem' }}>{p.case_qty_rule}</td>
+                      <td style={{ padding: '0.5rem' }}>₹{p.mrp}</td>
+                      <td style={{ padding: '0.5rem' }}>₹{p.purchase_price}</td>
+                      <td style={{ padding: '0.5rem' }}>{p.opening_stock} Cases</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setParsedProducts([])}>
+                {t('cancel')}
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                onClick={handleConfirmImport} 
+                disabled={importing}
+                style={{ background: 'var(--success)' }}
+              >
+                {importing ? (lang === 'ta' ? 'இறக்குமதி செய்யப்படுகிறது...' : 'Importing...') : (lang === 'ta' ? 'இறக்குமதி செய்' : 'Confirm Import')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          <strong>{lang === 'ta' ? 'தேவைப்படும் பத்திகள்:' : 'Required Column Headers:'}</strong>
+          <span style={{ 
+            display: 'inline-block', 
+            background: 'rgba(255,255,255,0.05)', 
+            padding: '0.1rem 0.4rem', 
+            borderRadius: '3px', 
+            marginLeft: '0.5rem',
+            fontFamily: 'monospace',
+            color: 'var(--accent-cyan)'
+          }}>
+            Brand, ProductName, Size, MRP, PackQty, PurchasePrice, WholesalePrice, RetailPrice, GST, OpeningStock, MinStock, Status
+          </span>
+        </div>
       </div>
 
       {/* Form Card */}
@@ -469,115 +610,6 @@ export default function ProductMgr({ t, lang }) {
         </div>
       </div>
 
-      {/* Excel Bulk Import Card */}
-      <div className="glass-card" style={{ marginTop: '2rem' }}>
-        <h2 style={{ marginBottom: '0.5rem', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span>📊</span> {lang === 'ta' ? 'எக்செல் மூலம் மொத்தமாக தயாரிப்புகளை இறக்குமதி செய்க' : 'Bulk Import Products via Excel'}
-        </h2>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-          {lang === 'ta' 
-            ? 'பிராண்ட், தயாரிப்பு பெயர், அளவு, விலைகள் மற்றும் துவக்க இருப்பு உள்ளிட்ட தயாரிப்புகளை இறக்குமதி செய்யவும்.' 
-            : 'Import products including brand, product name, size, pricing, and opening stock counts.'}
-        </p>
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <button type="button" className="btn btn-secondary" onClick={handleDownloadTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-            📥 {lang === 'ta' ? 'மாதிரி எக்செல் கோப்பை பதிவிறக்கு' : 'Download Excel Template'}
-          </button>
-          
-          <div style={{ position: 'relative', overflow: 'hidden', display: 'inline-block' }}>
-            <button type="button" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-              📁 {lang === 'ta' ? 'கோப்பைத் தேர்ந்தெடு (Excel / CSV)' : 'Select Excel / CSV File'}
-            </button>
-            <input 
-              type="file" 
-              accept=".xlsx,.xls,.csv" 
-              onChange={handleFileUpload} 
-              style={{
-                position: 'absolute',
-                left: 0,
-                top: 0,
-                opacity: 0,
-                fontSize: '100px',
-                cursor: 'pointer'
-              }} 
-            />
-          </div>
-        </div>
-
-        {parsedProducts.length > 0 && (
-          <div style={{ 
-            background: 'rgba(255,255,255,0.05)', 
-            borderRadius: 'var(--radius)', 
-            padding: '1rem', 
-            border: '1px solid rgba(255,255,255,0.1)',
-            marginBottom: '1.5rem'
-          }}>
-            <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--accent-cyan)' }}>
-              📋 {lang === 'ta' ? `இறக்குமதி செய்ய தயாராக உள்ளவை (${parsedProducts.length})` : `Loaded Products Ready for Import (${parsedProducts.length})`}
-            </h3>
-            
-            <div style={{ maxHeight: '200px', overflowY: 'auto', fontSize: '0.85rem' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.2)', color: 'var(--text-muted)' }}>
-                    <th style={{ padding: '0.5rem' }}>Brand</th>
-                    <th style={{ padding: '0.5rem' }}>Product Name</th>
-                    <th style={{ padding: '0.5rem' }}>Size</th>
-                    <th style={{ padding: '0.5rem' }}>Pack Qty</th>
-                    <th style={{ padding: '0.5rem' }}>MRP</th>
-                    <th style={{ padding: '0.5rem' }}>Purchase Price</th>
-                    <th style={{ padding: '0.5rem' }}>Opening Stock</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsedProducts.map((p, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <td style={{ padding: '0.5rem' }}>{p.brand}</td>
-                      <td style={{ padding: '0.5rem' }}>{p.name_en}</td>
-                      <td style={{ padding: '0.5rem' }}>{p.size}</td>
-                      <td style={{ padding: '0.5rem' }}>{p.case_qty_rule}</td>
-                      <td style={{ padding: '0.5rem' }}>₹{p.mrp}</td>
-                      <td style={{ padding: '0.5rem' }}>₹{p.purchase_price}</td>
-                      <td style={{ padding: '0.5rem' }}>{p.opening_stock} Cases</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setParsedProducts([])}>
-                {t('cancel')}
-              </button>
-              <button 
-                type="button" 
-                className="btn btn-primary" 
-                onClick={handleConfirmImport} 
-                disabled={importing}
-                style={{ background: 'var(--success)' }}
-              >
-                {importing ? (lang === 'ta' ? 'இறக்குமதி செய்யப்படுகிறது...' : 'Importing...') : (lang === 'ta' ? 'இறக்குமதி செய்' : 'Confirm Import')}
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-          <strong>{lang === 'ta' ? 'தேவைப்படும் பத்திகள்:' : 'Required Column Headers:'}</strong>
-          <span style={{ 
-            display: 'inline-block', 
-            background: 'rgba(255,255,255,0.05)', 
-            padding: '0.1rem 0.4rem', 
-            borderRadius: '3px', 
-            marginLeft: '0.5rem',
-            fontFamily: 'monospace',
-            color: 'var(--accent-cyan)'
-          }}>
-            Brand, ProductName, Size, MRP, PackQty, PurchasePrice, WholesalePrice, RetailPrice, GST, OpeningStock, MinStock, Status
-          </span>
-        </div>
-      </div>
       <ConfirmModal
         isOpen={confirmOpen}
         title={t('confirm_title')}
