@@ -185,6 +185,18 @@ export const api = {
     }
     return res.json();
   },
+  async importProducts(productsList) {
+    const res = await apiFetch(`${API_BASE}/products/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(productsList)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to import products');
+    }
+    return res.json();
+  },
 
   // Purchases
   async getPurchases() {

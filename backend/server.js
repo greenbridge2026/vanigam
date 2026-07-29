@@ -627,7 +627,9 @@ app.post('/api/products', async (req, res) => {
       retail_price: Number(req.body.retail_price),
       current_stock_bottles: Number(req.body.current_stock_bottles || 0),
       min_stock: Number(req.body.min_stock),
-      status: req.body.status || 'active'
+      status: req.body.status || 'active',
+      mrp: Number(req.body.mrp || 0),
+      gst: Number(req.body.gst || 0)
     };
     db.products.push(newProduct);
     // Log initial ledger
@@ -642,6 +644,105 @@ app.post('/api/products', async (req, res) => {
     });
     await writeDB(req.tenantId, db);
     res.status(201).json(newProduct);
+  } finally {
+    releaseLock();
+  }
+});
+
+app.post('/api/products/import', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const importedProducts = req.body;
+    if (!Array.isArray(importedProducts)) {
+      return res.status(400).json({ error: 'Payload must be an array of products' });
+    }
+
+    const results = [];
+    const now = Date.now();
+
+    for (let i = 0; i < importedProducts.length; i++) {
+      const item = importedProducts[i];
+      const caseQty = Number(item.case_qty_rule || 24);
+      const openingStock = Number(item.opening_stock || 0); // OpeningStock is in cases
+      const initialStockBottles = openingStock * caseQty;
+
+      // Check if product already exists (by name_en, brand, and size)
+      const existingIndex = db.products.findIndex(
+        p => p.name_en?.toLowerCase().trim() === item.name_en?.toLowerCase().trim() &&
+             p.size?.toLowerCase().trim() === item.size?.toLowerCase().trim() &&
+             p.brand?.toLowerCase().trim() === item.brand?.toLowerCase().trim()
+      );
+
+      if (existingIndex !== -1) {
+        const existing = db.products[existingIndex];
+        
+        // Accumulate stock
+        if (initialStockBottles > 0) {
+          existing.current_stock_bottles += initialStockBottles;
+          
+          db.stock_ledger.push({
+            id: `sl_${now}_import_${i}`,
+            product_id: existing.id,
+            transaction_type: 'purchase',
+            cases_change: openingStock,
+            bottles_change: 0,
+            running_stock_bottles: existing.current_stock_bottles,
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        // Update pricing and details if provided
+        if (item.purchase_price !== undefined) existing.purchase_price = Number(item.purchase_price);
+        if (item.wholesale_price !== undefined) existing.wholesale_price = Number(item.wholesale_price);
+        if (item.retail_price !== undefined) existing.retail_price = Number(item.retail_price);
+        if (item.mrp !== undefined) existing.mrp = Number(item.mrp);
+        if (item.gst !== undefined) existing.gst = Number(item.gst);
+        if (item.min_stock !== undefined) existing.min_stock = Number(item.min_stock);
+        if (item.status !== undefined) existing.status = item.status || existing.status;
+
+        results.push(existing);
+      } else {
+        // Create new product
+        const newProduct = {
+          id: `p_${now}_import_${i}`,
+          name_en: item.name_en || '',
+          name_ta: item.name_ta || item.name_en || '', // Auto-translate/fallback to English name
+          brand: item.brand || '',
+          category: item.category || 'Soft Drinks',
+          size: item.size || '',
+          case_qty_rule: caseQty,
+          purchase_price: Number(item.purchase_price || 0),
+          wholesale_price: Number(item.wholesale_price || 0),
+          retail_price: Number(item.retail_price || 0),
+          current_stock_bottles: initialStockBottles,
+          min_stock: Number(item.min_stock || 0),
+          status: item.status || 'active',
+          mrp: Number(item.mrp || 0),
+          gst: Number(item.gst || 0)
+        };
+
+        db.products.push(newProduct);
+
+        db.stock_ledger.push({
+          id: `sl_${now}_import_${i}`,
+          product_id: newProduct.id,
+          transaction_type: 'opening',
+          cases_change: openingStock,
+          bottles_change: 0,
+          running_stock_bottles: initialStockBottles,
+          timestamp: new Date().toISOString()
+        });
+
+        results.push(newProduct);
+      }
+    }
+
+    await writeDB(req.tenantId, db);
+    res.status(200).json(results);
+  } catch (err) {
+    console.error('Import products error:', err);
+    res.status(500).json({ error: err.message || 'Bulk import failed' });
   } finally {
     releaseLock();
   }
