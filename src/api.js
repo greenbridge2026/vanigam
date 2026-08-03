@@ -197,6 +197,18 @@ export const api = {
     }
     return res.json();
   },
+  async importShops(routeId, shopsList) {
+    const res = await apiFetch(`${API_BASE}/shops/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ routeId, shops: shopsList })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to import shops');
+    }
+    return res.json();
+  },
 
   // Purchases
   async getPurchases() {

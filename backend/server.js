@@ -604,6 +604,75 @@ app.put('/api/shops/:id', async (req, res) => {
   }
 });
 
+app.post('/api/shops/import', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const { routeId, shops } = req.body;
+    if (!routeId) {
+      return res.status(400).json({ error: 'Route ID is required' });
+    }
+    if (!Array.isArray(shops)) {
+      return res.status(400).json({ error: 'Payload must contain a shops array' });
+    }
+
+    const results = [];
+    const now = Date.now();
+
+    for (let i = 0; i < shops.length; i++) {
+      const item = shops[i];
+      if (!item.name_en && !item.name_ta) continue;
+
+      // Check if shop already exists by name or mobile to avoid duplicates
+      const existing = db.shops.find(
+        s => (item.name_en && s.name_en?.toLowerCase().trim() === item.name_en?.toLowerCase().trim()) ||
+             (item.mobile && s.mobile?.trim() === item.mobile?.trim())
+      );
+
+      if (existing) {
+        if (item.address) existing.address = item.address;
+        if (item.mobile) existing.mobile = item.mobile;
+        existing.route_id = routeId;
+        results.push(existing);
+      } else {
+        const newShop = {
+          id: `s_${now}_import_${i}`,
+          name_en: item.name_en || item.name_ta || '',
+          name_ta: item.name_ta || item.name_en || '',
+          contact_person: item.contact_person || 'Owner',
+          mobile: item.mobile || '',
+          gst_number: item.gst_number || '',
+          address: item.address || '',
+          shop_type: item.shop_type || 'retail',
+          route_id: routeId,
+          status: item.status || 'active',
+          outstanding_amount: Number(item.outstanding_amount || 0)
+        };
+        db.shops.push(newShop);
+        if (newShop.outstanding_amount > 0) {
+          db.outstanding_history.push({
+            id: `oh_${now}_import_${i}`,
+            shop_id: newShop.id,
+            change_amount: newShop.outstanding_amount,
+            balance_amount: newShop.outstanding_amount,
+            description: 'Opening Outstanding (Imported)',
+            date: new Date().toISOString()
+          });
+        }
+        results.push(newShop);
+      }
+    }
+
+    await writeDB(req.tenantId, db);
+    res.status(200).json(results);
+  } catch (err) {
+    console.error('Import shops error:', err);
+    res.status(500).json({ error: err.message || 'Bulk import failed' });
+  } finally {
+    releaseLock();
+  }
+});
+
 // Products CRUD
 app.get('/api/products', async (req, res) => {
   const db = await readDB(req.tenantId);
