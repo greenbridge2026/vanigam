@@ -32,6 +32,26 @@ export default function App() {
   });
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [menuHidden, setMenuHidden] = useState(() => window.innerWidth <= 768);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settings, setSettings] = useState({
+    company_name: "GSK Agency",
+    company_address: "Cooldrinks Shop - Tindivanam",
+    company_gst: "33CWRPK4071L1Z2",
+    upi_mobile: "9345463415"
+  });
+
+  useEffect(() => {
+    async function loadSettings() {
+      if (!session) return;
+      try {
+        const data = await api.getSettings();
+        if (data) setSettings(data);
+      } catch (err) {
+        console.error('Failed to load settings in App:', err);
+      }
+    }
+    loadSettings();
+  }, [session]);
 
   useEffect(() => {
     localStorage.setItem('lang', lang);
@@ -380,6 +400,13 @@ export default function App() {
             </div>
           )}
 
+          {/* Settings Option */}
+          {session?.role === 'admin' && (
+            <button className="language-btn" onClick={() => setShowSettingsModal(true)} title="Settings" style={{ padding: '0.4rem 0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+              ⚙️ {lang === 'ta' ? 'அமைப்புகள்' : 'Settings'}
+            </button>
+          )}
+
           {/* Logout */}
           <button className="logout-btn" onClick={handleLogout}>
             🚪 {t('logout')}
@@ -414,6 +441,101 @@ export default function App() {
           {renderContent()}
         </main>
       </div>
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div className="modal-overlay" style={{ zIndex: 1000 }}>
+          <div className="glass-card modal-card" style={{ maxWidth: '500px', width: '95%', margin: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0 }}>
+                ⚙️ {lang === 'ta' ? 'அமைப்புகள்' : 'Billing & Agency Settings'}
+              </h2>
+              <button 
+                type="button" 
+                onClick={() => setShowSettingsModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+              <div className="form-group">
+                <label style={{ fontWeight: '600', fontSize: '0.85rem' }}>Company Name / நிறுவனத்தின் பெயர்</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  value={settings.company_name} 
+                  onChange={e => setSettings({ ...settings, company_name: e.target.value })} 
+                  placeholder="e.g. GSK Agency"
+                  style={{ width: '100%', marginTop: '0.25rem' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontWeight: '600', fontSize: '0.85rem' }}>Company Address / முகவரி</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  value={settings.company_address} 
+                  onChange={e => setSettings({ ...settings, company_address: e.target.value })} 
+                  placeholder="e.g. Cooldrinks Shop - Tindivanam"
+                  style={{ width: '100%', marginTop: '0.25rem' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontWeight: '600', fontSize: '0.85rem' }}>Company GSTIN / ஜிஎஸ்டி எண்</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  value={settings.company_gst} 
+                  onChange={e => setSettings({ ...settings, company_gst: e.target.value })} 
+                  placeholder="e.g. 33CWRPK4071L1Z2"
+                  style={{ width: '100%', marginTop: '0.25rem' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontWeight: '600', fontSize: '0.85rem' }}>UPI Mobile No / யூபிஐ மொபைல் எண்</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  value={settings.upi_mobile} 
+                  onChange={e => setSettings({ ...settings, upi_mobile: e.target.value })} 
+                  placeholder="e.g. 9345463415"
+                  style={{ width: '100%', marginTop: '0.25rem' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={() => setShowSettingsModal(false)}
+              >
+                {lang === 'ta' ? 'ரத்து செய்' : 'Cancel'}
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary"
+                onClick={async () => {
+                  try {
+                    await api.updateSettings(settings);
+                    alert(lang === 'ta' ? 'அமைப்புகள் வெற்றிகரமாகச் சேமிக்கப்பட்டன!' : 'Settings successfully updated! / அமைப்புகள் புதுப்பிக்கப்பட்டது!');
+                    setShowSettingsModal(false);
+                  } catch (err) {
+                    alert('Failed to save settings: ' + err.message);
+                  }
+                }}
+              >
+                {lang === 'ta' ? 'சேமி' : 'Save Settings'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

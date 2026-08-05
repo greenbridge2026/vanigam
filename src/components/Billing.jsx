@@ -10,6 +10,24 @@ export default function Billing({ orderId, t, lang, onBack }) {
   const [route, setRoute] = useState(null);
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState({
+    company_name: "GSK Agency",
+    company_address: "Cooldrinks Shop - Tindivanam",
+    company_gst: "33CWRPK4071L1Z2",
+    upi_mobile: "9345463415"
+  });
+
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        const data = await api.getSettings();
+        if (data) setSettings(data);
+      } catch (err) {
+        console.error('Failed to load settings in billing', err);
+      }
+    }
+    loadSettings();
+  }, []);
 
   useEffect(() => {
     async function loadInvoiceData() {
@@ -85,7 +103,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
       return `${name} (${item.cases}C, ${item.bottles}B)`;
     }).join(', ');
 
-    const message = `*${t('company_name')}*\n` +
+    const message = `*${settings.company_name}*\n` +
       `Invoice No: ${order.invoice_number}\n` +
       `Date: ${new Date(order.order_date).toLocaleDateString()}\n` +
       `Shop: ${shopName}\n` +
@@ -123,9 +141,9 @@ export default function Billing({ orderId, t, lang, onBack }) {
         {/* Printable Invoice Container */}
         <div className="invoice-card" id="printable-invoice">
           <div className="invoice-header">
-            <h2>{t('company_name')}</h2>
-            <p style={{ fontSize: '9px', color: '#64748b' }}>{t('company_address')}</p>
-            <p style={{ fontSize: '9px', fontWeight: 'bold' }}>{t('company_gst')}</p>
+            <h2>{settings.company_name}</h2>
+            <p style={{ fontSize: '10px', color: '#64748b', margin: '3px 0' }}>{settings.company_address}</p>
+            <p style={{ fontSize: '10px', fontWeight: 'bold', margin: '2px 0' }}>GST: {settings.company_gst}</p>
           </div>
 
           <div className="invoice-meta">
@@ -209,7 +227,8 @@ export default function Billing({ orderId, t, lang, onBack }) {
               <rect x="40" y="40" width="20" height="20" fill="black" />
               <path d="M 35 15 H 65 V 25 H 35 Z M 15 35 H 25 V 65 H 15 Z M 45 75 H 85 V 85 H 45 Z" fill="black" />
             </svg>
-            <p style={{ fontSize: '8px', color: '#64748b' }}>{lang === 'ta' ? 'நேரடி கட்டணத்திற்கு கியூஆர் ஸ்கேன் செய்யவும்' : 'Scan QR to complete direct settlement'}</p>
+            <p style={{ fontSize: '8px', color: '#64748b', margin: '2px 0' }}>{lang === 'ta' ? 'நேரடி கட்டணத்திற்கு கியூஆர் ஸ்கேன் செய்யவும்' : 'Scan QR to complete direct settlement'}</p>
+            <p style={{ fontSize: '9px', fontWeight: 'bold', color: 'var(--text-main)', margin: '4px 0 0 0' }}>UPI Mobile: {settings.upi_mobile}</p>
           </div>
         </div>
 

@@ -271,6 +271,25 @@ export const api = {
   async getDeliveryAuditTrail() {
     return getTableData('delivery_audit_trail', `${API_BASE}/delivery-audit-trail`);
   },
+  async getSettings() {
+    const res = await apiFetch(`${API_BASE}/settings`);
+    if (!res.ok) {
+      throw new Error('Failed to fetch settings');
+    }
+    return res.json();
+  },
+  async updateSettings(settings) {
+    const res = await apiFetch(`${API_BASE}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+    if (!res.ok) {
+      throw new Error('Failed to update settings');
+    }
+    return res.json();
+  },
+
 
 
   // Payments & Collections

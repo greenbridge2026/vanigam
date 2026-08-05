@@ -72,10 +72,21 @@ async function readDB(tenantId) {
       'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
       'bills', 'notifications', 'vehicles', 'vehicle_stock',
       'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
-      'delivery_audit_trail'
+      'delivery_audit_trail', 'settings'
     ];
     for (const key of tableKeys) {
-      if (!dbData[key]) dbData[key] = [];
+      if (key === 'settings') {
+        if (!dbData[key] || Array.isArray(dbData[key]) || Object.keys(dbData[key]).length === 0) {
+          dbData[key] = {
+            company_name: "GSK Agency",
+            company_address: "Cooldrinks Shop - Tindivanam",
+            company_gst: "33CWRPK4071L1Z2",
+            upi_mobile: "9345463415"
+          };
+        }
+      } else {
+        if (!dbData[key]) dbData[key] = [];
+      }
     }
 
     cachedDBs[tenantId] = dbData;
@@ -99,7 +110,7 @@ async function writeDB(tenantId, data) {
       'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
       'bills', 'notifications', 'vehicles', 'vehicle_stock',
       'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
-      'delivery_audit_trail'
+      'delivery_audit_trail', 'settings'
     ];
 
     const batch = firestoreDb.batch();
@@ -197,7 +208,13 @@ async function seedDB(tenantId) {
     vehicle_sales: [],
     vehicle_reconciliations: [],
     recycle_bin: [],
-    delivery_audit_trail: []
+    delivery_audit_trail: [],
+    settings: {
+      company_name: "GSK Agency",
+      company_address: "Cooldrinks Shop - Tindivanam",
+      company_gst: "33CWRPK4071L1Z2",
+      upi_mobile: "9345463415"
+    }
   };
 
   await writeDB(tenantId, db);
@@ -1211,6 +1228,33 @@ app.get('/api/delivery-audit-trail', async (req, res) => {
   const db = await readDB(req.tenantId);
   res.json(db.delivery_audit_trail || []);
 });
+
+// Settings Management
+app.get('/api/settings', async (req, res) => {
+  const db = await readDB(req.tenantId);
+  res.json(db.settings || {
+    company_name: "GSK Agency",
+    company_address: "Cooldrinks Shop - Tindivanam",
+    company_gst: "33CWRPK4071L1Z2",
+    upi_mobile: "9345463415"
+  });
+});
+
+app.put('/api/settings', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    db.settings = {
+      ...(db.settings || {}),
+      ...req.body
+    };
+    await writeDB(req.tenantId, db);
+    res.json(db.settings);
+  } finally {
+    releaseLock();
+  }
+});
+
 
 // Payments & Outstanding Collection
 app.get('/api/payments', async (req, res) => {

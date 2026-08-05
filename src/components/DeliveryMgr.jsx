@@ -232,9 +232,19 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session }) {
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'inline-flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
                           {d.status === 'pending' ? (
-                            <button className="btn btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }} onClick={() => handleSelectDelivery(d)}>
-                              ⚡ Fulfill
-                            </button>
+                            <>
+                              <button 
+                                className="language-btn" 
+                                style={{ padding: '0.4rem 0.6rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} 
+                                onClick={() => onBillSelected(order.id)}
+                                title={lang === 'ta' ? 'பில் பார்க்க' : 'View Bill'}
+                              >
+                                👁️
+                              </button>
+                              <button className="btn btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }} onClick={() => handleSelectDelivery(d)}>
+                                ⚡ Fulfill
+                              </button>
+                            </>
                           ) : (
                             <>
                               <button className="language-btn" onClick={() => onBillSelected(order.id)}>
