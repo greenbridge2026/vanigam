@@ -256,11 +256,11 @@ export const api = {
   async getDeliveries() {
     return getTableData('deliveries', `${API_BASE}/deliveries`);
   },
-  async completeDelivery(id, remarks) {
+  async completeDelivery(id, payload) {
     const res = await apiFetch(`${API_BASE}/deliveries/${id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ remarks })
+      body: JSON.stringify(payload)
     });
     if (!res.ok) {
       const err = await res.json();
@@ -268,6 +268,10 @@ export const api = {
     }
     return res.json();
   },
+  async getDeliveryAuditTrail() {
+    return getTableData('delivery_audit_trail', `${API_BASE}/delivery-audit-trail`);
+  },
+
 
   // Payments & Collections
   async getPayments() {

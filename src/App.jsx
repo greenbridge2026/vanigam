@@ -301,7 +301,7 @@ export default function App() {
       case 'orders':
         return <OrderTaking t={t} lang={lang} onOrderCreated={handleOrderCreated} />;
       case 'deliveries':
-        return <DeliveryMgr t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} />;
+        return <DeliveryMgr t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} session={session} />;
       case 'reports':
         return <Reports t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} session={session} />;
       case 'users':

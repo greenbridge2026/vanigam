@@ -71,7 +71,8 @@ async function readDB(tenantId) {
       'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
       'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
       'bills', 'notifications', 'vehicles', 'vehicle_stock',
-      'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin'
+      'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
+      'delivery_audit_trail'
     ];
     for (const key of tableKeys) {
       if (!dbData[key]) dbData[key] = [];
@@ -97,7 +98,8 @@ async function writeDB(tenantId, data) {
       'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
       'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
       'bills', 'notifications', 'vehicles', 'vehicle_stock',
-      'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin'
+      'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
+      'delivery_audit_trail'
     ];
 
     const batch = firestoreDb.batch();
@@ -194,7 +196,8 @@ async function seedDB(tenantId) {
     vehicle_dispatches: [],
     vehicle_sales: [],
     vehicle_reconciliations: [],
-    recycle_bin: []
+    recycle_bin: [],
+    delivery_audit_trail: []
   };
 
   await writeDB(tenantId, db);
@@ -1093,23 +1096,106 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
     }
     
     const delivery = db.deliveries[deliveryIndex];
-    delivery.status = 'delivered';
-    delivery.delivery_time = new Date().toISOString();
-    delivery.remarks = req.body.remarks || 'Delivered successfully';
+    const status = req.body.status || 'delivered'; // 'delivered' | 'not_delivered' | 'returned'
+    const reason = req.body.reason || '';
+    const remarks = req.body.remarks || '';
 
-    // Update order status to delivered
+    delivery.status = status;
+    delivery.delivery_time = new Date().toISOString();
+    delivery.remarks = remarks || (status === 'delivered' ? 'Delivered successfully' : `${status} due to ${reason}`);
+    delivery.reason = reason;
+
     const order = db.orders.find(o => o.id === delivery.order_id);
     if (order) {
-      order.status = 'delivered';
+      order.status = status;
+      const shop = db.shops.find(s => s.id === order.shop_id);
+
+      if (status === 'delivered') {
+        // Auto-create bill log
+        db.bills.push({
+          id: `bill_${Date.now()}`,
+          order_id: order.id,
+          invoice_number: order.invoice_number,
+          pdf_path: `/invoices/${order.invoice_number}.pdf`,
+          shared_status: 'none',
+          date: new Date().toISOString()
+        });
+      } else if (status === 'not_delivered' || status === 'returned') {
+        // Reverse stock and outstanding for non-deliveries or returns
+        const oItems = db.order_items.filter(oi => oi.order_id === order.id);
+        
+        for (const item of oItems) {
+          const product = db.products.find(p => p.id === item.product_id);
+          if (product) {
+            const qtyToReturn = (item.cases * product.case_qty_rule) + item.bottles;
+            product.current_stock_bottles += qtyToReturn;
+
+            // Log in main stock ledger
+            db.stock_ledger.push({
+              id: `sl_${Date.now()}_ret_${product.id}`,
+              product_id: product.id,
+              transaction_type: 'delivery_return',
+              cases_change: item.cases,
+              bottles_change: item.bottles,
+              running_stock_bottles: product.current_stock_bottles,
+              timestamp: new Date().toISOString(),
+              reason: reason || (status === 'returned' ? 'Returned' : 'Not Delivered'),
+              reference: `Order No ${order.invoice_number}`
+            });
+
+            // Update vehicle stock if vehicle delivery module is enabled
+            const vehicle = db.vehicles?.find(v => v.salesman_id === order.salesman_id || v.salesman_id === order.delivery_man_id);
+            if (vehicle && db.vehicle_stock) {
+              let vStock = db.vehicle_stock.find(s => s.vehicle_id === vehicle.id && s.product_id === product.id);
+              if (vStock) {
+                vStock.current_stock_bottles += qtyToReturn;
+              }
+            }
+          }
+        }
+
+        // Revert outstanding balance for this order
+        if (shop) {
+          shop.outstanding_amount = Math.max(0, Number(shop.outstanding_amount || 0) - order.net_amount);
+          db.outstanding_history.push({
+            id: `oh_${Date.now()}_ret`,
+            shop_id: shop.id,
+            change_amount: -order.net_amount,
+            balance_amount: shop.outstanding_amount,
+            description: `Outstanding reverted for ${status === 'returned' ? 'Returned' : 'Not Delivered'} Order ${order.invoice_number}`,
+            date: new Date().toISOString()
+          });
+        }
+      }
+
+      // Add to delivery audit trail
+      if (!db.delivery_audit_trail) db.delivery_audit_trail = [];
+      const deliveryManObj = db.users.find(u => u.role === 'delivery' || u.id === delivery.delivery_man_id);
+      const routeObj = db.routes.find(r => r.id === order.route_id);
       
-      // Auto-create bill log
-      db.bills.push({
-        id: `bill_${Date.now()}`,
-        order_id: order.id,
-        invoice_number: order.invoice_number,
-        pdf_path: `/invoices/${order.invoice_number}.pdf`,
-        shared_status: 'none',
-        date: new Date().toISOString()
+      // Calculate total returned quantity (bottles)
+      let returnedQty = 0;
+      if (status === 'not_delivered' || status === 'returned') {
+        returnedQty = db.order_items
+          .filter(oi => oi.order_id === order.id)
+          .reduce((sum, item) => {
+            const product = db.products.find(p => p.id === item.product_id);
+            const caseRule = product ? product.case_qty_rule : 24;
+            return sum + (item.cases * caseRule + item.bottles);
+          }, 0);
+      }
+
+      db.delivery_audit_trail.push({
+        id: `dat_${Date.now()}`,
+        order_number: order.invoice_number,
+        route_name: routeObj ? routeObj.name_en : '',
+        shop_name: shop ? shop.name_en : '',
+        delivery_person: deliveryManObj ? deliveryManObj.name : 'Delivery Man',
+        status: status,
+        reason: reason || '',
+        remarks: remarks || '',
+        timestamp: new Date().toISOString(),
+        returned_quantity: returnedQty
       });
     }
 
@@ -1118,6 +1204,12 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
   } finally {
     releaseLock();
   }
+});
+
+// Get delivery audit trail
+app.get('/api/delivery-audit-trail', async (req, res) => {
+  const db = await readDB(req.tenantId);
+  res.json(db.delivery_audit_trail || []);
 });
 
 // Payments & Outstanding Collection

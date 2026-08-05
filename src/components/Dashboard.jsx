@@ -55,6 +55,16 @@ export default function Dashboard({ t, lang }) {
   // Filter pending deliveries for today
   const pendingDeliveries = orders.filter(o => o.status === 'pending');
 
+  // Calculate delivery status counts for today
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayOrders = orders.filter(o => o.order_date.startsWith(todayStr));
+  const deliveredToday = todayOrders.filter(o => o.status === 'delivered').length;
+  const notDeliveredToday = todayOrders.filter(o => o.status === 'not_delivered').length;
+  const returnedToday = todayOrders.filter(o => o.status === 'returned').length;
+  const pendingToday = todayOrders.filter(o => o.status === 'pending').length;
+  const totalToday = todayOrders.length;
+  const fulfillmentPct = totalToday > 0 ? Math.round((deliveredToday / totalToday) * 100) : 0;
+
   return (
     <div>
       <div style={{ marginBottom: '2rem' }}>
@@ -94,6 +104,46 @@ export default function Dashboard({ t, lang }) {
             <p>{lowStockProds.length}</p>
           </div>
           <div className="stat-icon">⚠️</div>
+        </div>
+      </div>
+
+      {/* Today's Fulfillment Section */}
+      <div className="glass-card" style={{ marginBottom: '2rem', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-color)' }}>
+        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>🚚 Today's Delivery Fulfillment / இன்றைய விநியோக நிலை</span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Fulfillment Rate: <strong style={{ color: 'var(--accent-cyan)' }}>{fulfillmentPct}%</strong>
+          </span>
+        </h2>
+
+        {/* Fulfillment Rate Bar */}
+        <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '999px', overflow: 'hidden', marginBottom: '1.5rem' }}>
+          <div style={{
+            width: `${fulfillmentPct}%`,
+            height: '100%',
+            background: 'linear-gradient(90deg, var(--accent-cyan), var(--success))',
+            borderRadius: '999px',
+            transition: 'width 0.5s ease-in-out'
+          }}></div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+          <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'center' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Today's Orders</span>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '0.25rem' }}>{totalToday}</h3>
+          </div>
+          <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--success)' }}>Delivered</span>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '0.25rem', color: 'var(--success)' }}>{deliveredToday}</h3>
+          </div>
+          <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--danger)' }}>Not Delivered</span>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '0.25rem', color: 'var(--danger)' }}>{notDeliveredToday}</h3>
+          </div>
+          <div style={{ padding: '1rem', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--accent-blue)' }}>Returned</span>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '0.25rem', color: 'var(--accent-blue)' }}>{returnedToday}</h3>
+          </div>
         </div>
       </div>
 

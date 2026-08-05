@@ -11,6 +11,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
   const [filterRoute, setFilterRoute] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedShopForBills, setSelectedShopForBills] = useState(null);
+  const [shopModalTab, setShopModalTab] = useState('bills'); // 'bills' | 'history'
   const [loading, setLoading] = useState(true);
   const [parsedShops, setParsedShops] = useState([]);
   const [importing, setImporting] = useState(false);
@@ -28,18 +29,21 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
   const [routeId, setRouteId] = useState('');
   const [status, setStatus] = useState('active');
   const [outstanding, setOutstanding] = useState(0);
+  const [deliveries, setDeliveries] = useState([]);
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [sData, rData, oData] = await Promise.all([
+        const [sData, rData, oData, dData] = await Promise.all([
           api.getShops(),
           api.getRoutes(),
-          api.getOrders()
+          api.getOrders(),
+          api.getDeliveries()
         ]);
         setShops(sData);
         setRoutes(rData);
         setOrders(oData);
+        setDeliveries(dData || []);
       } catch (err) {
         console.error('Failed to load shop/route/order lists', err);
       } finally {
@@ -725,89 +729,214 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
         </div>
       </div>
 
-      {/* Bill History Modal */}
+      {/* Shop History & Bills Modal */}
       {selectedShopForBills && (
         <div className="modal-overlay">
-          <div className="glass-card modal-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
-              <h3 style={{ fontSize: '1.4rem', fontWeight: '700' }}>
-                📄 {lang === 'ta' ? selectedShopForBills.name_ta : selectedShopForBills.name_en} - {lang === 'ta' ? 'விலைப்பட்டியல் வரலாறு' : 'Bill History'} ({orders.filter(o => o.shop_id === selectedShopForBills.id).length})
+          <div className="glass-card modal-card" style={{ display: 'flex', flexDirection: 'column', maxHeight: '80vh', width: '90%', maxWidth: '650px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1.35rem', fontWeight: '700', margin: 0 }}>
+                📋 {lang === 'ta' ? selectedShopForBills.name_ta : selectedShopForBills.name_en} - {lang === 'ta' ? 'கடை வரலாறு' : 'Shop Profile & History'}
               </h3>
               <button 
                 onClick={() => setSelectedShopForBills(null)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer' }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
               >
                 ✕
               </button>
             </div>
 
-            <div style={{ overflowY: 'auto', flex: 1, marginBottom: '1.5rem' }} className="table-container">
-              <table className="custom-table">
-                <thead>
-                  <tr>
-                    <th>{lang === 'ta' ? 'விலைப்பட்டியல் எண்' : 'Invoice No'}</th>
-                    <th>{lang === 'ta' ? 'தேதி' : 'Date'}</th>
-                    <th>{lang === 'ta' ? 'மொத்த தொகை' : 'Net Amount'}</th>
-                    <th>{lang === 'ta' ? 'நிலை' : 'Status'}</th>
-                    <th style={{ textAlign: 'right' }}>{lang === 'ta' ? 'செயல்கள்' : 'Actions'}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.filter(o => o.shop_id === selectedShopForBills.id).map(o => (
-                    <tr key={o.id}>
-                      <td>
-                        <strong>{o.invoice_number}</strong>
-                      </td>
-                      <td>
-                        {new Date(o.order_date).toLocaleDateString(lang === 'ta' ? 'ta-IN' : 'en-US', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        })}
-                      </td>
-                      <td style={{ fontWeight: 'bold' }}>
-                        ₹{o.net_amount}
-                      </td>
-                      <td>
-                        <span style={{
-                          fontSize: '0.75rem',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: o.status === 'delivered' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-                          color: o.status === 'delivered' ? 'var(--success)' : 'var(--warning)',
-                          border: o.status === 'delivered' ? '1px solid var(--success)' : '1px solid var(--warning)'
-                        }}>
-                          {o.status === 'delivered' ? (lang === 'ta' ? 'விநியோகிக்கப்பட்டது' : 'Delivered') : (lang === 'ta' ? 'நிலுவையில் உள்ளது' : 'Pending')}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        {onBillSelected && (
-                          <button 
-                            className="language-btn" 
-                            style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', background: 'rgba(59, 130, 246, 0.05)', padding: '0.2rem 0.5rem', fontSize: '0.8rem' }}
-                            onClick={() => {
-                              setSelectedShopForBills(null);
-                              onBillSelected(o.id);
-                            }}
-                          >
-                            👁️ {lang === 'ta' ? 'பார்வை' : 'View'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {orders.filter(o => o.shop_id === selectedShopForBills.id).length === 0 && (
-                    <tr>
-                      <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                        {lang === 'ta' ? 'இந்த கடைக்கு பில்கள் எதுவும் இல்லை.' : 'No bills found for this shop.'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            {/* Tab Selector */}
+            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-color)', marginBottom: '1.25rem' }}>
+              <button
+                type="button"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: shopModalTab === 'bills' ? '2px solid var(--accent-cyan)' : 'none',
+                  color: shopModalTab === 'bills' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                  padding: '0.5rem 1rem',
+                  cursor: 'pointer',
+                  fontWeight: shopModalTab === 'bills' ? '700' : '400',
+                  fontSize: '0.9rem'
+                }}
+                onClick={() => setShopModalTab('bills')}
+              >
+                📄 {lang === 'ta' ? 'விலைப்பட்டியல்கள்' : 'Invoices & Bills'} ({orders.filter(o => o.shop_id === selectedShopForBills.id).length})
+              </button>
+              <button
+                type="button"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: shopModalTab === 'history' ? '2px solid var(--accent-cyan)' : 'none',
+                  color: shopModalTab === 'history' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                  padding: '0.5rem 1rem',
+                  cursor: 'pointer',
+                  fontWeight: shopModalTab === 'history' ? '700' : '400',
+                  fontSize: '0.9rem'
+                }}
+                onClick={() => setShopModalTab('history')}
+              >
+                🚚 {lang === 'ta' ? 'விநியோக வரலாறு' : 'Delivery Timeline'}
+              </button>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {shopModalTab === 'bills' ? (
+              <div style={{ overflowY: 'auto', flex: 1, marginBottom: '1.5rem' }} className="table-container">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>{lang === 'ta' ? 'விலைப்பட்டியல் எண்' : 'Invoice No'}</th>
+                      <th>{lang === 'ta' ? 'தேதி' : 'Date'}</th>
+                      <th>{lang === 'ta' ? 'மொத்த தொகை' : 'Net Amount'}</th>
+                      <th>{lang === 'ta' ? 'நிலை' : 'Status'}</th>
+                      <th style={{ textAlign: 'right' }}>{lang === 'ta' ? 'செயல்கள்' : 'Actions'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orders.filter(o => o.shop_id === selectedShopForBills.id).map(o => {
+                      let bg = 'rgba(245, 158, 11, 0.1)';
+                      let col = 'var(--warning)';
+                      let lbl = lang === 'ta' ? 'நிலுவையில் உள்ளது' : 'Pending';
+
+                      if (o.status === 'delivered') {
+                        bg = 'rgba(16, 185, 129, 0.1)';
+                        col = 'var(--success)';
+                        lbl = lang === 'ta' ? 'விநியோகிக்கப்பட்டது' : 'Delivered';
+                      } else if (o.status === 'not_delivered') {
+                        bg = 'rgba(239, 68, 68, 0.1)';
+                        col = 'var(--danger)';
+                        lbl = lang === 'ta' ? 'விநியோகிக்கப்படவில்லை' : 'Not Delivered';
+                      } else if (o.status === 'returned') {
+                        bg = 'rgba(59, 130, 246, 0.1)';
+                        col = 'var(--accent-blue)';
+                        lbl = lang === 'ta' ? 'திரும்பப் பெறப்பட்டது' : 'Returned';
+                      }
+
+                      return (
+                        <tr key={o.id}>
+                          <td>
+                            <strong>{o.invoice_number}</strong>
+                          </td>
+                          <td>
+                            {new Date(o.order_date).toLocaleDateString(lang === 'ta' ? 'ta-IN' : 'en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric'
+                            })}
+                          </td>
+                          <td style={{ fontWeight: 'bold' }}>
+                            ₹{o.net_amount}
+                          </td>
+                          <td>
+                            <span style={{
+                              fontSize: '0.75rem',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: bg,
+                              color: col,
+                              border: `1px solid ${col}`
+                            }}>
+                              {lbl}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            {onBillSelected && (
+                              <button 
+                                className="language-btn" 
+                                style={{ borderColor: 'var(--accent-blue)', color: 'var(--accent-blue)', background: 'rgba(59, 130, 246, 0.05)', padding: '0.2rem 0.5rem', fontSize: '0.8rem' }}
+                                onClick={() => {
+                                  setSelectedShopForBills(null);
+                                  onBillSelected(o.id);
+                                }}
+                              >
+                                👁️ {lang === 'ta' ? 'பார்வை' : 'View'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {orders.filter(o => o.shop_id === selectedShopForBills.id).length === 0 && (
+                      <tr>
+                        <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          {lang === 'ta' ? 'இந்த கடைக்கு பில்கள் எதுவும் இல்லை.' : 'No bills found for this shop.'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ overflowY: 'auto', flex: 1, marginBottom: '1.5rem', padding: '0.5rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                  {deliveries
+                    .filter(d => {
+                      const ord = orders.find(o => o.id === d.order_id);
+                      return ord && ord.shop_id === selectedShopForBills.id;
+                    })
+                    .sort((a, b) => new Date(b.delivery_time || 0) - new Date(a.delivery_time || 0))
+                    .map(d => {
+                      const ord = orders.find(o => o.id === d.order_id);
+                      const formattedDate = d.delivery_time 
+                        ? new Date(d.delivery_time).toLocaleDateString(lang === 'ta' ? 'ta-IN' : 'en-US', { day: '2-digit', month: 'short', year: 'numeric' })
+                        : ord 
+                        ? new Date(ord.order_date).toLocaleDateString(lang === 'ta' ? 'ta-IN' : 'en-US', { day: '2-digit', month: 'short', year: 'numeric' })
+                        : '--';
+
+                      let statusText = d.status.toUpperCase();
+                      let statusCol = 'var(--warning)';
+                      if (d.status === 'delivered') {
+                        statusCol = 'var(--success)';
+                        statusText = lang === 'ta' ? 'விநியோகிக்கப்பட்டது' : 'Delivered';
+                      } else if (d.status === 'not_delivered') {
+                        statusCol = 'var(--danger)';
+                        statusText = lang === 'ta' ? `விநியோகிக்கப்படவில்லை (காரணம்: ${d.reason || 'மற்றவை'})` : `Not Delivered (Reason: ${d.reason || 'Other'})`;
+                      } else if (d.status === 'returned') {
+                        statusCol = 'var(--accent-blue)';
+                        statusText = lang === 'ta' ? `திரும்பப் பெறப்பட்டது (காரணம்: ${d.reason || 'மற்றவை'})` : `Returned (Reason: ${d.reason || 'Other'})`;
+                      } else {
+                        statusText = lang === 'ta' ? 'நிலுவையில் உள்ளது' : 'Pending';
+                      }
+
+                      return (
+                        <div key={d.id} style={{
+                          padding: '0.75rem',
+                          background: 'rgba(255,255,255,0.02)',
+                          borderLeft: `4px solid ${statusCol}`,
+                          borderRadius: '4px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.25rem'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                            <span style={{ fontWeight: '700' }}>{formattedDate}</span>
+                            <span style={{ color: 'var(--text-muted)' }}>Invoice: {ord?.invoice_number}</span>
+                          </div>
+                          <div style={{ fontSize: '0.9rem', fontWeight: '500', color: statusCol }}>
+                            {statusText}
+                          </div>
+                          {d.remarks && (
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '0.2rem' }}>
+                              Remarks: "{d.remarks}"
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  {deliveries.filter(d => {
+                    const ord = orders.find(o => o.id === d.order_id);
+                    return ord && ord.shop_id === selectedShopForBills.id;
+                  }).length === 0 && (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                      {lang === 'ta' ? 'விநியோக வரலாறு எதுவும் இல்லை.' : 'No delivery logs available for this shop.'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
               <button className="btn btn-secondary" onClick={() => setSelectedShopForBills(null)}>
                 {lang === 'ta' ? 'மூடுக' : 'Close'}
               </button>

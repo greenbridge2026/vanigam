@@ -83,6 +83,14 @@ export const translations = {
     bulk_delete: "Bulk Delete",
     confirm_bulk_delete_msg: "Are you sure you want to move the selected products to the Recycle Bin? Products with sales or purchase history will be automatically skipped.",
     bulk_deleted_summary: "Successfully deleted {deleted} product(s). {skipped} product(s) skipped due to active history.",
+    delete_order: "Delete Order",
+    delete_order_confirm: "Are you sure you want to delete this order? All inventory stock and outstanding balances will be fully rolled back.",
+    not_delivered: "Not Delivered",
+    returned: "Returned",
+    delivery_return: "Delivery Return",
+    shop_closed: "Shop Closed",
+    payment_issue: "Payment Issue",
+    other: "Other",
 
     // Purchase Module
     supplier: "Supplier Name",
@@ -291,6 +299,14 @@ export const translations = {
     bulk_delete: "மொத்தமாக நீக்கு",
     confirm_bulk_delete_msg: "தேர்ந்தெடுக்கப்பட்ட தயாரிப்புகளை குப்பைத் தொட்டிக்கு நகர்த்த விரும்புகிறீர்களா? விற்பனை அல்லது கொள்முதல் வரலாறு கொண்ட தயாரிப்புகள் தானாகவே தவிர்க்கப்படும்.",
     bulk_deleted_summary: "வெற்றிகரமாக {deleted} தயாரிப்புகள் நீக்கப்பட்டன. செயலில் உள்ள வரலாற்று பதிவுகள் காரணமாக {skipped} தயாரிப்புகள் தவிர்க்கப்பட்டன.",
+    delete_order: "ஆர்டரை நீக்கு",
+    delete_order_confirm: "இந்த ஆர்டரை நீக்க உறுதியாகவா? அனைத்து சரக்குகள் மற்றும் நிலுவைத் தொகைகள் திரும்பப் பெறப்படும்.",
+    not_delivered: "விநியோகிக்கப்படவில்லை",
+    returned: "திரும்பப் பெறப்பட்டது",
+    delivery_return: "விநியோகம் திரும்புதல்",
+    shop_closed: "கடை மூடப்பட்டுள்ளது",
+    payment_issue: "பணம் செலுத்துவதில் சிக்கல்",
+    other: "மற்றவை",
 
     // Purchase Module
     supplier: "விநியோகஸ்தர் பெயர்",
