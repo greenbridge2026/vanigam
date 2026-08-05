@@ -2,12 +2,38 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
 
-export default function DeliveryMgr({ t, lang, onBillSelected, session }) {
+export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPrint }) {
   const [deliveries, setDeliveries] = useState([]);
   const [orders, setOrders] = useState([]);
   const [shops, setShops] = useState([]);
   const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDeliveryIds, setSelectedDeliveryIds] = useState([]);
+
+  const handleToggleSelect = (id) => {
+    setSelectedDeliveryIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedDeliveryIds.length === deliveries.length && deliveries.length > 0) {
+      setSelectedDeliveryIds([]);
+    } else {
+      setSelectedDeliveryIds(deliveries.map(d => d.id));
+    }
+  };
+
+  const handleBulkPrintTrigger = () => {
+    const selectedOrders = selectedDeliveryIds.map(dId => {
+      const del = deliveries.find(d => d.id === dId);
+      return del ? del.order_id : null;
+    }).filter(Boolean);
+    
+    if (selectedOrders.length > 0 && onBulkPrint) {
+      onBulkPrint(selectedOrders);
+    }
+  };
 
   // Delivery marking states
   const [activeDelivery, setActiveDelivery] = useState(null);
@@ -168,11 +194,38 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session }) {
         
         {/* Deliveries list */}
         <div className="glass-card">
-          <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>{t('assigned_orders')}</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{t('assigned_orders')}</h2>
+            {selectedDeliveryIds.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleBulkPrintTrigger}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.4rem 1rem',
+                  fontSize: '0.85rem'
+                }}
+              >
+                🖨️ {lang === 'ta' ? 'தேர்ந்தெடுக்கப்பட்டவற்றை அச்சிடு' : 'Print Selected'} ({selectedDeliveryIds.length})
+              </button>
+            )}
+          </div>
           <div className="table-container">
             <table className="custom-table">
               <thead>
                 <tr>
+                  <th style={{ width: '40px', padding: '0.75rem 0.5rem', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      className="form-checkbox"
+                      checked={deliveries.length > 0 && selectedDeliveryIds.length === deliveries.length}
+                      onChange={handleToggleSelectAll}
+                      style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
+                    />
+                  </th>
                   <th>Invoice No</th>
                   <th>Shop & Route</th>
                   <th>Delivery Person</th>
@@ -208,6 +261,15 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session }) {
 
                   return (
                     <tr key={d.id} style={{ opacity: d.status !== 'pending' ? 0.7 : 1 }}>
+                      <td style={{ textAlign: 'center', padding: '0.75rem 0.5rem' }}>
+                        <input
+                          type="checkbox"
+                          className="form-checkbox"
+                          checked={selectedDeliveryIds.includes(d.id)}
+                          onChange={() => handleToggleSelect(d.id)}
+                          style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
+                        />
+                      </td>
                       <td><strong>{order.invoice_number}</strong></td>
                       <td>
                         <div style={{ fontWeight: '700' }}>{shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'Shop'}</div>

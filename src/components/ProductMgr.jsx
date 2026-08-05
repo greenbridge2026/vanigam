@@ -15,14 +15,14 @@ export default function ProductMgr({ t, lang }) {
   const [brand, setBrand] = useState('');
   const [category, setCategory] = useState('');
   const [size, setSize] = useState('');
-  const [caseQtyRule, setCaseQtyRule] = useState(24);
-  const [purchasePrice, setPurchasePrice] = useState(0);
-  const [wholesalePrice, setWholesalePrice] = useState(0);
-  const [retailPrice, setRetailPrice] = useState(0);
-  const [minStock, setMinStock] = useState(24);
+  const [caseQtyRule, setCaseQtyRule] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState('');
+  const [wholesalePrice, setWholesalePrice] = useState('');
+  const [retailPrice, setRetailPrice] = useState('');
+  const [minStock, setMinStock] = useState(0);
   const [status, setStatus] = useState('active');
-  const [mrp, setMrp] = useState(0);
-  const [gst, setGst] = useState(0);
+  const [mrp, setMrp] = useState('');
+  const [gst, setGst] = useState('');
   const [parsedProducts, setParsedProducts] = useState([]);
   const [importing, setImporting] = useState(false);
 
@@ -108,16 +108,16 @@ export default function ProductMgr({ t, lang }) {
       name_en: finalEn,
       name_ta: finalTa,
       brand,
-      category,
+      category: category || '',
       size,
-      case_qty_rule: Number(caseQtyRule),
-      purchase_price: Number(purchasePrice),
-      wholesale_price: Number(wholesalePrice),
-      retail_price: Number(retailPrice),
-      min_stock: Number(minStock),
+      case_qty_rule: Number(caseQtyRule) || 24,
+      purchase_price: Number(purchasePrice) || 0,
+      wholesale_price: Number(wholesalePrice) || 0,
+      retail_price: Number(retailPrice) || 0,
+      min_stock: Number(minStock) || 0,
       status,
-      mrp: Number(mrp),
-      gst: Number(gst)
+      mrp: Number(mrp) || 0,
+      gst: Number(gst) || 0
     };
 
     try {
@@ -226,14 +226,14 @@ export default function ProductMgr({ t, lang }) {
     setBrand('');
     setCategory('');
     setSize('');
-    setCaseQtyRule(24);
-    setPurchasePrice(0);
-    setWholesalePrice(0);
-    setRetailPrice(0);
-    setMinStock(24);
+    setCaseQtyRule('');
+    setPurchasePrice('');
+    setWholesalePrice('');
+    setRetailPrice('');
+    setMinStock(0);
     setStatus('active');
-    setMrp(0);
-    setGst(0);
+    setMrp('');
+    setGst('');
   };
 
   const handleDownloadTemplate = () => {
@@ -542,10 +542,6 @@ export default function ProductMgr({ t, lang }) {
                 <input type="text" className="form-input" value={brand} onChange={e => setBrand(e.target.value)} required placeholder="e.g. Coca Cola" />
               </div>
               <div className="form-group">
-                <label>{lang === 'ta' ? 'வகை (Category)' : 'Category'}</label>
-                <input type="text" className="form-input" value={category} onChange={e => setCategory(e.target.value)} required placeholder="e.g. Soft Drinks, Juices" />
-              </div>
-              <div className="form-group">
                 <label>{t('size')}</label>
                 <input type="text" className="form-input" value={size} onChange={e => setSize(e.target.value)} required placeholder="e.g. 2.25L, 500ml" />
               </div>
@@ -572,10 +568,6 @@ export default function ProductMgr({ t, lang }) {
               <div className="form-group">
                 <label>{t('gst')}</label>
                 <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} required min="0" max="100" step="any" />
-              </div>
-              <div className="form-group">
-                <label>{t('min_stock')} (Bottles Limit)</label>
-                <input type="number" className="form-input" value={minStock} onChange={e => setMinStock(e.target.value)} required min="0" />
               </div>
               <div className="form-group">
                 <label>{t('status')}</label>
@@ -627,10 +619,6 @@ export default function ProductMgr({ t, lang }) {
                     <input type="text" className="form-input" value={brand} onChange={e => setBrand(e.target.value)} required placeholder="e.g. Coca Cola" />
                   </div>
                   <div className="form-group">
-                    <label>{lang === 'ta' ? 'வகை (Category)' : 'Category'}</label>
-                    <input type="text" className="form-input" value={category} onChange={e => setCategory(e.target.value)} required placeholder="e.g. Soft Drinks, Juices" />
-                  </div>
-                  <div className="form-group">
                     <label>{t('size')}</label>
                     <input type="text" className="form-input" value={size} onChange={e => setSize(e.target.value)} required placeholder="e.g. 2.25L, 500ml" />
                   </div>
@@ -657,10 +645,6 @@ export default function ProductMgr({ t, lang }) {
                   <div className="form-group">
                     <label>{t('gst')}</label>
                     <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} required min="0" max="100" step="any" />
-                  </div>
-                  <div className="form-group">
-                    <label>{t('min_stock')} (Bottles Limit)</label>
-                    <input type="number" className="form-input" value={minStock} onChange={e => setMinStock(e.target.value)} required min="0" />
                   </div>
                   <div className="form-group">
                     <label>{t('status')}</label>
@@ -725,14 +709,14 @@ export default function ProductMgr({ t, lang }) {
                   />
                 </th>
                 <th>Product details</th>
-                <th>Brand / Category / Size</th>
+                <th>Brand / Size</th>
                 <th>Case Qty Rule</th>
                 <th>Purchase (Case)</th>
                 <th>Wholesale (Case)</th>
                 <th>Retail (Case)</th>
                 <th>MRP</th>
                 <th>GST</th>
-                <th>Live Stock</th>
+                <th>Live Stock (Case Count)</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -752,7 +736,7 @@ export default function ProductMgr({ t, lang }) {
                     <div style={{ fontWeight: '700' }}>{lang === 'ta' ? p.name_ta : p.name_en}</div>
                   </td>
                   <td>
-                    <div>{p.brand} {p.category && `(${p.category})`}</div>
+                    <div>{p.brand}</div>
                     <div style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)' }}>{p.size}</div>
                   </td>
                   <td><strong>{p.case_qty_rule}</strong> Bottles</td>

@@ -815,9 +815,13 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Print Overrides */
 @media print {
+  @page {
+    margin: 0 !important;
+  }
   body {
     background: white !important;
     color: black !important;
+    padding: 1cm !important;
   }
   
   .navbar, .sidebar, .btn, .search-wrapper, .reports-tabs, .no-print {
@@ -841,12 +845,13 @@ h1, h2, h3, h4, h5, h6 {
 
   .invoice-card {
     box-shadow: none !important;
-    border: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    width: 5.5in !important;
-    height: 8.5in !important;
+    border: 2px solid #1e293b !important;
+    padding: 15px !important;
+    margin: 0 auto !important;
+    width: 100% !important;
+    max-width: 7.5in !important;
     page-break-after: always;
+    box-sizing: border-box !important;
   }
 }
 

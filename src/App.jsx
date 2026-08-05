@@ -18,6 +18,7 @@ import UserMgr from './components/UserMgr';
 import RecycleBin from './components/RecycleBin';
 import VehicleDirectSales from './components/VehicleDirectSales';
 import SuperAdminDashboard from './components/SuperAdminDashboard';
+import BulkPrintLayout from './components/BulkPrintLayout';
 
 export default function App() {
   const [lang, setLang] = useState(() => {
@@ -31,6 +32,7 @@ export default function App() {
     return localStorage.getItem('activeTab') || 'dashboard';
   });
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [bulkPrintOrderIds, setBulkPrintOrderIds] = useState(null);
   const [menuHidden, setMenuHidden] = useState(() => window.innerWidth <= 768);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settings, setSettings] = useState({
@@ -45,7 +47,10 @@ export default function App() {
       if (!session) return;
       try {
         const data = await api.getSettings();
-        if (data) setSettings(data);
+        if (data) {
+          setSettings(data);
+          if (data.company_name) document.title = data.company_name;
+        }
       } catch (err) {
         console.error('Failed to load settings in App:', err);
       }
@@ -290,6 +295,17 @@ export default function App() {
 
   // Content switching switcher
   const renderContent = () => {
+    if (bulkPrintOrderIds && bulkPrintOrderIds.length > 0) {
+      return (
+        <BulkPrintLayout
+          orderIds={bulkPrintOrderIds}
+          t={t}
+          lang={lang}
+          onBack={() => setBulkPrintOrderIds(null)}
+        />
+      );
+    }
+
     if (activeTab === 'billing' && selectedOrderId) {
       return (
         <Billing
@@ -321,7 +337,7 @@ export default function App() {
       case 'orders':
         return <OrderTaking t={t} lang={lang} onOrderCreated={handleOrderCreated} />;
       case 'deliveries':
-        return <DeliveryMgr t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} session={session} />;
+        return <DeliveryMgr t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} session={session} onBulkPrint={(ids) => setBulkPrintOrderIds(ids)} />;
       case 'reports':
         return <Reports t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} session={session} />;
       case 'users':
@@ -523,6 +539,7 @@ export default function App() {
                 onClick={async () => {
                   try {
                     await api.updateSettings(settings);
+                    if (settings.company_name) document.title = settings.company_name;
                     alert(lang === 'ta' ? 'அமைப்புகள் வெற்றிகரமாகச் சேமிக்கப்பட்டன!' : 'Settings successfully updated! / அமைப்புகள் புதுப்பிக்கப்பட்டது!');
                     setShowSettingsModal(false);
                   } catch (err) {
