@@ -9,6 +9,16 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDeliveryIds, setSelectedDeliveryIds] = useState([]);
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const saved = localStorage.getItem('deliveryStatusFilter');
+    localStorage.removeItem('deliveryStatusFilter');
+    return saved || 'all';
+  });
+  const [routeFilter, setRouteFilter] = useState(() => {
+    const saved = localStorage.getItem('deliveryRouteFilter');
+    localStorage.removeItem('deliveryRouteFilter');
+    return saved || 'all';
+  });
 
   const handleToggleSelect = (id) => {
     setSelectedDeliveryIds(prev =>
@@ -17,16 +27,16 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   };
 
   const handleToggleSelectAll = () => {
-    if (selectedDeliveryIds.length === deliveries.length && deliveries.length > 0) {
+    if (selectedDeliveryIds.length === filteredDeliveries.length && filteredDeliveries.length > 0) {
       setSelectedDeliveryIds([]);
     } else {
-      setSelectedDeliveryIds(deliveries.map(d => d.id));
+      setSelectedDeliveryIds(filteredDeliveries.map(d => d.id));
     }
   };
 
   const handleBulkPrintTrigger = () => {
     const selectedOrders = selectedDeliveryIds.map(dId => {
-      const del = deliveries.find(d => d.id === dId);
+      const del = filteredDeliveries.find(d => d.id === dId);
       return del ? del.order_id : null;
     }).filter(Boolean);
     
@@ -74,6 +84,24 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         console.error('Failed to load logistics datasets', err);
       } finally {
         setLoading(false);
+        // Auto-select order if passed from dashboard
+        const selectId = localStorage.getItem('deliverySelectOrderId');
+        if (selectId) {
+          localStorage.removeItem('deliverySelectOrderId');
+          const matchedDelivery = dData.find(d => d.order_id === selectId);
+          if (matchedDelivery) {
+            const matchedOrder = oData.find(o => o.id === selectId);
+            const matchedShop = matchedOrder ? sData.find(s => s.id === matchedOrder.shop_id) : null;
+            setActiveDelivery({ del: matchedDelivery, order: matchedOrder, shop: matchedShop });
+            setRemarks('');
+            setCollectAmount(matchedOrder ? matchedOrder.net_amount : 0);
+            setPaymentMode('cash');
+            setTxnNumber('');
+            setShowQR(false);
+            setFulfillmentType('delivered');
+            setReason('');
+          }
+        }
       }
     }
     loadData();
@@ -181,6 +209,15 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     return `upi://pay?pa=${encodeURIComponent(pa)}&pn=${encodeURIComponent(pn)}&am=${am}&cu=INR&tn=${encodeURIComponent(tn)}`;
   };
 
+  const filteredDeliveries = deliveries.filter(d => {
+    if (statusFilter !== 'all' && d.status !== statusFilter) return false;
+    if (routeFilter !== 'all') {
+      const order = orders.find(o => o.id === d.order_id);
+      if (!order || order.route_id !== routeFilter) return false;
+    }
+    return true;
+  });
+
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading Delivery Logistics...</div>;
 
   return (
@@ -195,7 +232,35 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         {/* Deliveries list */}
         <div className="glass-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{t('assigned_orders')}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+              <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{t('assigned_orders')}</h2>
+              <select
+                className="form-select"
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                style={{ width: '150px', padding: '0.4rem 0.75rem', fontSize: '0.9rem', margin: 0 }}
+              >
+                <option value="all">{lang === 'ta' ? 'அனைத்து நிலை' : 'All Statuses'}</option>
+                <option value="pending">{lang === 'ta' ? 'நிலுவையில் உள்ளவை' : 'Pending'}</option>
+                <option value="delivered">{lang === 'ta' ? 'விநியோகிக்கப்பட்டவை' : 'Delivered'}</option>
+                <option value="not_delivered">{lang === 'ta' ? 'விநியோகிக்கப்படாதவை' : 'Not Delivered'}</option>
+                <option value="returned">{lang === 'ta' ? 'திரும்பப் பெறப்பட்டவை' : 'Returned'}</option>
+              </select>
+
+              <select
+                className="form-select"
+                value={routeFilter}
+                onChange={e => setRouteFilter(e.target.value)}
+                style={{ width: '180px', padding: '0.4rem 0.75rem', fontSize: '0.9rem', margin: 0 }}
+              >
+                <option value="all">{lang === 'ta' ? 'அனைத்து வழிகள்' : 'All Routes'}</option>
+                {routes.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {lang === 'ta' ? r.name_ta : r.name_en}
+                  </option>
+                ))}
+              </select>
+            </div>
             {selectedDeliveryIds.length > 0 && (
               <button
                 type="button"
@@ -221,7 +286,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                     <input
                       type="checkbox"
                       className="form-checkbox"
-                      checked={deliveries.length > 0 && selectedDeliveryIds.length === deliveries.length}
+                      checked={filteredDeliveries.length > 0 && selectedDeliveryIds.length === filteredDeliveries.length}
                       onChange={handleToggleSelectAll}
                       style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
                     />
@@ -235,7 +300,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                 </tr>
               </thead>
               <tbody>
-                {deliveries.map(d => {
+                {filteredDeliveries.map(d => {
                   const order = orders.find(o => o.id === d.order_id);
                   if (!order) return null;
                   const shop = shops.find(s => s.id === order.shop_id);

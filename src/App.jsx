@@ -323,7 +323,20 @@ export default function App() {
     switch (activeTab) {
       case 'dashboard':
         if (session.role === 'superadmin') return <SuperAdminDashboard t={t} lang={lang} />;
-        return <Dashboard t={t} lang={lang} />;
+        return (
+          <Dashboard
+            t={t}
+            lang={lang}
+            onNavigate={(tab, status = null, routeId = null, selectOrderId = null) => {
+              if (tab === 'deliveries') {
+                if (status) localStorage.setItem('deliveryStatusFilter', status);
+                if (routeId) localStorage.setItem('deliveryRouteFilter', routeId);
+                if (selectOrderId) localStorage.setItem('deliverySelectOrderId', selectOrderId);
+              }
+              setActiveTab(tab);
+            }}
+          />
+        );
       case 'routes':
         return <RouteMgr t={t} lang={lang} />;
       case 'shops':

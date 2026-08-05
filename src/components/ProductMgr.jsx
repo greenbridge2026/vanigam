@@ -25,6 +25,8 @@ export default function ProductMgr({ t, lang }) {
   const [gst, setGst] = useState('');
   const [parsedProducts, setParsedProducts] = useState([]);
   const [importing, setImporting] = useState(false);
+  const [currentStockCases, setCurrentStockCases] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     async function loadProducts() {
@@ -104,20 +106,24 @@ export default function ProductMgr({ t, lang }) {
       }
     }
 
+    const caseRuleNum = Number(caseQtyRule) || 24;
+    const stockCasesNum = Number(currentStockCases) || 0;
+
     const payload = {
       name_en: finalEn,
       name_ta: finalTa,
       brand,
       category: category || '',
       size,
-      case_qty_rule: Number(caseQtyRule) || 24,
+      case_qty_rule: caseRuleNum,
       purchase_price: Number(purchasePrice) || 0,
       wholesale_price: Number(wholesalePrice) || 0,
       retail_price: Number(retailPrice) || 0,
       min_stock: Number(minStock) || 0,
       status,
       mrp: Number(mrp) || 0,
-      gst: Number(gst) || 0
+      gst: Number(gst) || 0,
+      current_stock_bottles: stockCasesNum * caseRuleNum
     };
 
     try {
@@ -125,7 +131,7 @@ export default function ProductMgr({ t, lang }) {
         const updated = await api.updateProduct(editingProduct.id, payload);
         setProducts(products.map(p => p.id === editingProduct.id ? updated : p));
       } else {
-        const added = await api.createProduct({ ...payload, current_stock_bottles: 0 });
+        const added = await api.createProduct(payload);
         setProducts([...products, added]);
       }
       resetForm();
@@ -149,6 +155,7 @@ export default function ProductMgr({ t, lang }) {
     setStatus(prod.status);
     setMrp(prod.mrp || 0);
     setGst(prod.gst || 0);
+    setCurrentStockCases(Math.floor((prod.current_stock_bottles || 0) / (prod.case_qty_rule || 24)));
   };
 
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -163,10 +170,10 @@ export default function ProductMgr({ t, lang }) {
   };
 
   const handleToggleSelectAll = () => {
-    if (selectedProductIds.length === products.length && products.length > 0) {
+    if (selectedProductIds.length === filteredProducts.length && filteredProducts.length > 0) {
       setSelectedProductIds([]);
     } else {
-      setSelectedProductIds(products.map(p => p.id));
+      setSelectedProductIds(filteredProducts.map(p => p.id));
     }
   };
 
@@ -234,6 +241,7 @@ export default function ProductMgr({ t, lang }) {
     setStatus('active');
     setMrp('');
     setGst('');
+    setCurrentStockCases('');
   };
 
   const handleDownloadTemplate = () => {
@@ -397,6 +405,15 @@ export default function ProductMgr({ t, lang }) {
     if (bottles > 0) result += `${result ? ', ' : ''}${bottles} ${lang === 'ta' ? 'பாட்டில்' : 'Bottles'}`;
     return result || (lang === 'ta' ? 'சரக்கு இல்லை' : '0 Bottles');
   };
+
+  const filteredProducts = products.filter(p => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return true;
+    const nameEnMatch = (p.name_en || '').toLowerCase().includes(query);
+    const nameTaMatch = (p.name_ta || '').toLowerCase().includes(query);
+    const brandMatch = (p.brand || '').toLowerCase().includes(query);
+    return nameEnMatch || nameTaMatch || brandMatch;
+  });
 
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading Product Manager...</div>;
 
@@ -570,6 +587,10 @@ export default function ProductMgr({ t, lang }) {
                 <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} required min="0" max="100" step="any" />
               </div>
               <div className="form-group">
+                <label>{lang === 'ta' ? 'சரக்கு இருப்பு (பெட்டிகள்)' : 'Live Stock (Cases)'}</label>
+                <input type="number" className="form-input" value={currentStockCases} onChange={e => setCurrentStockCases(e.target.value)} min="0" placeholder="e.g. 10" />
+              </div>
+              <div className="form-group">
                 <label>{t('status')}</label>
                 <select className="form-select" value={status} onChange={e => setStatus(e.target.value)}>
                   <option value="active">{t('active')}</option>
@@ -647,6 +668,10 @@ export default function ProductMgr({ t, lang }) {
                     <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} required min="0" max="100" step="any" />
                   </div>
                   <div className="form-group">
+                    <label>{lang === 'ta' ? 'சரக்கு இருப்பு (பெட்டிகள்)' : 'Live Stock (Cases)'}</label>
+                    <input type="number" className="form-input" value={currentStockCases} onChange={e => setCurrentStockCases(e.target.value)} min="0" placeholder="e.g. 10" />
+                  </div>
+                  <div className="form-group">
                     <label>{t('status')}</label>
                     <select className="form-select" value={status} onChange={e => setStatus(e.target.value)}>
                       <option value="active">{t('active')}</option>
@@ -671,7 +696,17 @@ export default function ProductMgr({ t, lang }) {
       {/* Product List */}
       <div className="glass-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Inventory Setup</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Inventory Setup</h2>
+            <input
+              type="text"
+              className="form-input"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder={lang === 'ta' ? 'தயாரிப்புகளைத் தேடு...' : '🔍 Search products...'}
+              style={{ width: '220px', padding: '0.4rem 0.75rem', fontSize: '0.9rem', margin: 0 }}
+            />
+          </div>
           {selectedProductIds.length > 0 && (
             <button
               type="button"
@@ -703,7 +738,7 @@ export default function ProductMgr({ t, lang }) {
                   <input
                     type="checkbox"
                     className="form-checkbox"
-                    checked={products.length > 0 && selectedProductIds.length === products.length}
+                    checked={filteredProducts.length > 0 && selectedProductIds.length === filteredProducts.length}
                     onChange={handleToggleSelectAll}
                     style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
                   />
@@ -721,7 +756,7 @@ export default function ProductMgr({ t, lang }) {
               </tr>
             </thead>
             <tbody>
-              {products.map(p => (
+              {filteredProducts.map(p => (
                 <tr key={p.id}>
                   <td style={{ textAlign: 'center', padding: '0.75rem 0.5rem' }}>
                     <input

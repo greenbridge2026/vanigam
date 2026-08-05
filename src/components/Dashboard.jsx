@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 
-export default function Dashboard({ t, lang }) {
+export default function Dashboard({ t, lang, onNavigate }) {
   const [summary, setSummary] = useState(null);
   const [products, setProducts] = useState([]);
   const [routes, setRoutes] = useState([]);
@@ -40,6 +40,7 @@ export default function Dashboard({ t, lang }) {
     const routeOrders = orders.filter(o => o.route_id === r.id);
     const amount = routeOrders.reduce((sum, o) => sum + o.net_amount, 0);
     return {
+      id: r.id,
       name: lang === 'ta' ? r.name_ta : r.name_en,
       count: routeOrders.length,
       amount
@@ -74,7 +75,7 @@ export default function Dashboard({ t, lang }) {
 
       {/* Main Stats Grid */}
       <div className="dashboard-grid">
-        <div className="glass-card stat-card">
+        <div className="glass-card stat-card" onClick={() => onNavigate && onNavigate('deliveries')}>
           <div className="stat-info">
             <h3>{t('todays_orders')}</h3>
             <p>{summary?.todayOrdersCount || 0}</p>
@@ -82,7 +83,7 @@ export default function Dashboard({ t, lang }) {
           <div className="stat-icon">🛒</div>
         </div>
 
-        <div className="glass-card stat-card">
+        <div className="glass-card stat-card" onClick={() => onNavigate && onNavigate('reports')}>
           <div className="stat-info">
             <h3>{t('total_sales')}</h3>
             <p>₹{summary?.todaySales || 0}</p>
@@ -90,7 +91,7 @@ export default function Dashboard({ t, lang }) {
           <div className="stat-icon">💰</div>
         </div>
 
-        <div className="glass-card stat-card">
+        <div className="glass-card stat-card" onClick={() => onNavigate && onNavigate('reports')}>
           <div className="stat-info">
             <h3>{t('outstanding_amount')}</h3>
             <p>₹{summary?.totalOutstanding || 0}</p>
@@ -98,7 +99,7 @@ export default function Dashboard({ t, lang }) {
           <div className="stat-icon" style={{ color: 'var(--warning)' }}>⏳</div>
         </div>
 
-        <div className="glass-card stat-card warning-card">
+        <div className="glass-card stat-card warning-card" onClick={() => onNavigate && onNavigate('products')}>
           <div className="stat-info">
             <h3>{t('low_stock_alert')}</h3>
             <p>{lowStockProds.length}</p>
@@ -128,19 +129,19 @@ export default function Dashboard({ t, lang }) {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-          <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'center' }}>
+          <div className="fulfillment-subcard" onClick={() => onNavigate && onNavigate('deliveries', 'all')} style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px', textAlign: 'center' }}>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Today's Orders</span>
             <h3 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '0.25rem' }}>{totalToday}</h3>
           </div>
-          <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
+          <div className="fulfillment-subcard" onClick={() => onNavigate && onNavigate('deliveries', 'delivered')} style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
             <span style={{ fontSize: '0.85rem', color: 'var(--success)' }}>Delivered</span>
             <h3 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '0.25rem', color: 'var(--success)' }}>{deliveredToday}</h3>
           </div>
-          <div style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
+          <div className="fulfillment-subcard" onClick={() => onNavigate && onNavigate('deliveries', 'not_delivered')} style={{ padding: '1rem', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
             <span style={{ fontSize: '0.85rem', color: 'var(--danger)' }}>Not Delivered</span>
             <h3 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '0.25rem', color: 'var(--danger)' }}>{notDeliveredToday}</h3>
           </div>
-          <div style={{ padding: '1rem', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
+          <div className="fulfillment-subcard" onClick={() => onNavigate && onNavigate('deliveries', 'returned')} style={{ padding: '1rem', background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
             <span style={{ fontSize: '0.85rem', color: 'var(--accent-blue)' }}>Returned</span>
             <h3 style={{ fontSize: '1.5rem', fontWeight: '800', marginTop: '0.25rem', color: 'var(--accent-blue)' }}>{returnedToday}</h3>
           </div>
@@ -190,10 +191,10 @@ export default function Dashboard({ t, lang }) {
             {routeStats.map((rs, idx) => {
               const percentage = (rs.amount / maxRouteAmount) * 100;
               return (
-                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <div key={idx} className="fulfillment-subcard" onClick={() => onNavigate && onNavigate('deliveries', null, rs.id)} style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', padding: '6px', borderRadius: '6px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
-                    <span style={{ fontWeight: '500' }}>{rs.name}</span>
-                    <span style={{ color: 'var(--accent-cyan)', fontWeight: '600' }}>₹{rs.amount} ({rs.count} orders)</span>
+                    <span style={{ fontWeight: '600' }}>{rs.name}</span>
+                    <span style={{ color: 'var(--accent-cyan)', fontWeight: '700' }}>₹{rs.amount} ({rs.count} orders)</span>
                   </div>
                   <div style={{ height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '999px', overflow: 'hidden' }}>
                     <div style={{
@@ -223,7 +224,7 @@ export default function Dashboard({ t, lang }) {
                 const shop = shops.find(s => s.id === o.shop_id);
                 const route = routes.find(r => r.id === o.route_id);
                 return (
-                  <div key={o.id} style={{
+                  <div key={o.id} className="fulfillment-subcard" onClick={() => onNavigate && onNavigate('deliveries', 'pending', null, o.id)} style={{
                     padding: '0.8rem 1rem',
                     background: 'rgba(255,255,255,0.02)',
                     border: '1px solid var(--border-color)',
@@ -233,7 +234,7 @@ export default function Dashboard({ t, lang }) {
                     alignItems: 'center'
                   }}>
                     <div>
-                      <h4 style={{ fontSize: '0.95rem' }}>{shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'Shop Name'}</h4>
+                      <h4 style={{ fontSize: '0.95rem', fontWeight: '700' }}>{shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'Shop Name'}</h4>
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                         Route: {route ? (lang === 'ta' ? route.name_ta : route.name_en) : ''} | Invoice: {o.invoice_number}
                       </p>
@@ -248,7 +249,7 @@ export default function Dashboard({ t, lang }) {
                 );
               })}
               {pendingDeliveries.length > 5 && (
-                <p style={{ color: 'var(--accent-cyan)', fontSize: '0.85rem', textAlign: 'center', cursor: 'pointer', marginTop: '0.5rem' }}>
+                <p onClick={() => onNavigate && onNavigate('deliveries', 'pending')} style={{ color: 'var(--accent-cyan)', fontSize: '0.85rem', textAlign: 'center', cursor: 'pointer', marginTop: '0.5rem', fontWeight: '600' }}>
                   + {pendingDeliveries.length - 5} more pending. Go to Deliveries tab.
                 </p>
               )}
