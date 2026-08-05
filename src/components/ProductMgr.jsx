@@ -153,6 +153,51 @@ export default function ProductMgr({ t, lang }) {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [selectedProductIds, setSelectedProductIds] = useState([]);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+
+  const handleToggleSelect = (id) => {
+    setSelectedProductIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedProductIds.length === products.length && products.length > 0) {
+      setSelectedProductIds([]);
+    } else {
+      setSelectedProductIds(products.map(p => p.id));
+    }
+  };
+
+  const handleBulkDeleteTrigger = () => {
+    setBulkConfirmOpen(true);
+  };
+
+  const executeBulkDelete = async () => {
+    setBulkConfirmOpen(false);
+    if (selectedProductIds.length === 0) return;
+    try {
+      const res = await api.bulkDeleteProducts(selectedProductIds);
+      if (res.success) {
+        const deletedSet = new Set(res.deletedIds);
+        setProducts(products.filter(p => !deletedSet.has(p.id)));
+
+        let msg = t('bulk_deleted_summary')
+          .replace('{deleted}', res.deletedCount)
+          .replace('{skipped}', res.skippedCount);
+
+        if (res.errors && res.errors.length > 0) {
+          msg += '\n\n' + (lang === 'ta' ? 'விவரங்கள்:' : 'Details:') + '\n' + res.errors.join('\n');
+        }
+
+        alert(msg);
+        setSelectedProductIds([]);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to bulk delete products');
+    }
+  };
 
   const handleDeleteTrigger = (id) => {
     setDeleteTargetId(id);
@@ -476,89 +521,209 @@ export default function ProductMgr({ t, lang }) {
         </div>
       </div>
 
-      {/* Form Card */}
-      <div className="glass-card">
-        <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>
-          {editingProduct ? t('edit_product') : t('add_product')}
-        </h2>
-        <form onSubmit={handleSubmit}>
-          <div className="form-grid">
-            <div className="form-group">
-              <label>{t('product_name_en')}</label>
-              <input type="text" className="form-input" value={nameEn} onChange={e => setNameEn(e.target.value)} onFocus={() => setActiveField('en')} placeholder="e.g. Coca Cola 2.25 Litre" />
+      {/* Add Product Form Card */}
+      {!editingProduct && (
+        <div className="glass-card">
+          <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>
+            {t('add_product')}
+          </h2>
+          <form onSubmit={handleSubmit}>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>{t('product_name_en')}</label>
+                <input type="text" className="form-input" value={nameEn} onChange={e => setNameEn(e.target.value)} onFocus={() => setActiveField('en')} placeholder="e.g. Coca Cola 2.25 Litre" />
+              </div>
+              <div className="form-group">
+                <label>{t('product_name_ta')}</label>
+                <input type="text" className="form-input" value={nameTa} onChange={e => setNameTa(e.target.value)} onFocus={() => setActiveField('ta')} placeholder="எ.கா. கோகோ கோலா 2.25 லிட்டர்" />
+              </div>
+              <div className="form-group">
+                <label>{t('brand')}</label>
+                <input type="text" className="form-input" value={brand} onChange={e => setBrand(e.target.value)} required placeholder="e.g. Coca Cola" />
+              </div>
+              <div className="form-group">
+                <label>{lang === 'ta' ? 'வகை (Category)' : 'Category'}</label>
+                <input type="text" className="form-input" value={category} onChange={e => setCategory(e.target.value)} required placeholder="e.g. Soft Drinks, Juices" />
+              </div>
+              <div className="form-group">
+                <label>{t('size')}</label>
+                <input type="text" className="form-input" value={size} onChange={e => setSize(e.target.value)} required placeholder="e.g. 2.25L, 500ml" />
+              </div>
+              <div className="form-group">
+                <label>{t('case_qty')} (Bottles per Case)</label>
+                <input type="number" className="form-input" value={caseQtyRule} onChange={e => setCaseQtyRule(e.target.value)} required min="1" placeholder="9 or 24" />
+              </div>
+              <div className="form-group">
+                <label>{t('purchase_price')} (₹ per Case)</label>
+                <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} required min="0" />
+              </div>
+              <div className="form-group">
+                <label>{t('wholesale_price')} (₹ per Case)</label>
+                <input type="number" className="form-input" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} required min="0" />
+              </div>
+              <div className="form-group">
+                <label>{t('retail_price')} (₹ per Case)</label>
+                <input type="number" className="form-input" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} required min="0" />
+              </div>
+              <div className="form-group">
+                <label>{t('mrp')}</label>
+                <input type="number" className="form-input" value={mrp} onChange={e => setMrp(e.target.value)} required min="0" step="any" />
+              </div>
+              <div className="form-group">
+                <label>{t('gst')}</label>
+                <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} required min="0" max="100" step="any" />
+              </div>
+              <div className="form-group">
+                <label>{t('min_stock')} (Bottles Limit)</label>
+                <input type="number" className="form-input" value={minStock} onChange={e => setMinStock(e.target.value)} required min="0" />
+              </div>
+              <div className="form-group">
+                <label>{t('status')}</label>
+                <select className="form-select" value={status} onChange={e => setStatus(e.target.value)}>
+                  <option value="active">{t('active')}</option>
+                  <option value="inactive">{t('inactive')}</option>
+                </select>
+              </div>
             </div>
-            <div className="form-group">
-              <label>{t('product_name_ta')}</label>
-              <input type="text" className="form-input" value={nameTa} onChange={e => setNameTa(e.target.value)} onFocus={() => setActiveField('ta')} placeholder="எ.கா. கோகோ கோலா 2.25 லிட்டர்" />
-            </div>
-            <div className="form-group">
-              <label>{t('brand')}</label>
-              <input type="text" className="form-input" value={brand} onChange={e => setBrand(e.target.value)} required placeholder="e.g. Coca Cola" />
-            </div>
-            <div className="form-group">
-              <label>{lang === 'ta' ? 'வகை (Category)' : 'Category'}</label>
-              <input type="text" className="form-input" value={category} onChange={e => setCategory(e.target.value)} required placeholder="e.g. Soft Drinks, Juices" />
-            </div>
-            <div className="form-group">
-              <label>{t('size')}</label>
-              <input type="text" className="form-input" value={size} onChange={e => setSize(e.target.value)} required placeholder="e.g. 2.25L, 500ml" />
-            </div>
-            <div className="form-group">
-              <label>{t('case_qty')} (Bottles per Case)</label>
-              <input type="number" className="form-input" value={caseQtyRule} onChange={e => setCaseQtyRule(e.target.value)} required min="1" placeholder="9 or 24" />
-            </div>
-            <div className="form-group">
-              <label>{t('purchase_price')} (₹ per Case)</label>
-              <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} required min="0" />
-            </div>
-            <div className="form-group">
-              <label>{t('wholesale_price')} (₹ per Case)</label>
-              <input type="number" className="form-input" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} required min="0" />
-            </div>
-            <div className="form-group">
-              <label>{t('retail_price')} (₹ per Case)</label>
-              <input type="number" className="form-input" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} required min="0" />
-            </div>
-            <div className="form-group">
-              <label>{t('mrp')}</label>
-              <input type="number" className="form-input" value={mrp} onChange={e => setMrp(e.target.value)} required min="0" step="any" />
-            </div>
-            <div className="form-group">
-              <label>{t('gst')}</label>
-              <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} required min="0" max="100" step="any" />
-            </div>
-            <div className="form-group">
-              <label>{t('min_stock')} (Bottles Limit)</label>
-              <input type="number" className="form-input" value={minStock} onChange={e => setMinStock(e.target.value)} required min="0" />
-            </div>
-            <div className="form-group">
-              <label>{t('status')}</label>
-              <select className="form-select" value={status} onChange={e => setStatus(e.target.value)}>
-                <option value="active">{t('active')}</option>
-                <option value="inactive">{t('inactive')}</option>
-              </select>
-            </div>
-          </div>
-          <div className="btn-group">
-            {editingProduct && (
-              <button type="button" className="btn btn-secondary" onClick={resetForm}>
-                {t('cancel')}
+            <div className="btn-group">
+              <button type="submit" className="btn btn-primary">
+                💾 {t('save')}
               </button>
-            )}
-            <button type="submit" className="btn btn-primary">
-              💾 {t('save')}
-            </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Edit Product Popup Modal */}
+      {editingProduct && (
+        <div className="modal-overlay">
+          <div className="glass-card modal-card" style={{ maxWidth: '750px', width: '95%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h2 style={{ fontSize: '1.35rem', fontWeight: '700', margin: 0 }}>
+                ✏️ {t('edit_product')}: {lang === 'ta' ? editingProduct.name_ta : editingProduct.name_en}
+              </h2>
+              <button 
+                type="button" 
+                onClick={resetForm}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+              <div style={{ overflowY: 'auto', flex: 1, paddingRight: '0.5rem', marginBottom: '1rem' }}>
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label>{t('product_name_en')}</label>
+                    <input type="text" className="form-input" value={nameEn} onChange={e => setNameEn(e.target.value)} onFocus={() => setActiveField('en')} placeholder="e.g. Coca Cola 2.25 Litre" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('product_name_ta')}</label>
+                    <input type="text" className="form-input" value={nameTa} onChange={e => setNameTa(e.target.value)} onFocus={() => setActiveField('ta')} placeholder="எ.கா. கோகோ கோலா 2.25 லிட்டர்" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('brand')}</label>
+                    <input type="text" className="form-input" value={brand} onChange={e => setBrand(e.target.value)} required placeholder="e.g. Coca Cola" />
+                  </div>
+                  <div className="form-group">
+                    <label>{lang === 'ta' ? 'வகை (Category)' : 'Category'}</label>
+                    <input type="text" className="form-input" value={category} onChange={e => setCategory(e.target.value)} required placeholder="e.g. Soft Drinks, Juices" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('size')}</label>
+                    <input type="text" className="form-input" value={size} onChange={e => setSize(e.target.value)} required placeholder="e.g. 2.25L, 500ml" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('case_qty')} (Bottles per Case)</label>
+                    <input type="number" className="form-input" value={caseQtyRule} onChange={e => setCaseQtyRule(e.target.value)} required min="1" placeholder="9 or 24" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('purchase_price')} (₹ per Case)</label>
+                    <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} required min="0" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('wholesale_price')} (₹ per Case)</label>
+                    <input type="number" className="form-input" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} required min="0" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('retail_price')} (₹ per Case)</label>
+                    <input type="number" className="form-input" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} required min="0" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('mrp')}</label>
+                    <input type="number" className="form-input" value={mrp} onChange={e => setMrp(e.target.value)} required min="0" step="any" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('gst')}</label>
+                    <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} required min="0" max="100" step="any" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('min_stock')} (Bottles Limit)</label>
+                    <input type="number" className="form-input" value={minStock} onChange={e => setMinStock(e.target.value)} required min="0" />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('status')}</label>
+                    <select className="form-select" value={status} onChange={e => setStatus(e.target.value)}>
+                      <option value="active">{t('active')}</option>
+                      <option value="inactive">{t('inactive')}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div className="btn-group" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: 'auto' }}>
+                <button type="button" className="btn btn-secondary" onClick={resetForm}>
+                  {t('cancel')}
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  💾 {t('save')}
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
-      </div>
+        </div>
+      )}
 
       {/* Product List */}
       <div className="glass-card">
-        <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>Inventory Setup</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Inventory Setup</h2>
+          {selectedProductIds.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={handleBulkDeleteTrigger}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.5rem 1rem',
+                fontSize: '0.9rem',
+                background: 'var(--danger)',
+                border: 'none',
+                color: '#fff',
+                cursor: 'pointer',
+                borderRadius: 'var(--radius)',
+                transition: 'all 0.2s ease-in-out'
+              }}
+            >
+              🗑️ {t('bulk_delete')} ({selectedProductIds.length})
+            </button>
+          )}
+        </div>
         <div className="table-container">
           <table className="custom-table">
             <thead>
               <tr>
+                <th style={{ width: '40px', padding: '0.75rem 0.5rem', textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    className="form-checkbox"
+                    checked={products.length > 0 && selectedProductIds.length === products.length}
+                    onChange={handleToggleSelectAll}
+                    style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
+                  />
+                </th>
                 <th>Product details</th>
                 <th>Brand / Category / Size</th>
                 <th>Case Qty Rule</th>
@@ -574,6 +739,15 @@ export default function ProductMgr({ t, lang }) {
             <tbody>
               {products.map(p => (
                 <tr key={p.id}>
+                  <td style={{ textAlign: 'center', padding: '0.75rem 0.5rem' }}>
+                    <input
+                      type="checkbox"
+                      className="form-checkbox"
+                      checked={selectedProductIds.includes(p.id)}
+                      onChange={() => handleToggleSelect(p.id)}
+                      style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
+                    />
+                  </td>
                   <td>
                     <div style={{ fontWeight: '700' }}>{lang === 'ta' ? p.name_ta : p.name_en}</div>
                   </td>
@@ -619,6 +793,17 @@ export default function ProductMgr({ t, lang }) {
         onConfirm={executeDelete}
         onCancel={() => setConfirmOpen(false)}
       />
+
+      <ConfirmModal
+        isOpen={bulkConfirmOpen}
+        title={t('confirm_title')}
+        message={t('confirm_bulk_delete_msg')}
+        confirmText={t('confirm_ok')}
+        cancelText={t('confirm_cancel')}
+        onConfirm={executeBulkDelete}
+        onCancel={() => setBulkConfirmOpen(false)}
+      />
+
     </div>
   );
 }

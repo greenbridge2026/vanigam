@@ -327,6 +327,19 @@ export const api = {
     }
     return res.json();
   },
+  async bulkDeleteProducts(ids) {
+    const res = await apiFetch(`${API_BASE}/products/bulk-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to bulk delete products');
+    }
+    return res.json();
+  },
+
   async deletePurchase(id) {
     const res = await apiFetch(`${API_BASE}/purchases/${id}`, {
       method: 'DELETE'

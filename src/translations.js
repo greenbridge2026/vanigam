@@ -80,6 +80,9 @@ export const translations = {
     low_stock: "Low Stock",
     cases: "Cases",
     bottles: "Bottles",
+    bulk_delete: "Bulk Delete",
+    confirm_bulk_delete_msg: "Are you sure you want to move the selected products to the Recycle Bin? Products with sales or purchase history will be automatically skipped.",
+    bulk_deleted_summary: "Successfully deleted {deleted} product(s). {skipped} product(s) skipped due to active history.",
 
     // Purchase Module
     supplier: "Supplier Name",
@@ -285,6 +288,9 @@ export const translations = {
     low_stock: "சரக்கு குறைவு",
     cases: "கேஸ்கள்",
     bottles: "பாட்டில்கள்",
+    bulk_delete: "மொத்தமாக நீக்கு",
+    confirm_bulk_delete_msg: "தேர்ந்தெடுக்கப்பட்ட தயாரிப்புகளை குப்பைத் தொட்டிக்கு நகர்த்த விரும்புகிறீர்களா? விற்பனை அல்லது கொள்முதல் வரலாறு கொண்ட தயாரிப்புகள் தானாகவே தவிர்க்கப்படும்.",
+    bulk_deleted_summary: "வெற்றிகரமாக {deleted} தயாரிப்புகள் நீக்கப்பட்டன. செயலில் உள்ள வரலாற்று பதிவுகள் காரணமாக {skipped} தயாரிப்புகள் தவிர்க்கப்பட்டன.",
 
     // Purchase Module
     supplier: "விநியோகஸ்தர் பெயர்",

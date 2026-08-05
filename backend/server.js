@@ -1311,6 +1311,75 @@ app.delete('/api/products/:id', async (req, res) => {
   }
 });
 
+// 2b. Bulk Delete Products
+app.post('/api/products/bulk-delete', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty product IDs array' });
+    }
+
+    const deletedIds = [];
+    const skippedIds = [];
+    const errors = [];
+
+    if (!db.recycle_bin) db.recycle_bin = [];
+
+    for (const productId of ids) {
+      const product = db.products.find(p => p.id === productId);
+      if (!product) {
+        skippedIds.push(productId);
+        continue;
+      }
+
+      // Check if product has order items or purchases
+      const hasOrders = db.order_items.some(oi => oi.product_id === productId);
+      const hasPurchases = db.purchases.some(p => p.product_id === productId);
+      if (hasOrders || hasPurchases) {
+        skippedIds.push(productId);
+        errors.push(`${product.name_en || product.name_ta} has sales or purchase history.`);
+        continue;
+      }
+
+      db.products = db.products.filter(p => p.id !== productId);
+      const relatedLedger = db.stock_ledger.filter(sl => sl.product_id === productId);
+      db.stock_ledger = db.stock_ledger.filter(sl => sl.product_id !== productId);
+
+      db.recycle_bin.push({
+        id: `rb_${Date.now()}_pd_${productId}`,
+        table: 'products',
+        original_id: productId,
+        data: { product, relatedLedger },
+        deleted_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      });
+
+      deletedIds.push(productId);
+    }
+
+    if (deletedIds.length > 0) {
+      await writeDB(req.tenantId, db);
+    }
+
+    res.json({
+      success: true,
+      deletedCount: deletedIds.length,
+      deletedIds,
+      skippedCount: skippedIds.length,
+      skippedIds,
+      errors
+    });
+  } catch (err) {
+    console.error('Bulk delete products error:', err);
+    res.status(500).json({ error: err.message || 'Bulk deletion failed' });
+  } finally {
+    releaseLock();
+  }
+});
+
+
 // 3. Delete Purchase (Supplier Stock Entry Rollback)
 app.delete('/api/purchases/:id', async (req, res) => {
   await acquireLock();
