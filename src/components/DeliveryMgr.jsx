@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
+import { translateShopName } from '../translations';
 
 export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPrint }) {
   const [deliveries, setDeliveries] = useState([]);
@@ -337,7 +338,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                       </td>
                       <td><strong>{order.invoice_number}</strong></td>
                       <td>
-                        <div style={{ fontWeight: '700' }}>{shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'Shop'}</div>
+                        <div style={{ fontWeight: '700' }}>{translateShopName(shop, lang) || 'Shop'}</div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                           Route: {route ? (lang === 'ta' ? route.name_ta : route.name_en) : ''}
                         </div>
@@ -478,7 +479,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
               <div>
-                <strong style={{ fontSize: '1rem' }}>{lang === 'ta' ? activeDelivery.shop.name_ta : activeDelivery.shop.name_en}</strong>
+                <strong style={{ fontSize: '1rem' }}>{translateShopName(activeDelivery.shop, lang)}</strong>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.2rem 0' }}>Address: {activeDelivery.shop.address}</p>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.2rem 0' }}>Contact No: {activeDelivery.shop.mobile}</p>
               </div>

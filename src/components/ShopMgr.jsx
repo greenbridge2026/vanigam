@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
 import * as XLSX from 'xlsx';
+import { translateShopName } from '../translations';
 
 export default function ShopMgr({ t, lang, onBillSelected }) {
   const [shops, setShops] = useState([]);
@@ -431,7 +432,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
           <div className="glass-card modal-card" style={{ maxWidth: '700px', width: '95%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
               <h2 style={{ fontSize: '1.35rem', fontWeight: '700', margin: 0 }}>
-                ✏️ {t('edit_shop')}: {lang === 'ta' ? editingShop.name_ta : editingShop.name_en}
+                ✏️ {t('edit_shop')}: {translateShopName(editingShop, lang)}
               </h2>
               <button 
                 type="button" 
@@ -655,7 +656,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                 return (
                   <tr key={s.id}>
                     <td>
-                      <div style={{ fontWeight: '700' }}>{lang === 'ta' ? s.name_ta : s.name_en}</div>
+                      <div style={{ fontWeight: '700' }}>{translateShopName(s, lang)}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>GSTIN: {s.gst_number || 'N/A'}</div>
                     </td>
                     <td>

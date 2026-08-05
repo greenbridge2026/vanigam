@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
+import { translateShopName } from '../translations';
 
 export default function VehicleDirectSales({ t, lang, onBillSelected, session }) {
   const [activeSubTab, setActiveSubTab] = useState('sales'); // 'vehicles' | 'dispatch' | 'sales' | 'reconcile' | 'reports'
@@ -101,8 +102,7 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
   };
 
   const getShopName = (shop) => {
-    if (!shop) return '';
-    return lang === 'ta' ? shop.name_ta || shop.name_en : shop.name_en;
+    return translateShopName(shop, lang);
   };
 
   const getProductName = (prod) => {

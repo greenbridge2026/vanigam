@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
+import { translateShopName } from '../translations';
 
 export default function OrderTaking({ t, lang, onOrderCreated }) {
   const [routes, setRoutes] = useState([]);
@@ -194,7 +195,7 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
               value={selectedRoute}
               onChange={e => { setSelectedRoute(e.target.value); setSelectedShop(''); setSelectedProduct(''); setCart({}); }}
             >
-              <option value="">-- Select Route --</option>
+              <option value="">-- {lang === 'ta' ? 'வழித்தடத்தை தேர்வு செய்க' : 'Select Route'} --</option>
               {routes.map(r => (
                 <option key={r.id} value={r.id}>{lang === 'ta' ? r.name_ta : r.name_en}</option>
               ))}
@@ -212,7 +213,7 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
               <option value="">-- {t('select_shop')} --</option>
               {routeShops.map(s => (
                 <option key={s.id} value={s.id}>
-                  {lang === 'ta' ? s.name_ta : s.name_en} ({s.shop_type === 'wholesale' ? t('wholesale') : t('retail')})
+                  {translateShopName(s, lang)} ({s.shop_type === 'wholesale' ? t('wholesale') : t('retail')})
                 </option>
               ))}
             </select>
@@ -225,7 +226,7 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
         <div className="glass-card" style={{ borderColor: 'var(--accent-cyan-glow)', background: 'rgba(6,182,212,0.02)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <h3 style={{ color: 'var(--accent-cyan)' }}>{lang === 'ta' ? shopObj.name_ta : shopObj.name_en}</h3>
+              <h3 style={{ color: 'var(--accent-cyan)' }}>{translateShopName(shopObj, lang)}</h3>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>📍 Address: {shopObj.address} | Contact: {shopObj.contact_person}</p>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -480,7 +481,7 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
         </div>
       ) : (
         <div className="glass-card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-          🔍 Please select route and shop to build order lines.
+          🔍 {lang === 'ta' ? 'ஆர்டர் வரிகளை உருவாக்க வழித்தடம் மற்றும் கடையைத் தேர்வு செய்க.' : 'Please select route and shop to build order lines.'}
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import html2pdf from 'html2pdf.js';
+import { translateShopName } from '../translations';
 
 export default function Billing({ orderId, t, lang, onBack }) {
   const [order, setOrder] = useState(null);
@@ -237,7 +238,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
                 <div style={{ padding: isCompact ? '5px 8px' : '8px 10px', display: 'flex', flexDirection: 'column', gap: isCompact ? '3px' : '5px' }}>
                   <div style={{ display: 'flex' }}>
                     <span style={{ width: '100px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'வாடிக்கையாளர்:' : 'Customer Name:'}</span>
-                    <strong style={{ color: '#1e293b' }}>{shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : ''}</strong>
+                    <strong style={{ color: '#1e293b' }}>{translateShopName(shop, lang)}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
                     <span style={{ width: '100px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'தொடர்பு எண்:' : 'Mobile No:'}</span>
@@ -249,7 +250,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
                   </div>
                   <div style={{ display: 'flex' }}>
                     <span style={{ width: '100px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'முகவரி:' : 'Shop Address:'}</span>
-                    <span style={{ color: '#334155' }}>{shop ? (lang === 'ta' ? shop.address_ta || shop.address_en : shop.address_en) : ''}</span>
+                    <span style={{ color: '#334155' }}>{shop ? shop.address || 'N/A' : 'N/A'}</span>
                   </div>
                 </div>
               </div>

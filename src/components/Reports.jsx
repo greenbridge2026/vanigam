@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
+import { translateShopName } from '../translations';
 
 export default function Reports({ t, lang, onBillSelected, session }) {
   const [activeTab, setActiveTab] = useState('daily_sales');
@@ -180,7 +181,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                     <tr key={o.id}>
                       <td>{new Date(o.order_date).toLocaleDateString()}</td>
                       <td><strong>{o.invoice_number}</strong></td>
-                      <td>{shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'Shop'}</td>
+                      <td>{translateShopName(shop, lang) || 'Shop'}</td>
                       <td>₹{o.discount}</td>
                       <td style={{ color: 'var(--accent-cyan)', fontWeight: '700' }}>₹{o.net_amount}</td>
                       <td>
@@ -572,7 +573,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                             <td><strong>{l.order_number}</strong></td>
                             <td>{new Date(l.date).toLocaleDateString()}</td>
                             <td>{l.route_name}</td>
-                            <td>{l.shop_name}</td>
+                            <td>{translateShopName({ name: l.shop_name }, lang)}</td>
                             <td>👤 {l.delivery_person}</td>
                             <td>
                               <span style={{
@@ -615,7 +616,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                             <td><strong>{l.order_number}</strong></td>
                             <td>{new Date(l.date).toLocaleDateString()}</td>
                             <td>{l.route_name}</td>
-                            <td>{l.shop_name}</td>
+                            <td>{translateShopName({ name: l.shop_name }, lang)}</td>
                             <td>👤 {l.delivery_person}</td>
                             <td>{new Date(l.date).toLocaleTimeString()}</td>
                             <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.products}>
@@ -649,7 +650,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                             <td><strong>{l.order_number}</strong></td>
                             <td>{new Date(l.date).toLocaleDateString()}</td>
                             <td>{l.route_name}</td>
-                            <td>{l.shop_name}</td>
+                            <td>{translateShopName({ name: l.shop_name }, lang)}</td>
                             <td>👤 {l.delivery_person}</td>
                             <td style={{ fontWeight: 'bold', color: 'var(--danger)' }}>{l.reason}</td>
                             <td style={{ fontStyle: 'italic' }}>{l.remarks || '--'}</td>
@@ -681,7 +682,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                             <td><strong>{l.order_number}</strong></td>
                             <td>{new Date(l.date).toLocaleDateString()}</td>
                             <td>{l.route_name}</td>
-                            <td>{l.shop_name}</td>
+                            <td>{translateShopName({ name: l.shop_name }, lang)}</td>
                             <td style={{ fontWeight: 'bold', color: 'var(--accent-blue)' }}>{l.reason}</td>
                             <td>{l.returned_quantity} bottles</td>
                             <td>{new Date(l.date).toLocaleDateString()}</td>
@@ -741,7 +742,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                     return (
                       <tr key={p.id}>
                         <td>{new Date(p.payment_date).toLocaleDateString()}</td>
-                        <td><strong>{shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : ''}</strong></td>
+                        <td><strong>{translateShopName(shop, lang)}</strong></td>
                         <td>{ord?.invoice_number || 'Outstanding Pay'}</td>
                         <td>
                           <span style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--accent-cyan)', fontWeight: '600' }}>
@@ -785,7 +786,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                 <tbody>
                   {filtered.map(s => (
                     <tr key={s.id}>
-                      <td><strong>{lang === 'ta' ? s.name_ta : s.name_en}</strong></td>
+                      <td><strong>{translateShopName(s, lang)}</strong></td>
                       <td>
                         <div>{s.contact_person}</div>
                         <div style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)' }}>📞 {s.mobile}</div>

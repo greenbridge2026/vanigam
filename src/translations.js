@@ -432,3 +432,42 @@ export const translations = {
     reconciliation_success: "சரக்கு வெற்றிகரமாக சமரசம் செய்யப்பட்டு கிடங்கிற்கு மாற்றப்பட்டது!"
   }
 };
+
+export const translateShopName = (shop, lang) => {
+  if (!shop) return '';
+  const nameEn = shop.name_en || shop.name || '';
+  const nameTa = shop.name_ta || '';
+  
+  if (lang === 'ta') {
+    const trimmedEn = nameEn.trim();
+    const dictionary = {
+      "Kohinoor": "கோஹினூர்",
+      "Rafik Maligai": "ரஃபிக் மளிகை",
+      "Tamil Nadu": "தமிழ்நாடு",
+      "Jana": "ஜனா",
+      "Elumalai Tea Stall": "எழுமலை டீ ஸ்டால்",
+      "Rajesh Bakery": "ராஜேஷ் பேக்கரி",
+      "Sai Cool Drinks": "சாய் கூல் ட்ரிங்க்ஸ்",
+      "Ashok Sweets": "அசோக் ஸ்வீட்ஸ்",
+      "Shanmuga Fruit Stall": "சண்முகா புரூட் ஸ்டால்",
+      "R.R.K. Pattu": "ஆர்.ஆர்.கே. பட்டு",
+      "Sri Ram Fruit Stall": "ஸ்ரீ ராம் புரூட் ஸ்டால்",
+      "Vijay Bunk": "விஜய் பங்க்",
+      "Venkateswara Bunk": "வெங்கடேஸ்வரா பங்க்"
+    };
+    if (dictionary[trimmedEn]) {
+      return dictionary[trimmedEn];
+    }
+    if (nameTa && nameTa.trim() !== nameEn.trim()) {
+      return nameTa;
+    }
+    let translated = nameEn;
+    Object.keys(dictionary).forEach(key => {
+      translated = translated.replace(new RegExp(key, 'gi'), dictionary[key]);
+    });
+    if (translated !== nameEn) return translated;
+
+    return nameTa || nameEn;
+  }
+  return nameEn;
+};
