@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
-import { translateShopName } from '../translations';
+import { translateShopName, translateRouteName } from '../translations';
 
 export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPrint }) {
   const [deliveries, setDeliveries] = useState([]);
@@ -20,6 +20,8 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     localStorage.removeItem('deliveryRouteFilter');
     return saved || 'all';
   });
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   const handleToggleSelect = (id) => {
     setSelectedDeliveryIds(prev =>
@@ -51,10 +53,9 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [remarks, setRemarks] = useState('');
   
   // Outstanding Collection states
-  const [collectAmount, setCollectAmount] = useState(0);
-  const [paymentMode, setPaymentMode] = useState('cash');
-  const [txnNumber, setTxnNumber] = useState('');
-  const [showQR, setShowQR] = useState(false);
+  const [cashAmount, setCashAmount] = useState(0);
+  const [gpayAmount, setGpayAmount] = useState(0);
+  const [gpayTxn, setGpayTxn] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // Order Deletion states
@@ -95,10 +96,9 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
             const matchedShop = matchedOrder ? sData.find(s => s.id === matchedOrder.shop_id) : null;
             setActiveDelivery({ del: matchedDelivery, order: matchedOrder, shop: matchedShop });
             setRemarks('');
-            setCollectAmount(matchedOrder ? matchedOrder.net_amount : 0);
-            setPaymentMode('cash');
-            setTxnNumber('');
-            setShowQR(false);
+            setCashAmount(matchedOrder ? matchedOrder.net_amount : 0);
+            setGpayAmount(0);
+            setGpayTxn('');
             setFulfillmentType('delivered');
             setReason('');
           }
@@ -114,10 +114,9 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     
     setActiveDelivery({ del, order, shop });
     setRemarks('');
-    setCollectAmount(order ? order.net_amount : 0); // Default collection is order amount
-    setPaymentMode('cash');
-    setTxnNumber('');
-    setShowQR(false);
+    setCashAmount(order ? order.net_amount : 0);
+    setGpayAmount(0);
+    setGpayTxn('');
     setFulfillmentType('delivered');
     setReason('');
   };
@@ -129,14 +128,34 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       const { del, order, shop } = activeDelivery;
       
       // 1. Process Collection Payment if status is delivered and collected amount is entered
-      if (status === 'delivered' && Number(collectAmount) > 0) {
-        await api.createPayment({
-          shop_id: shop.id,
-          order_id: order.id,
-          collected_amount: Number(collectAmount),
-          payment_mode: paymentMode,
-          transaction_number: txnNumber || `TXN-${Date.now()}`
-        });
+      if (status === 'delivered') {
+        const totalAmt = Number(cashAmount || 0) + Number(gpayAmount || 0);
+        if (totalAmt > 0) {
+          const paymentsToSubmit = [];
+          if (Number(cashAmount) > 0) {
+            paymentsToSubmit.push({
+              shop_id: shop.id,
+              order_id: order.id,
+              collected_amount: Number(cashAmount),
+              payment_mode: 'cash',
+              transaction_number: '',
+              reference_number: '',
+              payment_date: new Date().toISOString()
+            });
+          }
+          if (Number(gpayAmount) > 0) {
+            paymentsToSubmit.push({
+              shop_id: shop.id,
+              order_id: order.id,
+              collected_amount: Number(gpayAmount),
+              payment_mode: 'gpay',
+              transaction_number: gpayTxn || `TXN-${Date.now()}`,
+              reference_number: '',
+              payment_date: new Date().toISOString()
+            });
+          }
+          await api.createPayment({ payments: paymentsToSubmit });
+        }
       }
 
       // 2. Mark Delivery complete on backend
@@ -212,10 +231,21 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
   const filteredDeliveries = deliveries.filter(d => {
     if (statusFilter !== 'all' && d.status !== statusFilter) return false;
-    if (routeFilter !== 'all') {
-      const order = orders.find(o => o.id === d.order_id);
-      if (!order || order.route_id !== routeFilter) return false;
+    
+    const order = orders.find(o => o.id === d.order_id);
+    if (!order) return false;
+
+    if (routeFilter !== 'all' && order.route_id !== routeFilter) return false;
+
+    // Date range filtering
+    if (order.order_date) {
+      const orderDateStr = order.order_date.split('T')[0];
+      if (startDate && orderDateStr < startDate) return false;
+      if (endDate && orderDateStr > endDate) return false;
+    } else {
+      if (startDate || endDate) return false;
     }
+
     return true;
   });
 
@@ -228,7 +258,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         <p style={{ color: 'var(--text-muted)' }}>Fulfill orders, collect outstanding payments, and issue final shop receipts</p>
       </div>
 
-      <div className={`delivery-mgr-grid ${activeDelivery ? 'has-panel' : ''}`}>
+      <div className="delivery-mgr-grid">
         
         {/* Deliveries list */}
         <div className="glass-card">
@@ -261,6 +291,61 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   </option>
                 ))}
               </select>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{lang === 'ta' ? 'முதல்' : 'From'}:</span>
+                <input
+                  type="date"
+                  className="form-select"
+                  value={startDate}
+                  onChange={e => setStartDate(e.target.value)}
+                  style={{ 
+                    padding: '0.4rem 0.5rem', 
+                    fontSize: '0.9rem', 
+                    width: '145px', 
+                    margin: 0,
+                    height: '38px',
+                    lineHeight: '1.2',
+                    background: 'var(--bg-input)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius)'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{lang === 'ta' ? 'வரை' : 'To'}:</span>
+                <input
+                  type="date"
+                  className="form-select"
+                  value={endDate}
+                  onChange={e => setEndDate(e.target.value)}
+                  style={{ 
+                    padding: '0.4rem 0.5rem', 
+                    fontSize: '0.9rem', 
+                    width: '145px', 
+                    margin: 0,
+                    height: '38px',
+                    lineHeight: '1.2',
+                    background: 'var(--bg-input)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius)'
+                  }}
+                />
+              </div>
+
+              {(startDate || endDate) && (
+                <button
+                  type="button"
+                  className="language-btn"
+                  onClick={() => { setStartDate(''); setEndDate(''); }}
+                  style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', margin: 0, height: '38px' }}
+                >
+                  {lang === 'ta' ? 'அழி' : 'Clear'}
+                </button>
+              )}
             </div>
             {selectedDeliveryIds.length > 0 && (
               <button
@@ -293,6 +378,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                     />
                   </th>
                   <th>Invoice No</th>
+                  <th>{t('date')}</th>
                   <th>Shop & Route</th>
                   <th>Delivery Person</th>
                   <th>Amount Due</th>
@@ -325,8 +411,16 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                     statusLabel = t('returned');
                   }
 
+                  const isSelected = activeDelivery && activeDelivery.del.id === d.id;
                   return (
-                    <tr key={d.id} style={{ opacity: d.status !== 'pending' ? 0.7 : 1 }}>
+                    <tr 
+                      key={d.id} 
+                      style={{ 
+                        opacity: d.status !== 'pending' ? 0.7 : 1,
+                        background: isSelected ? 'rgba(6, 182, 212, 0.08)' : 'none',
+                        borderLeft: isSelected ? '4px solid var(--accent-cyan)' : 'none'
+                      }}
+                    >
                       <td style={{ textAlign: 'center', padding: '0.75rem 0.5rem' }}>
                         <input
                           type="checkbox"
@@ -337,10 +431,11 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                         />
                       </td>
                       <td><strong>{order.invoice_number}</strong></td>
+                      <td>{order.order_date ? new Date(order.order_date).toLocaleDateString() : 'N/A'}</td>
                       <td>
                         <div style={{ fontWeight: '700' }}>{translateShopName(shop, lang) || 'Shop'}</div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Route: {route ? (lang === 'ta' ? route.name_ta : route.name_en) : ''}
+                          {lang === 'ta' ? 'வழி' : 'Route'}: {translateRouteName(route, lang)}
                         </div>
                       </td>
                       <td>{t('delivery_man')}</td>
@@ -413,37 +508,57 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
         {/* Complete delivery sidebar details */}
         {activeDelivery && (
-          <div className="glass-card" style={{ border: '1px solid var(--accent-cyan)' }}>
-            <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem', color: 'var(--accent-cyan)' }}>Fulfill Invoice: {activeDelivery.order.invoice_number}</h2>
+          <div className="modal-overlay" style={{ zIndex: 1100 }}>
+            <div className="glass-card modal-card" style={{ border: '1px solid var(--accent-cyan)', maxWidth: '520px', width: '95%', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h2 style={{ fontSize: '1.25rem', color: 'var(--accent-cyan)', margin: 0 }}>
+                Fulfill Invoice: {activeDelivery.order.invoice_number}
+              </h2>
+              <button 
+                type="button" 
+                onClick={() => setActiveDelivery(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
             
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
               <button
                 type="button"
                 className="language-btn"
                 style={{
-                  flex: 1,
-                  padding: '0.4rem',
+                  width: '100%',
+                  padding: '0.6rem 1rem',
                   borderRadius: 'var(--radius)',
                   border: '1px solid var(--accent-cyan)',
                   background: fulfillmentType === 'delivered' ? 'rgba(6, 182, 212, 0.1)' : 'none',
                   color: fulfillmentType === 'delivered' ? 'var(--accent-cyan)' : 'var(--text-muted)',
-                  fontSize: '0.8rem'
+                  fontSize: '0.85rem',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
                 }}
                 onClick={() => setFulfillmentType('delivered')}
               >
-                ✓ {t('delivered')}
+                <span>✓</span> {t('delivered')}
               </button>
               <button
                 type="button"
                 className="language-btn"
                 style={{
-                  flex: 1,
-                  padding: '0.4rem',
+                  width: '100%',
+                  padding: '0.6rem 1rem',
                   borderRadius: 'var(--radius)',
                   border: '1px solid var(--danger)',
                   background: fulfillmentType === 'not_delivered' ? 'rgba(239, 68, 68, 0.1)' : 'none',
                   color: fulfillmentType === 'not_delivered' ? 'var(--danger)' : 'var(--text-muted)',
-                  fontSize: '0.8rem'
+                  fontSize: '0.85rem',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
                 }}
                 onClick={() => {
                   setFulfillmentType('not_delivered');
@@ -452,19 +567,23 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   setNonDeliveryModalOpen(true);
                 }}
               >
-                ✗ {t('not_delivered')}
+                <span>✗</span> {t('not_delivered')}
               </button>
               <button
                 type="button"
                 className="language-btn"
                 style={{
-                  flex: 1,
-                  padding: '0.4rem',
+                  width: '100%',
+                  padding: '0.6rem 1rem',
                   borderRadius: 'var(--radius)',
                   border: '1px solid var(--accent-blue)',
                   background: fulfillmentType === 'returned' ? 'rgba(59, 130, 246, 0.1)' : 'none',
                   color: fulfillmentType === 'returned' ? 'var(--accent-blue)' : 'var(--text-muted)',
-                  fontSize: '0.8rem'
+                  fontSize: '0.85rem',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
                 }}
                 onClick={() => {
                   setFulfillmentType('returned');
@@ -473,7 +592,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   setNonDeliveryModalOpen(true);
                 }}
               >
-                ↺ {t('returned')}
+                <span>↺</span> {t('returned')}
               </button>
             </div>
 
@@ -501,78 +620,68 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
                     <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>💵 {t('payment_collection')}</h3>
                     
-                    <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-                      <label>{t('collected_amount')}</label>
-                      <input
-                        type="number"
-                        className="form-input"
-                        value={collectAmount || ''}
-                        onChange={e => setCollectAmount(Math.max(0, parseInt(e.target.value) || 0))}
-                      />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                        <label style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>💵 {t('cash')} Amount (₹)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          className="form-input"
+                          style={{ width: '100%', boxSizing: 'border-box' }}
+                          value={cashAmount || ''}
+                          onChange={e => setCashAmount(Math.max(0, parseInt(e.target.value.replace(/\D/g, '')) || 0))}
+                          placeholder="Cash"
+                        />
+                      </div>
+                      
+                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
+                        <label style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>📱 {t('gpay')} Amount (₹)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          className="form-input"
+                          style={{ width: '100%', boxSizing: 'border-box' }}
+                          value={gpayAmount || ''}
+                          onChange={e => setGpayAmount(Math.max(0, parseInt(e.target.value.replace(/\D/g, '')) || 0))}
+                          placeholder="GPay"
+                        />
+                      </div>
                     </div>
 
-                    <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-                      <label>{t('payment_mode')}</label>
-                      <select
-                        className="form-select"
-                        value={paymentMode}
-                        onChange={e => {
-                          setPaymentMode(e.target.value);
-                          setShowQR(e.target.value === 'gpay');
-                        }}
-                      >
-                        <option value="cash">{t('cash')}</option>
-                        <option value="gpay">{t('gpay')}</option>
-                        <option value="bank">{t('bank')}</option>
-                      </select>
-                    </div>
-
-                    {paymentMode === 'gpay' && (
-                      <div style={{ margin: '1rem 0' }}>
-                        <button
-                          type="button"
-                          className="language-btn"
-                          style={{ width: '100%', borderStyle: 'dashed' }}
-                          onClick={() => setShowQR(!showQR)}
-                        >
-                          📱 Toggle GPay QR Code
-                        </button>
-                        
-                        {showQR && (
-                          <div className="qr-container">
-                            <span>{t('scan_pay')}</span>
-                            <div className="qr-placeholder">
-                              <svg viewBox="0 0 100 100">
-                                <rect width="100" height="100" fill="white" />
-                                <rect x="10" y="10" width="20" height="20" fill="black" />
-                                <rect x="15" y="15" width="10" height="10" fill="white" />
-                                <rect x="70" y="10" width="20" height="20" fill="black" />
-                                <rect x="75" y="15" width="10" height="10" fill="white" />
-                                <rect x="10" y="70" width="20" height="20" fill="black" />
-                                <rect x="15" y="75" width="10" height="10" fill="white" />
-                                <rect x="40" y="40" width="20" height="20" fill="black" />
-                                <path d="M 35 15 H 65 V 25 H 35 Z M 15 35 H 25 V 65 H 15 Z M 45 75 H 85 V 85 H 45 Z" fill="black" />
-                                <circle cx="50" cy="50" r="4" fill="red" />
-                              </svg>
-                            </div>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                              UPI: <strong>vasantham@okaxis</strong>
-                            </span>
-                          </div>
-                        )}
-
-                        <div className="form-group" style={{ marginTop: '0.75rem' }}>
-                          <label>{t('transaction_id')}</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={txnNumber}
-                            onChange={e => setTxnNumber(e.target.value)}
-                            placeholder="UPI Ref ID"
-                          />
-                        </div>
+                    {gpayAmount > 0 && (
+                      <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                        <label style={{ fontSize: '0.8rem' }}>{t('transaction_id')} (GPay Ref ID)</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={gpayTxn}
+                          onChange={e => setGpayTxn(e.target.value)}
+                          placeholder="UPI Ref ID"
+                        />
                       </div>
                     )}
+
+                    {/* Live calculation for collection */}
+                    <div style={{ marginTop: '0.75rem', padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius)', fontSize: '0.85rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                        <span>Invoice Total:</span>
+                        <strong style={{ color: 'var(--accent-cyan)' }}>₹{activeDelivery.order.net_amount}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                        <span>Total Collected:</span>
+                        <strong style={{ color: 'var(--success)' }}>
+                          ₹{Number(cashAmount || 0) + Number(gpayAmount || 0)}
+                        </strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '0.2rem', marginTop: '0.2rem' }}>
+                        <span>Remaining Balance:</span>
+                        <strong style={{ color: (activeDelivery.order.net_amount - (Number(cashAmount || 0) + Number(gpayAmount || 0))) > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                          ₹{activeDelivery.order.net_amount - (Number(cashAmount || 0) + Number(gpayAmount || 0))}
+                        </strong>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="form-group" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
@@ -622,6 +731,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   </div>
                 </div>
               )}
+            </div>
             </div>
           </div>
         )}

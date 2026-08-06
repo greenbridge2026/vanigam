@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
-import { translateShopName } from '../translations';
+import { translateShopName, translateRouteName } from '../translations';
 
 export default function OrderTaking({ t, lang, onOrderCreated }) {
   const [routes, setRoutes] = useState([]);
@@ -197,7 +197,7 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
             >
               <option value="">-- {lang === 'ta' ? 'வழித்தடத்தை தேர்வு செய்க' : 'Select Route'} --</option>
               {routes.map(r => (
-                <option key={r.id} value={r.id}>{lang === 'ta' ? r.name_ta : r.name_en}</option>
+                <option key={r.id} value={r.id}>{translateRouteName(r, lang)}</option>
               ))}
             </select>
           </div>

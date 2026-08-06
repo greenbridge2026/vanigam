@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
-import { translateShopName } from '../translations';
+import { translateShopName, translateRouteName } from '../translations';
 
 export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
   const [orders, setOrders] = useState([]);
@@ -167,7 +167,7 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
                   </div>
                   <div style={{ display: 'flex' }}>
                     <span style={{ width: '90px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'வழித்தடம்:' : 'Route:'}</span>
-                    <span>{route ? (lang === 'ta' ? route.name_ta : route.name_en) : ''}</span>
+                    <span>{translateRouteName(route, lang)}</span>
                   </div>
                   <div style={{ display: 'flex' }}>
                     <span style={{ width: '90px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'விற்பனையாளர்:' : 'Salesman:'}</span>

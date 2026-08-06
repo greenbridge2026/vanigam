@@ -1266,7 +1266,61 @@ app.post('/api/payments', async (req, res) => {
   await acquireLock();
   try {
     const db = await readDB(req.tenantId);
-    const { shop_id, order_id, collected_amount, payment_mode, transaction_number } = req.body;
+    
+    // Check if batch payments array is provided
+    if (req.body.payments && Array.isArray(req.body.payments)) {
+      const paymentDataList = req.body.payments;
+      if (paymentDataList.length === 0) {
+        return res.status(400).json({ error: 'No payments provided in batch' });
+      }
+      
+      const firstPay = paymentDataList[0];
+      const shop = db.shops.find(s => s.id === firstPay.shop_id);
+      if (!shop) {
+        return res.status(404).json({ error: 'Shop not found' });
+      }
+
+      let totalBatchAmount = 0;
+      const savedPayments = [];
+      const now = Date.now();
+
+      paymentDataList.forEach((pay, index) => {
+        const colAmt = Number(pay.collected_amount || 0);
+        totalBatchAmount += colAmt;
+
+        const newPayment = {
+          id: `pay_${now}_${index}`,
+          shop_id: pay.shop_id,
+          order_id: pay.order_id || '',
+          collected_amount: colAmt,
+          payment_mode: pay.payment_mode,
+          transaction_number: pay.transaction_number || `TXN-${now}-${index}`,
+          reference_number: pay.reference_number || '',
+          payment_date: pay.payment_date || new Date().toISOString()
+        };
+
+        db.payments.push(newPayment);
+        savedPayments.push(newPayment);
+      });
+
+      shop.outstanding_amount -= totalBatchAmount;
+
+      // Log in outstanding history
+      db.outstanding_history.push({
+        id: `oh_${now}`,
+        shop_id: firstPay.shop_id,
+        change_amount: -totalBatchAmount,
+        balance_amount: shop.outstanding_amount,
+        description: `Payments received: ${paymentDataList.map(p => `${p.payment_mode.toUpperCase()}(₹${p.collected_amount})`).join(', ')}`,
+        date: new Date().toISOString()
+      });
+
+      await writeDB(req.tenantId, db);
+      return res.status(201).json({ payments: savedPayments, outstanding_amount: shop.outstanding_amount });
+    }
+
+    // Default: Single payment
+    const { shop_id, order_id, collected_amount, payment_mode, transaction_number, reference_number, payment_date } = req.body;
     
     const shop = db.shops.find(s => s.id === shop_id);
     if (!shop) {
@@ -1283,7 +1337,8 @@ app.post('/api/payments', async (req, res) => {
       collected_amount: colAmt,
       payment_mode,
       transaction_number: transaction_number || `TXN-${Date.now()}`,
-      payment_date: new Date().toISOString()
+      reference_number: reference_number || '',
+      payment_date: payment_date || new Date().toISOString()
     };
     
     db.payments.push(newPayment);

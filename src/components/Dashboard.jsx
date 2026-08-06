@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
+import { translateShopName, translateRouteName } from '../translations';
 
 export default function Dashboard({ t, lang, onNavigate }) {
   const [summary, setSummary] = useState(null);
@@ -234,9 +235,9 @@ export default function Dashboard({ t, lang, onNavigate }) {
                     alignItems: 'center'
                   }}>
                     <div>
-                      <h4 style={{ fontSize: '0.95rem', fontWeight: '700' }}>{shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'Shop Name'}</h4>
+                      <h4 style={{ fontSize: '0.95rem', fontWeight: '700' }}>{translateShopName(shop, lang) || 'Shop Name'}</h4>
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        Route: {route ? (lang === 'ta' ? route.name_ta : route.name_en) : ''} | Invoice: {o.invoice_number}
+                        {lang === 'ta' ? 'வழி' : 'Route'}: {translateRouteName(route, lang)} | Invoice: {o.invoice_number}
                       </p>
                     </div>
                     <div style={{ textAlign: 'right' }}>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
 import { translateShopName } from '../translations';
+import * as XLSX from 'xlsx';
 
 export default function Reports({ t, lang, onBillSelected, session }) {
   const [activeTab, setActiveTab] = useState('daily_sales');
@@ -16,6 +17,131 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   const [deliveryAuditTrail, setDeliveryAuditTrail] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // Expandable shop outstanding details
+  const [expandedShopId, setExpandedShopId] = useState(null);
+
+  // Customer Ledger states
+  const [ledgerShopId, setLedgerShopId] = useState('');
+  const [ledgerTransactions, setLedgerTransactions] = useState([]);
+
+  // Daily Collection states
+  const [collectionDate, setCollectionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dailyCollections, setDailyCollections] = useState([]);
+
+  // Calculate Customer Ledger transactions
+  useEffect(() => {
+    if (!ledgerShopId) {
+      setLedgerTransactions([]);
+      return;
+    }
+    
+    // Find all invoices (debits) and payments (credits) for this shop
+    const shopOrders = orders.filter(o => o.shop_id === ledgerShopId && o.status === 'delivered');
+    const shopPayments = payments.filter(p => p.shop_id === ledgerShopId);
+
+    // Merge them and sort by date
+    const txns = [];
+    
+    shopOrders.forEach(o => {
+      txns.push({
+        id: `ord_${o.id}`,
+        date: o.order_date,
+        type: 'invoice',
+        reference: o.invoice_number,
+        debit: o.net_amount,
+        credit: 0,
+        details: `Invoice created. Net: ₹${o.net_amount} (Discount: ₹${o.discount})`
+      });
+    });
+
+    shopPayments.forEach(p => {
+      const ord = orders.find(o => o.id === p.order_id);
+      txns.push({
+        id: `pay_${p.id}`,
+        date: p.payment_date,
+        type: 'payment',
+        reference: ord ? ord.invoice_number : 'General Collection',
+        debit: 0,
+        credit: p.collected_amount,
+        details: `Paid via ${p.payment_mode.toUpperCase()}. ${p.transaction_number ? `Txn No: ${p.transaction_number}` : ''} ${p.reference_number ? `Ref No: ${p.reference_number}` : ''}`
+      });
+    });
+
+    // Sort chronologically ascending to maintain a running balance!
+    txns.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Calculate running balance
+    let currentBalance = 0;
+    const ledger = txns.map(t => {
+      if (t.type === 'invoice') {
+        currentBalance += t.debit;
+      } else {
+        currentBalance -= t.credit;
+      }
+      return {
+        ...t,
+        balance: currentBalance
+      };
+    });
+
+    // Sort descending for display (most recent at the top)
+    ledger.reverse();
+
+    setLedgerTransactions(ledger);
+  }, [ledgerShopId, orders, payments]);
+
+  // Calculate Daily Collection rows
+  useEffect(() => {
+    if (!collectionDate) {
+      setDailyCollections([]);
+      return;
+    }
+
+    // Filter payments on selected day (ignoring time)
+    const targetDateStr = collectionDate; // YYYY-MM-DD
+    const dayPayments = payments.filter(p => p.payment_date.startsWith(targetDateStr));
+
+    const grouped = {};
+    dayPayments.forEach(p => {
+      const groupKey = p.order_id ? `${p.shop_id}_${p.order_id}` : `general_${p.id}`;
+      
+      if (!grouped[groupKey]) {
+        const shop = shops.find(s => s.id === p.shop_id);
+        const ord = orders.find(o => o.id === p.order_id);
+        grouped[groupKey] = {
+          date: p.payment_date,
+          shop_name: shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'N/A',
+          invoice_number: ord ? ord.invoice_number : 'General Collection',
+          cash: 0,
+          gpay: 0,
+          bank: 0,
+          upi: 0,
+          cheque: 0,
+          total: 0
+        };
+      }
+
+      const mode = p.payment_mode.toLowerCase();
+      if (mode === 'cash') grouped[groupKey].cash += p.collected_amount;
+      else if (mode === 'gpay') grouped[groupKey].gpay += p.collected_amount;
+      else if (mode === 'bank' || mode === 'bank transfer' || mode === 'bank_transfer') grouped[groupKey].bank += p.collected_amount;
+      else if (mode === 'upi') grouped[groupKey].upi += p.collected_amount;
+      else if (mode === 'cheque') grouped[groupKey].cheque += p.collected_amount;
+      
+      grouped[groupKey].total += p.collected_amount;
+    });
+
+    setDailyCollections(Object.values(grouped));
+  }, [collectionDate, payments, shops, orders, lang]);
+
+  // Daily Collection Totals
+  const cashSum = dailyCollections.reduce((sum, c) => sum + c.cash, 0);
+  const gpaySum = dailyCollections.reduce((sum, c) => sum + c.gpay, 0);
+  const bankSum = dailyCollections.reduce((sum, c) => sum + c.bank, 0);
+  const upiSum = dailyCollections.reduce((sum, c) => sum + c.upi, 0);
+  const chequeSum = dailyCollections.reduce((sum, c) => sum + c.cheque, 0);
+  const grandSum = dailyCollections.reduce((sum, c) => sum + c.total, 0);
 
   // Delivery Status Report Filters
   const [delFilterDateFrom, setDelFilterDateFrom] = useState('');
@@ -711,19 +837,61 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         );
       }
 
-      // 5. Collection Report
       case 'collection_report': {
         const filtered = payments.filter(p => matchesSearch(p, 'payment'));
         const totalCollect = filtered.reduce((sum, p) => sum + p.collected_amount, 0);
 
+        const handleExportExcel = () => {
+          const exportData = filtered.map(p => {
+            const shop = shops.find(s => s.id === p.shop_id);
+            const ord = orders.find(o => o.id === p.order_id);
+            return {
+              'Date': new Date(p.payment_date).toLocaleDateString(),
+              'Shop Name': shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'N/A',
+              'Reference Invoice': ord?.invoice_number || 'Outstanding Pay',
+              'Payment Mode': p.payment_mode.toUpperCase(),
+              'Transaction ID': p.transaction_number || '',
+              'Reference No': p.reference_number || '',
+              'Collected Value (₹)': p.collected_amount
+            };
+          });
+
+          const ws = XLSX.utils.json_to_sheet(exportData);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Collection Report');
+          XLSX.writeFile(wb, `Collection_Report_${Date.now()}.xlsx`);
+        };
+
+        const handleExportPDF = () => {
+          const element = document.getElementById('printable-collection-report');
+          const opt = {
+            margin:       0.5,
+            filename:     `Collection_Report_${Date.now()}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+          };
+          import('html2pdf.js').then((html2pdfModule) => {
+            const html2pdf = html2pdfModule.default || html2pdfModule;
+            html2pdf().set(opt).from(element).save();
+          });
+        };
+
         return (
           <div>
-            <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', marginBottom: '1rem' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Total Amount Collected:</span>
-              <h3 style={{ fontSize: '1.75rem', color: 'var(--success)', fontWeight: '800' }}>₹{totalCollect}</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }} className="no-print">
+              <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', flex: 1, marginRight: '1rem' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Total Amount Collected:</span>
+                <h3 style={{ fontSize: '1.5rem', color: 'var(--success)', fontWeight: '800', margin: 0 }}>₹{totalCollect}</h3>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
+                <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+              </div>
             </div>
 
-            <div className="table-container">
+            <div className="table-container" id="printable-collection-report">
+              <h2 className="print-only" style={{ marginBottom: '1rem', color: '#000' }}>Collection Report - {new Date().toLocaleDateString()}</h2>
               <table className="custom-table">
                 <thead>
                   <tr>
@@ -731,7 +899,8 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                     <th>Shop</th>
                     <th>Reference Invoice</th>
                     <th>Payment Mode</th>
-                    <th>Txn / Ref No</th>
+                    <th>Txn ID</th>
+                    <th>Reference No</th>
                     <th>Collected Value</th>
                   </tr>
                 </thead>
@@ -745,11 +914,12 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                         <td><strong>{translateShopName(shop, lang)}</strong></td>
                         <td>{ord?.invoice_number || 'Outstanding Pay'}</td>
                         <td>
-                          <span style={{ fontSize: '0.85rem', textTransform: 'uppercase', color: 'var(--accent-cyan)', fontWeight: '600' }}>
+                          <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--accent-cyan)', fontWeight: '600', border: '1px solid var(--accent-cyan)', padding: '2px 6px', borderRadius: '4px' }}>
                             {p.payment_mode}
                           </span>
                         </td>
                         <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{p.transaction_number}</td>
+                        <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{p.reference_number || 'N/A'}</td>
                         <td style={{ color: 'var(--success)', fontWeight: '700' }}>₹{p.collected_amount}</td>
                       </tr>
                     );
@@ -761,19 +931,81 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         );
       }
 
-      // 6. Outstanding Report
       case 'outstanding_report': {
         const filtered = shops.filter(s => s.outstanding_amount > 0 && matchesSearch(s, 'shop'));
         const sumOutstanding = filtered.reduce((sum, s) => sum + s.outstanding_amount, 0);
 
+        const handleExportExcel = () => {
+          const exportData = [];
+          filtered.forEach(s => {
+            exportData.push({
+              'Shop Name': lang === 'ta' ? s.name_ta : s.name_en,
+              'Contact Person': s.contact_person || '',
+              'Mobile': s.mobile || '',
+              'Shop Type': s.shop_type.toUpperCase(),
+              'Total Outstanding (₹)': s.outstanding_amount
+            });
+
+            // Find all unpaid invoices for this shop
+            const shopInvoices = orders
+              .filter(o => o.shop_id === s.id && (o.status === 'delivered' || o.status === 'pending'))
+              .map(order => {
+                const orderPayments = payments.filter(p => p.order_id === order.id);
+                const totalCollected = orderPayments.reduce((sum, p) => sum + p.collected_amount, 0);
+                const remaining = order.net_amount - totalCollected;
+                return { ...order, total_collected: totalCollected, remaining_outstanding: remaining, paymentsList: orderPayments };
+              })
+              .filter(o => o.remaining_outstanding > 0);
+
+            if (shopInvoices.length > 0) {
+              shopInvoices.forEach(inv => {
+                exportData.push({
+                  'Shop Name': `  -> Invoice: ${inv.invoice_number} (${new Date(inv.order_date).toLocaleDateString()})`,
+                  'Contact Person': `Total Amount: ₹${inv.net_amount}`,
+                  'Mobile': `Collected: ₹${inv.total_collected}`,
+                  'Shop Type': `Breakdown: ${inv.paymentsList.map(p => `${p.payment_mode.toUpperCase()}(₹${p.collected_amount})`).join(', ')}`,
+                  'Total Outstanding (₹)': inv.remaining_outstanding
+                });
+              });
+            }
+          });
+
+          const ws = XLSX.utils.json_to_sheet(exportData);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Outstanding Report');
+          XLSX.writeFile(wb, `Outstanding_Report_${Date.now()}.xlsx`);
+        };
+
+        const handleExportPDF = () => {
+          const element = document.getElementById('printable-outstanding-report');
+          const opt = {
+            margin:       0.5,
+            filename:     `Outstanding_Report_${Date.now()}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+          };
+          import('html2pdf.js').then((html2pdfModule) => {
+            const html2pdf = html2pdfModule.default || html2pdfModule;
+            html2pdf().set(opt).from(element).save();
+          });
+        };
+
         return (
           <div>
-            <div style={{ padding: '1rem', background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', marginBottom: '1rem' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Cumulative Outstandings:</span>
-              <h3 style={{ fontSize: '1.75rem', color: 'var(--warning)', fontWeight: '800' }}>₹{sumOutstanding}</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }} className="no-print">
+              <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', flex: 1, marginRight: '1rem' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Cumulative Outstandings:</span>
+                <h3 style={{ fontSize: '1.5rem', color: 'var(--warning)', fontWeight: '800', margin: 0 }}>₹{sumOutstanding}</h3>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
+                <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+              </div>
             </div>
 
-            <div className="table-container">
+            <div className="table-container" id="printable-outstanding-report">
+              <h2 className="print-only" style={{ marginBottom: '1rem', color: '#000' }}>Outstanding Balance Report - {new Date().toLocaleDateString()}</h2>
               <table className="custom-table">
                 <thead>
                   <tr>
@@ -781,22 +1013,85 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                     <th>Contact Info</th>
                     <th>Shop Type</th>
                     <th>Unpaid Balance</th>
+                    <th className="no-print">Breakdown</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(s => (
-                    <tr key={s.id}>
-                      <td><strong>{translateShopName(s, lang)}</strong></td>
-                      <td>
-                        <div>{s.contact_person}</div>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)' }}>📞 {s.mobile}</div>
-                      </td>
-                      <td>
-                        <span style={{ textTransform: 'uppercase', fontSize: '0.75rem' }}>{s.shop_type}</span>
-                      </td>
-                      <td style={{ color: 'var(--danger)', fontWeight: '700' }}>₹{s.outstanding_amount}</td>
-                    </tr>
-                  ))}
+                  {filtered.map(s => {
+                    const isExpanded = expandedShopId === s.id;
+                    const shopInvoices = orders
+                      .filter(o => o.shop_id === s.id && (o.status === 'delivered' || o.status === 'pending'))
+                      .map(order => {
+                        const orderPayments = payments.filter(p => p.order_id === order.id);
+                        const totalCollected = orderPayments.reduce((sum, p) => sum + p.collected_amount, 0);
+                        const remaining = order.net_amount - totalCollected;
+                        return { ...order, total_collected: totalCollected, remaining_outstanding: remaining, paymentsList: orderPayments };
+                      })
+                      .filter(o => o.remaining_outstanding > 0);
+
+                    return (
+                      <React.Fragment key={s.id}>
+                        <tr>
+                          <td><strong>{translateShopName(s, lang)}</strong></td>
+                          <td>
+                            <div>{s.contact_person}</div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)' }}>📞 {s.mobile}</div>
+                          </td>
+                          <td>
+                            <span style={{ textTransform: 'uppercase', fontSize: '0.75rem', border: '1px solid var(--border-color)', padding: '2px 6px', borderRadius: '4px' }}>{s.shop_type}</span>
+                          </td>
+                          <td style={{ color: 'var(--danger)', fontWeight: '700' }}>₹{s.outstanding_amount}</td>
+                          <td className="no-print">
+                            {shopInvoices.length > 0 ? (
+                              <button
+                                type="button"
+                                className="language-btn"
+                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                onClick={() => setExpandedShopId(isExpanded ? null : s.id)}
+                              >
+                                {isExpanded ? '▲ Hide Details' : `▼ View Invoices (${shopInvoices.length})`}
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>General Balance Only</span>
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && shopInvoices.length > 0 && (
+                          <tr>
+                            <td colSpan="5" style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.01)' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '3px solid var(--accent-cyan)', paddingLeft: '0.75rem', margin: '0.25rem 0' }}>
+                                <strong style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>UNPAID INVOICE BREAKDOWN:</strong>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.75rem' }}>
+                                  {shopInvoices.map(inv => (
+                                    <div key={inv.id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', padding: '0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                                        <span>Invoice: {inv.invoice_number}</span>
+                                        <span style={{ color: 'var(--danger)' }}>₹{inv.remaining_outstanding} Due</span>
+                                      </div>
+                                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.1rem 0' }}>
+                                        Date: {new Date(inv.order_date).toLocaleDateString()} | Total: ₹{inv.net_amount}
+                                      </div>
+                                      {inv.paymentsList.length > 0 && (
+                                        <div style={{ marginTop: '0.25rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.25rem' }}>
+                                          <span style={{ fontSize: '0.7rem', fontWeight: 'bold', display: 'block', color: 'var(--success)' }}>Payments Breakdown:</span>
+                                          {inv.paymentsList.map(p => (
+                                            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem' }}>
+                                              <span>{p.payment_mode.toUpperCase()} {p.transaction_number ? `(${p.transaction_number})` : ''}</span>
+                                              <span>₹{p.collected_amount}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -970,6 +1265,294 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         );
       }
 
+      // 10. Customer Ledger
+      case 'customer_ledger': {
+        const handleExportExcel = () => {
+          if (!ledgerShopId) return;
+          const shop = shops.find(s => s.id === ledgerShopId);
+          const exportData = ledgerTransactions.map(t => ({
+            'Date': new Date(t.date).toLocaleDateString(),
+            'Transaction Type': t.type.toUpperCase(),
+            'Reference No': t.reference,
+            'Debit (Invoice Amount) (₹)': t.debit || 0,
+            'Credit (Collected Amount) (₹)': t.credit || 0,
+            'Details': t.details || '',
+            'Running Balance (₹)': t.balance
+          }));
+
+          const ws = XLSX.utils.json_to_sheet(exportData);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Customer Ledger');
+          XLSX.writeFile(wb, `Customer_Ledger_${shop ? shop.name_en : 'Shop'}_${Date.now()}.xlsx`);
+        };
+
+        const handleExportPDF = () => {
+          const element = document.getElementById('printable-customer-ledger');
+          const opt = {
+            margin:       0.5,
+            filename:     `Customer_Ledger_${Date.now()}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+          };
+          import('html2pdf.js').then((html2pdfModule) => {
+            const html2pdf = html2pdfModule.default || html2pdfModule;
+            html2pdf().set(opt).from(element).save();
+          });
+        };
+
+        const ledgerShop = shops.find(s => s.id === ledgerShopId);
+
+        return (
+          <div>
+            <div className="glass-card no-print" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div className="form-group" style={{ margin: 0, minWidth: '250px' }}>
+                <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'வாடிக்கையாளரைத் தேர்ந்தெடுக்கவும்' : 'Select Customer'}</label>
+                <select
+                  className="form-select"
+                  value={ledgerShopId}
+                  onChange={e => setLedgerShopId(e.target.value)}
+                >
+                  <option value="">-- {lang === 'ta' ? 'கடையைத் தேர்ந்தெடுக்கவும்' : 'Choose Customer'} --</option>
+                  {shops.map(s => (
+                    <option key={s.id} value={s.id}>{translateShopName(s, lang)}</option>
+                  ))}
+                </select>
+              </div>
+
+              {ledgerShopId && (
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
+                  <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+                </div>
+              )}
+            </div>
+
+            {!ledgerShopId ? (
+              <p style={{ color: 'var(--text-muted)', textAlign: 'center', margin: '2rem' }}>
+                {lang === 'ta' ? 'பேரேட்டைப் பார்க்க ஒரு வாடிக்கையாளரைத் தேர்ந்தெடுக்கவும்.' : 'Please select a customer/shop to view their ledger statement.'}
+              </p>
+            ) : (
+              <div className="glass-card" id="printable-customer-ledger">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--border-color)', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: '800', margin: 0 }}>
+                      {ledgerShop ? translateShopName(ledgerShop, lang) : ''}
+                    </h2>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Mobile: {ledgerShop?.mobile} | GSTIN: {ledgerShop?.gst_number || 'N/A'}
+                    </span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Current Outstanding Balance</span>
+                    <h3 style={{ fontSize: '1.5rem', color: 'var(--warning)', margin: 0, fontWeight: '800' }}>
+                      ₹{ledgerShop?.outstanding_amount || 0}
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Reference</th>
+                        <th style={{ textAlign: 'right' }}>Debit (Invoice)</th>
+                        <th style={{ textAlign: 'right' }}>Credit (Payment)</th>
+                        <th style={{ textAlign: 'right' }}>Running Balance</th>
+                        <th>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledgerTransactions.map(t => (
+                        <tr key={t.id}>
+                          <td>{new Date(t.date).toLocaleDateString()}</td>
+                          <td>
+                            <span style={{
+                              fontSize: '0.75rem',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              background: t.type === 'invoice' ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)',
+                              color: t.type === 'invoice' ? 'var(--danger)' : 'var(--success)',
+                              border: `1px solid ${t.type === 'invoice' ? 'var(--danger)' : 'var(--success)'}`
+                            }}>
+                              {t.type.toUpperCase()}
+                            </span>
+                          </td>
+                          <td><strong>{t.reference}</strong></td>
+                          <td style={{ textAlign: 'right', color: t.debit ? 'var(--danger)' : 'var(--text-muted)' }}>
+                            {t.debit ? `₹${t.debit}` : '-'}
+                          </td>
+                          <td style={{ textAlign: 'right', color: t.credit ? 'var(--success)' : 'var(--text-muted)' }}>
+                            {t.credit ? `₹${t.credit}` : '-'}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: t.balance > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                            ₹{t.balance}
+                          </td>
+                          <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{t.details}</td>
+                        </tr>
+                      ))}
+                      {ledgerTransactions.length === 0 && (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No transaction history available.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // 11. Daily Collection Report
+      case 'daily_collection': {
+        const handleExportExcel = () => {
+          const exportData = dailyCollections.map(c => ({
+            'Date': new Date(c.date).toLocaleDateString(),
+            'Shop Name': c.shop_name,
+            'Invoice No': c.invoice_number,
+            'Cash (₹)': c.cash || 0,
+            'GPay (₹)': c.gpay || 0,
+            'Bank (₹)': c.bank || 0,
+            'UPI (₹)': c.upi || 0,
+            'Cheque (₹)': c.cheque || 0,
+            'Total (₹)': c.total
+          }));
+
+          exportData.push({});
+          exportData.push({
+            'Date': 'SUMMARY TOTALS',
+            'Shop Name': '',
+            'Invoice No': '',
+            'Cash (₹)': cashSum,
+            'GPay (₹)': gpaySum,
+            'Bank (₹)': bankSum,
+            'UPI (₹)': upiSum,
+            'Cheque (₹)': chequeSum,
+            'Total (₹)': grandSum
+          });
+
+          const ws = XLSX.utils.json_to_sheet(exportData);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Daily Collection Report');
+          XLSX.writeFile(wb, `Daily_Collection_Report_${Date.now()}.xlsx`);
+        };
+
+        const handleExportPDF = () => {
+          const element = document.getElementById('printable-daily-collection');
+          const opt = {
+            margin:       0.5,
+            filename:     `Daily_Collection_Report_${Date.now()}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2 },
+            jsPDF:        { unit: 'in', format: 'letter', orientation: 'landscape' }
+          };
+          import('html2pdf.js').then((html2pdfModule) => {
+            const html2pdf = html2pdfModule.default || html2pdfModule;
+            html2pdf().set(opt).from(element).save();
+          });
+        };
+
+        return (
+          <div>
+            <div className="glass-card no-print" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'தேதி' : 'Date Filter'}</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={collectionDate}
+                  onChange={e => setCollectionDate(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
+                <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid var(--accent-cyan)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Cash Total</span>
+                <strong style={{ fontSize: '1.15rem' }}>₹{cashSum}</strong>
+              </div>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid #10b981' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>GPay Total</span>
+                <strong style={{ fontSize: '1.15rem' }}>₹{gpaySum}</strong>
+              </div>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid #3b82f6' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Bank Total</span>
+                <strong style={{ fontSize: '1.15rem' }}>₹{bankSum}</strong>
+              </div>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid #a855f7' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>UPI Total</span>
+                <strong style={{ fontSize: '1.15rem' }}>₹{upiSum}</strong>
+              </div>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid #f59e0b' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Cheque Total</span>
+                <strong style={{ fontSize: '1.15rem' }}>₹{chequeSum}</strong>
+              </div>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid var(--success)', background: 'rgba(16, 185, 129, 0.05)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', fontWeight: 'bold' }}>Grand Total</span>
+                <strong style={{ fontSize: '1.15rem', color: 'var(--success)' }}>₹{grandSum}</strong>
+              </div>
+            </div>
+
+            <div className="glass-card" id="printable-daily-collection">
+              <h3 className="print-only" style={{ marginBottom: '1rem', color: '#000' }}>
+                Daily Collection Report - {new Date(collectionDate).toLocaleDateString()}
+              </h3>
+              
+              <div className="table-container">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Shop Name</th>
+                      <th>Invoice No</th>
+                      <th style={{ textAlign: 'right' }}>Cash</th>
+                      <th style={{ textAlign: 'right' }}>GPay</th>
+                      <th style={{ textAlign: 'right' }}>Bank</th>
+                      <th style={{ textAlign: 'right' }}>UPI</th>
+                      <th style={{ textAlign: 'right' }}>Cheque</th>
+                      <th style={{ textAlign: 'right' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dailyCollections.map((c, index) => (
+                      <tr key={index}>
+                        <td>{new Date(c.date).toLocaleDateString()}</td>
+                        <td><strong>{c.shop_name}</strong></td>
+                        <td>{c.invoice_number}</td>
+                        <td style={{ textAlign: 'right', color: c.cash ? 'var(--text-muted)' : '#7c808d' }}>{c.cash ? `₹${c.cash}` : '-'}</td>
+                        <td style={{ textAlign: 'right', color: c.gpay ? 'var(--text-muted)' : '#7c808d' }}>{c.gpay ? `₹${c.gpay}` : '-'}</td>
+                        <td style={{ textAlign: 'right', color: c.bank ? 'var(--text-muted)' : '#7c808d' }}>{c.bank ? `₹${c.bank}` : '-'}</td>
+                        <td style={{ textAlign: 'right', color: c.upi ? 'var(--text-muted)' : '#7c808d' }}>{c.upi ? `₹${c.upi}` : '-'}</td>
+                        <td style={{ textAlign: 'right', color: c.cheque ? 'var(--text-muted)' : '#7c808d' }}>{c.cheque ? `₹${c.cheque}` : '-'}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--success)' }}>₹{c.total}</td>
+                      </tr>
+                    ))}
+                    {dailyCollections.length === 0 && (
+                      <tr>
+                        <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                          No collections registered on this date.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       default:
         return null;
     }
@@ -982,6 +1565,8 @@ export default function Reports({ t, lang, onBillSelected, session }) {
     { id: 'delivery_report', label: 'Delivery logs' },
     { id: 'collection_report', label: t('collection_report') },
     { id: 'outstanding_report', label: t('outstanding_report') },
+    { id: 'customer_ledger', label: t('customer_ledger') },
+    { id: 'daily_collection', label: t('daily_collection_report') },
     { id: 'stock_report', label: t('stock_report') },
     { id: 'purchase_report', label: t('purchase_report') },
     { id: 'profit_report', label: t('profit_report') }

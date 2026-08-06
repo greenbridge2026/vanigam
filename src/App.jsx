@@ -19,6 +19,7 @@ import RecycleBin from './components/RecycleBin';
 import VehicleDirectSales from './components/VehicleDirectSales';
 import SuperAdminDashboard from './components/SuperAdminDashboard';
 import BulkPrintLayout from './components/BulkPrintLayout';
+import OutstandingCollection from './components/OutstandingCollection';
 
 export default function App() {
   const [lang, setLang] = useState(() => {
@@ -261,6 +262,7 @@ export default function App() {
         { id: 'stock', label: t('stock_ledger'), icon: '📈' },
         { id: 'orders', label: t('order_taking'), icon: '🛒' },
         { id: 'deliveries', label: t('deliveries'), icon: '🚚' },
+        { id: 'outstanding_collection', label: t('outstanding_collection'), icon: '💵' },
         { id: 'vehicle_sales', label: t('vehicle_direct_sales'), icon: '🚛' },
         { id: 'reports', label: t('reports'), icon: '📈' },
         { id: 'users', label: t('staff_mgmt'), icon: '👥' },
@@ -270,6 +272,7 @@ export default function App() {
       links.push(
         { id: 'shops', label: t('shop_mgmt'), icon: '🏢' },
         { id: 'orders', label: t('order_taking'), icon: '🛒' },
+        { id: 'outstanding_collection', label: t('outstanding_collection'), icon: '💵' },
         { id: 'vehicle_sales', label: t('vehicle_direct_sales'), icon: '🚛' },
         { id: 'stock', label: t('stock_ledger'), icon: '📈' }
       );
@@ -357,6 +360,8 @@ export default function App() {
         return <UserMgr t={t} lang={lang} />;
       case 'recycle_bin':
         return <RecycleBin t={t} lang={lang} />;
+      case 'outstanding_collection':
+        return <OutstandingCollection t={t} lang={lang} />;
       case 'vehicle_sales':
         return <VehicleDirectSales t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} />;
       default:

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import html2pdf from 'html2pdf.js';
-import { translateShopName } from '../translations';
+import { translateShopName, translateRouteName } from '../translations';
 
 export default function Billing({ orderId, t, lang, onBack }) {
   const [order, setOrder] = useState(null);
@@ -11,6 +11,16 @@ export default function Billing({ orderId, t, lang, onBack }) {
   const [route, setRoute] = useState(null);
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [modalPaymentRows, setModalPaymentRows] = useState([
+    {
+      payment_mode: 'cash',
+      collected_amount: 0,
+      transaction_number: '',
+      reference_number: '',
+      payment_date: new Date().toISOString().split('T')[0]
+    }
+  ]);
   const [settings, setSettings] = useState({
     company_name: "GSK Agency",
     company_address: "Cooldrinks Shop - Tindivanam",
@@ -69,6 +79,70 @@ export default function Billing({ orderId, t, lang, onBack }) {
     }
     loadInvoiceData();
   }, [orderId]);
+
+  const reloadInvoicePayments = async () => {
+    try {
+      const [shopData, payData] = await Promise.all([
+        api.getShops(),
+        api.getPayments()
+      ]);
+      const currentShop = shopData.find(s => s.id === order.shop_id);
+      setShop(currentShop);
+      
+      const paymentList = payData.filter(p => p.order_id === orderId);
+      setPayments(paymentList);
+    } catch (err) {
+      console.error('Failed to reload payments after collection', err);
+    }
+  };
+
+  const handleOpenPaymentModal = () => {
+    const remaining = order.net_amount - totalCollected;
+    setModalPaymentRows([
+      {
+        payment_mode: 'cash',
+        collected_amount: Math.max(0, remaining),
+        transaction_number: '',
+        reference_number: '',
+        payment_date: new Date().toISOString().split('T')[0]
+      }
+    ]);
+    setShowPaymentModal(true);
+  };
+
+  const handleModalPaymentSubmit = async (e) => {
+    e.preventDefault();
+    const totalCollectedAmt = modalPaymentRows.reduce((sum, row) => sum + Number(row.collected_amount || 0), 0);
+    if (totalCollectedAmt <= 0) {
+      alert('Total collected amount must be greater than 0 / வசூலிக்கப்பட்ட தொகை பூஜ்ஜியத்தை விட அதிகமாக இருக்க வேண்டும்.');
+      return;
+    }
+
+    const invalidRow = modalPaymentRows.find(row => !row.collected_amount || Number(row.collected_amount) <= 0);
+    if (invalidRow) {
+      alert('Please enter a valid amount for all payment rows / அனைத்து வரிசைகளிலும் சரியான தொகையை உள்ளிடவும்.');
+      return;
+    }
+
+    try {
+      const paymentsToSubmit = modalPaymentRows.map(row => ({
+        shop_id: shop.id,
+        order_id: order.id,
+        collected_amount: Number(row.collected_amount),
+        payment_mode: row.payment_mode,
+        transaction_number: row.transaction_number,
+        reference_number: row.reference_number,
+        payment_date: new Date(row.payment_date).toISOString()
+      }));
+
+      await api.createPayment({ payments: paymentsToSubmit });
+      alert(lang === 'ta' ? 'கட்டணம் வெற்றிகரமாகச் சேர்க்கப்பட்டது!' : 'Payment added successfully!');
+      setShowPaymentModal(false);
+      await reloadInvoicePayments();
+    } catch (err) {
+      alert('Failed to register payment: ' + err.message);
+    }
+  };
 
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading Invoice...</div>;
   if (!order) return <div style={{ color: 'var(--danger)', textAlign: 'center' }}>Invoice not found</div>;
@@ -227,7 +301,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
                   </div>
                   <div style={{ display: 'flex' }}>
                     <span style={{ width: '90px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'வழித்தடம்:' : 'Route:'}</span>
-                    <span>{route ? (lang === 'ta' ? route.name_ta : route.name_en) : ''}</span>
+                    <span>{translateRouteName(route, lang)}</span>
                   </div>
                   <div style={{ display: 'flex' }}>
                     <span style={{ width: '90px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'விற்பனையாளர்:' : 'Salesman:'}</span>
@@ -323,40 +397,32 @@ export default function Billing({ orderId, t, lang, onBack }) {
                   padding: isCompact ? '6px 10px' : '10px 12px',
                   background: '#f8fafc',
                   display: 'flex',
-                  gap: isCompact ? '8px' : '12px',
-                  alignItems: 'center',
-                  boxSizing: 'border-box'
+                  flexDirection: 'column',
+                  gap: '4px',
+                  boxSizing: 'border-box',
+                  justifyContent: 'center'
                 }}>
-                  {/* QR Code Container */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                    <svg viewBox="0 0 100 100" style={{ width: isCompact ? '55px' : '70px', height: isCompact ? '55px' : '70px', background: '#ffffff', padding: '3px', border: '1px solid #cbd5e1' }}>
-                      <rect width="100" height="100" fill="white" />
-                      <rect x="10" y="10" width="20" height="20" fill="black" />
-                      <rect x="15" y="15" width="10" height="10" fill="white" />
-                      <rect x="70" y="10" width="20" height="20" fill="black" />
-                      <rect x="75" y="15" width="10" height="10" fill="white" />
-                      <rect x="10" y="70" width="20" height="20" fill="black" />
-                      <rect x="15" y="75" width="10" height="10" fill="white" />
-                      <rect x="40" y="40" width="20" height="20" fill="black" />
-                      <path d="M 35 15 H 65 V 25 H 35 Z M 15 35 H 25 V 65 H 15 Z M 45 75 H 85 V 85 H 45 Z" fill="black" />
-                    </svg>
-                    <span style={{ fontSize: '6.5px', fontWeight: 'bold', color: '#475569', textTransform: 'uppercase' }}>GPay QR Scanner</span>
-                  </div>
-                  {/* Merchant / UPI Info */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: isCompact ? '8.5px' : '9.5px', color: '#334155' }}>
-                    <strong style={{ fontSize: isCompact ? '9.5px' : '11px', color: '#1e293b', textTransform: 'uppercase' }}>
-                      {lang === 'ta' ? 'யூபிஐ கட்டணம்' : 'UPI Payment'}
-                    </strong>
-                    <span>{lang === 'ta' ? 'கியூஆர் ஸ்கேன் செய்து செலுத்தலாம்' : 'Scan to pay directly from mobile bank apps.'}</span>
-                    <div style={{ marginTop: '1px', fontWeight: '700' }}>
-                      <div>📞 Mobile: {settings.upi_mobile}</div>
+                  <strong style={{ fontSize: isCompact ? '10px' : '11px', color: '#1e293b', textTransform: 'uppercase', borderBottom: '1px solid #cbd5e1', paddingBottom: '3px', marginBottom: '2px' }}>
+                    {lang === 'ta' ? 'கட்டண விவரங்கள் (Payment Breakup)' : 'Payment Breakup'}
+                  </strong>
+                  {payments.length === 0 ? (
+                    <span style={{ fontSize: isCompact ? '9px' : '10px', color: '#ef4444', fontWeight: '700' }}>
+                      {lang === 'ta' ? 'நிலுவை (No payments collected)' : 'UNPAID / ON CREDIT'}
+                    </span>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '75px', overflowY: 'auto' }}>
+                      {payments.map(p => (
+                        <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: isCompact ? '8.5px' : '9.5px', color: '#334155' }}>
+                          <span>
+                            <strong style={{ textTransform: 'uppercase' }}>{p.payment_mode}</strong>
+                            {p.transaction_number ? ` (Txn: ${p.transaction_number})` : ''}
+                            {p.reference_number ? ` (Ref: ${p.reference_number})` : ''}
+                          </span>
+                          <strong style={{ color: '#0f172a' }}>₹{p.collected_amount}</strong>
+                        </div>
+                      ))}
                     </div>
-                    {!isCompact && (
-                      <p style={{ fontSize: '7.5px', color: '#64748b', fontStyle: 'italic', margin: '4px 0 0 0' }}>
-                        * All disputes subject to local jurisdiction.
-                      </p>
-                    )}
-                  </div>
+                  )}
                 </div>
 
                 {/* Structured Financial Ledger Summary */}
@@ -431,6 +497,12 @@ export default function Billing({ orderId, t, lang, onBack }) {
 
         {/* Buttons Controls */}
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }} className="no-print">
+          {totalCollected < order.net_amount && (
+            <button className="btn btn-primary" onClick={handleOpenPaymentModal} style={{ background: '#10b981', borderColor: '#10b981' }}>
+              💵 {lang === 'ta' ? 'வசூல் செய் (Record Payment)' : 'Record Payment'}
+            </button>
+          )}
+
           <button className="btn btn-primary" onClick={handlePrint}>
             🖨️ {t('print_invoice')} (A4 Half Size)
           </button>
@@ -444,6 +516,173 @@ export default function Billing({ orderId, t, lang, onBack }) {
           </a>
         </div>
       </div>
+
+      {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="modal-overlay" style={{ zIndex: 1000 }}>
+          <form onSubmit={handleModalPaymentSubmit} className="glass-card modal-card" style={{ maxWidth: '500px', width: '95%', margin: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0 }}>
+                💵 {lang === 'ta' ? 'கட்டணம் வசூலித்தல்' : 'Collect Payment'} - {order.invoice_number}
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => setShowPaymentModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', fontSize: '0.9rem' }}>
+              <span>Invoice Net Amount:</span>
+              <strong>₹{order.net_amount}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', fontSize: '0.9rem' }}>
+              <span>Collected So Far:</span>
+              <strong style={{ color: 'var(--success)' }}>₹{totalCollected}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', fontSize: '0.95rem', borderBottom: '1px dashed var(--border-color)', paddingBottom: '0.75rem' }}>
+              <span>Remaining Balance:</span>
+              <strong style={{ color: 'var(--danger)' }}>₹{order.net_amount - totalCollected}</strong>
+            </div>
+
+            {/* Split Payment Dynamic Rows */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontWeight: '700', fontSize: '0.85rem' }}>{t('split_payment')}</label>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem' }}
+                  onClick={() => setModalPaymentRows([...modalPaymentRows, { payment_mode: 'cash', collected_amount: 0, transaction_number: '', reference_number: '', payment_date: new Date().toISOString().split('T')[0] }])}
+                >
+                  ➕ Add Mode
+                </button>
+              </div>
+
+              {modalPaymentRows.map((row, idx) => {
+                const showMeta = ['gpay', 'bank', 'upi', 'cheque'].includes(row.payment_mode);
+                return (
+                  <div key={idx} style={{ padding: '0.5rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius)', position: 'relative' }}>
+                    {modalPaymentRows.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setModalPaymentRows(modalPaymentRows.filter((_, i) => i !== idx))}
+                        style={{ position: 'absolute', top: '0.25rem', right: '0.25rem', background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.85rem' }}
+                      >
+                        ✕
+                      </button>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.5rem' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '0.7rem' }}>{t('payment_mode')}</label>
+                        <select
+                          className="form-select"
+                          style={{ padding: '0.3rem', fontSize: '0.8rem' }}
+                          value={row.payment_mode}
+                          onChange={e => {
+                            const updated = [...modalPaymentRows];
+                            updated[idx].payment_mode = e.target.value;
+                            setModalPaymentRows(updated);
+                          }}
+                        >
+                          <option value="cash">{t('cash')}</option>
+                          <option value="gpay">{t('gpay')}</option>
+                          <option value="bank">{t('bank')}</option>
+                          <option value="upi">{t('upi')}</option>
+                          <option value="cheque">{t('cheque')}</option>
+                        </select>
+                      </div>
+
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '0.7rem' }}>Amount (₹)</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          style={{ padding: '0.3rem', fontSize: '0.8rem' }}
+                          value={row.collected_amount || ''}
+                          onChange={e => {
+                            const updated = [...modalPaymentRows];
+                            updated[idx].collected_amount = Math.max(0, parseInt(e.target.value) || 0);
+                            setModalPaymentRows(updated);
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {showMeta && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem', marginTop: '0.4rem' }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '0.65rem' }}>{t('transaction_id')}</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            style={{ padding: '0.25rem', fontSize: '0.75rem' }}
+                            value={row.transaction_number || ''}
+                            onChange={e => {
+                              const updated = [...modalPaymentRows];
+                              updated[idx].transaction_number = e.target.value;
+                              setModalPaymentRows(updated);
+                            }}
+                            placeholder="TXN ID"
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '0.65rem' }}>{t('ref_number')}</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            style={{ padding: '0.25rem', fontSize: '0.75rem' }}
+                            value={row.reference_number || ''}
+                            onChange={e => {
+                              const updated = [...modalPaymentRows];
+                              updated[idx].reference_number = e.target.value;
+                              setModalPaymentRows(updated);
+                            }}
+                            placeholder="Ref No"
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label style={{ fontSize: '0.65rem' }}>{t('payment_date')}</label>
+                          <input
+                            type="date"
+                            className="form-input"
+                            style={{ padding: '0.2rem', fontSize: '0.75rem' }}
+                            value={row.payment_date}
+                            onChange={e => {
+                              const updated = [...modalPaymentRows];
+                              updated[idx].payment_date = e.target.value;
+                              setModalPaymentRows(updated);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={() => setShowPaymentModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                type="submit" 
+                className="btn btn-primary"
+              >
+                Record Payment
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
