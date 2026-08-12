@@ -26,8 +26,11 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   const [ledgerTransactions, setLedgerTransactions] = useState([]);
 
   // Daily Collection states
-  const [collectionDate, setCollectionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [collectionDateFrom, setCollectionDateFrom] = useState(new Date().toISOString().split('T')[0]);
+  const [collectionDateTo, setCollectionDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [collectionSalesmanFilter, setCollectionSalesmanFilter] = useState('');
   const [dailyCollections, setDailyCollections] = useState([]);
+  const [users, setUsers] = useState([]);
 
   // Calculate Customer Ledger transactions
   useEffect(() => {
@@ -93,14 +96,16 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
   // Calculate Daily Collection rows
   useEffect(() => {
-    if (!collectionDate) {
+    if (!collectionDateFrom || !collectionDateTo) {
       setDailyCollections([]);
       return;
     }
 
-    // Filter payments on selected day (ignoring time)
-    const targetDateStr = collectionDate; // YYYY-MM-DD
-    const dayPayments = payments.filter(p => p.payment_date.startsWith(targetDateStr));
+    // Filter payments on selected date range (ignoring time)
+    const dayPayments = payments.filter(p => {
+      const pDate = p.payment_date.split('T')[0];
+      return pDate >= collectionDateFrom && pDate <= collectionDateTo;
+    });
 
     const grouped = {};
     dayPayments.forEach(p => {
@@ -109,10 +114,23 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       if (!grouped[groupKey]) {
         const shop = shops.find(s => s.id === p.shop_id);
         const ord = orders.find(o => o.id === p.order_id);
+
+        // Find salesman name based on assignment to each shop
+        let salesmanObj = null;
+        if (shop) {
+          const routeObj = routes.find(r => r.id === shop.route_id);
+          if (routeObj) {
+            salesmanObj = users.find(u => u.id === routeObj.salesman_id);
+          }
+        }
+        const salesmanName = salesmanObj ? salesmanObj.name : 'N/A';
+        const outstanding = shop ? shop.outstanding_amount : 0;
+
         grouped[groupKey] = {
           date: p.payment_date,
           shop_name: shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'N/A',
-          invoice_number: ord ? ord.invoice_number : 'General Collection',
+          salesman_name: salesmanName,
+          outstanding_amount: outstanding,
           cash: 0,
           gpay: 0,
           bank: 0,
@@ -133,15 +151,18 @@ export default function Reports({ t, lang, onBillSelected, session }) {
     });
 
     setDailyCollections(Object.values(grouped));
-  }, [collectionDate, payments, shops, orders, lang]);
+  }, [collectionDateFrom, collectionDateTo, payments, shops, orders, routes, users, lang]);
 
-  // Daily Collection Totals
-  const cashSum = dailyCollections.reduce((sum, c) => sum + c.cash, 0);
-  const gpaySum = dailyCollections.reduce((sum, c) => sum + c.gpay, 0);
-  const bankSum = dailyCollections.reduce((sum, c) => sum + c.bank, 0);
-  const upiSum = dailyCollections.reduce((sum, c) => sum + c.upi, 0);
-  const chequeSum = dailyCollections.reduce((sum, c) => sum + c.cheque, 0);
-  const grandSum = dailyCollections.reduce((sum, c) => sum + c.total, 0);
+  // Daily Collection Totals (filtered by salesman)
+  const filteredCollections = dailyCollections.filter(c => {
+    if (!collectionSalesmanFilter) return true;
+    return c.salesman_name === collectionSalesmanFilter;
+  });
+
+  const cashSum = filteredCollections.reduce((sum, c) => sum + c.cash, 0);
+  const gpaySum = filteredCollections.reduce((sum, c) => sum + c.gpay, 0);
+  const chequeSum = filteredCollections.reduce((sum, c) => sum + c.cheque, 0);
+  const grandSum = filteredCollections.reduce((sum, c) => sum + c.total, 0);
 
   // Delivery Status Report Filters
   const [delFilterDateFrom, setDelFilterDateFrom] = useState('');
@@ -156,7 +177,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   useEffect(() => {
     async function loadReportsData() {
       try {
-        const [ord, items, prod, sh, rt, pay, purch, del, audit] = await Promise.all([
+        const [ord, items, prod, sh, rt, pay, purch, del, audit, usr] = await Promise.all([
           api.getOrders(),
           api.getOrderItems(),
           api.getProducts(),
@@ -165,7 +186,8 @@ export default function Reports({ t, lang, onBillSelected, session }) {
           api.getPayments(),
           api.getPurchases(),
           api.getDeliveries(),
-          api.getDeliveryAuditTrail()
+          api.getDeliveryAuditTrail(),
+          api.getUsers()
         ]);
         setOrders(ord);
         setOrderItems(items);
@@ -176,6 +198,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         setPurchases(purch);
         setDeliveries(del);
         setDeliveryAuditTrail(audit || []);
+        setUsers(usr || []);
       } catch (err) {
         console.error('Failed to load reports datasets', err);
       } finally {
@@ -1412,42 +1435,43 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       // 11. Daily Collection Report
       case 'daily_collection': {
         const handleExportExcel = () => {
-          const exportData = dailyCollections.map(c => ({
+          const exportData = filteredCollections.map(c => ({
             'Date': new Date(c.date).toLocaleDateString(),
             'Shop Name': c.shop_name,
-            'Invoice No': c.invoice_number,
+            'Salesman': c.salesman_name,
             'Cash (₹)': c.cash || 0,
             'GPay (₹)': c.gpay || 0,
-            'Bank (₹)': c.bank || 0,
-            'UPI (₹)': c.upi || 0,
             'Cheque (₹)': c.cheque || 0,
-            'Total (₹)': c.total
+            'Total Collected (₹)': c.total,
+            'Outstanding (₹)': c.outstanding_amount || 0,
+            'Total (₹)': c.total + (c.outstanding_amount || 0)
           }));
 
           exportData.push({});
+          const totalOutstanding = filteredCollections.reduce((sum, c) => sum + (c.outstanding_amount || 0), 0);
           exportData.push({
             'Date': 'SUMMARY TOTALS',
             'Shop Name': '',
-            'Invoice No': '',
+            'Salesman': '',
             'Cash (₹)': cashSum,
             'GPay (₹)': gpaySum,
-            'Bank (₹)': bankSum,
-            'UPI (₹)': upiSum,
             'Cheque (₹)': chequeSum,
-            'Total (₹)': grandSum
+            'Total Collected (₹)': grandSum,
+            'Outstanding (₹)': totalOutstanding,
+            'Total (₹)': grandSum + totalOutstanding
           });
 
           const ws = XLSX.utils.json_to_sheet(exportData);
           const wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, 'Daily Collection Report');
-          XLSX.writeFile(wb, `Daily_Collection_Report_${Date.now()}.xlsx`);
+          XLSX.writeFile(wb, `Daily_Collection_Report_${collectionDateFrom}_to_${collectionDateTo}.xlsx`);
         };
 
         const handleExportPDF = () => {
           const element = document.getElementById('printable-daily-collection');
           const opt = {
             margin:       0.5,
-            filename:     `Daily_Collection_Report_${Date.now()}.pdf`,
+            filename:     `Daily_Collection_Report_${collectionDateFrom}_to_${collectionDateTo}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { scale: 2 },
             jsPDF:        { unit: 'in', format: 'letter', orientation: 'landscape' }
@@ -1458,22 +1482,52 @@ export default function Reports({ t, lang, onBillSelected, session }) {
           });
         };
 
+        const handlePrint = () => {
+          window.print();
+        };
+
         return (
           <div>
             <div className="glass-card no-print" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'தேதி' : 'Date Filter'}</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={collectionDate}
-                  onChange={e => setCollectionDate(e.target.value)}
-                />
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'தொடக்க தேதி' : 'From Date'}</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={collectionDateFrom}
+                    onChange={e => setCollectionDateFrom(e.target.value)}
+                  />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'முடிவு தேதி' : 'To Date'}</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={collectionDateTo}
+                    onChange={e => setCollectionDateTo(e.target.value)}
+                  />
+                </div>
+                <div className="form-group" style={{ margin: 0, minWidth: '180px' }}>
+                  <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'விற்பனையாளர்' : 'Salesman Filter'}</label>
+                  <select
+                    className="form-select"
+                    value={collectionSalesmanFilter}
+                    onChange={e => setCollectionSalesmanFilter(e.target.value)}
+                  >
+                    <option value="">-- {lang === 'ta' ? 'அனைத்து விற்பனையாளர்களும்' : 'All Salesmen'} --</option>
+                    {users.filter(u => u.role === 'salesman' && u.active).map(u => (
+                      <option key={u.id} value={u.name}>{u.name}</option>
+                    ))}
+                    <option value="N/A">N/A (Unassigned)</option>
+                  </select>
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
-                <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+                <button type="button" className="btn btn-primary" onClick={handlePrint} style={{ fontSize: '0.85rem' }}>🖨️ Print Report</button>
+                <button type="button" className="btn btn-secondary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
               </div>
             </div>
 
@@ -1486,14 +1540,6 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>GPay Total</span>
                 <strong style={{ fontSize: '1.15rem' }}>₹{gpaySum}</strong>
               </div>
-              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid #3b82f6' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Bank Total</span>
-                <strong style={{ fontSize: '1.15rem' }}>₹{bankSum}</strong>
-              </div>
-              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid #a855f7' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>UPI Total</span>
-                <strong style={{ fontSize: '1.15rem' }}>₹{upiSum}</strong>
-              </div>
               <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid #f59e0b' }}>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Cheque Total</span>
                 <strong style={{ fontSize: '1.15rem' }}>₹{chequeSum}</strong>
@@ -1505,8 +1551,9 @@ export default function Reports({ t, lang, onBillSelected, session }) {
             </div>
 
             <div className="glass-card" id="printable-daily-collection">
-              <h3 className="print-only" style={{ marginBottom: '1rem', color: '#000' }}>
-                Daily Collection Report - {new Date(collectionDate).toLocaleDateString()}
+              <h3 style={{ marginBottom: '1rem', fontWeight: '700' }}>
+                Daily Collection Report - {new Date(collectionDateFrom).toLocaleDateString()} to {new Date(collectionDateTo).toLocaleDateString()}
+                {collectionSalesmanFilter ? ` (${lang === 'ta' ? 'விற்பனையாளர்' : 'Salesman'}: ${collectionSalesmanFilter})` : ''}
               </h3>
               
               <div className="table-container">
@@ -1515,33 +1562,38 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                     <tr>
                       <th>Date</th>
                       <th>Shop Name</th>
-                      <th>Invoice No</th>
+                      <th>Salesman</th>
                       <th style={{ textAlign: 'right' }}>Cash</th>
                       <th style={{ textAlign: 'right' }}>GPay</th>
-                      <th style={{ textAlign: 'right' }}>Bank</th>
-                      <th style={{ textAlign: 'right' }}>UPI</th>
                       <th style={{ textAlign: 'right' }}>Cheque</th>
+                      <th style={{ textAlign: 'right' }}>Total Collected</th>
+                      <th style={{ textAlign: 'right' }}>Outstanding</th>
                       <th style={{ textAlign: 'right' }}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {dailyCollections.map((c, index) => (
-                      <tr key={index}>
-                        <td>{new Date(c.date).toLocaleDateString()}</td>
-                        <td><strong>{c.shop_name}</strong></td>
-                        <td>{c.invoice_number}</td>
-                        <td style={{ textAlign: 'right', color: c.cash ? 'var(--text-muted)' : '#7c808d' }}>{c.cash ? `₹${c.cash}` : '-'}</td>
-                        <td style={{ textAlign: 'right', color: c.gpay ? 'var(--text-muted)' : '#7c808d' }}>{c.gpay ? `₹${c.gpay}` : '-'}</td>
-                        <td style={{ textAlign: 'right', color: c.bank ? 'var(--text-muted)' : '#7c808d' }}>{c.bank ? `₹${c.bank}` : '-'}</td>
-                        <td style={{ textAlign: 'right', color: c.upi ? 'var(--text-muted)' : '#7c808d' }}>{c.upi ? `₹${c.upi}` : '-'}</td>
-                        <td style={{ textAlign: 'right', color: c.cheque ? 'var(--text-muted)' : '#7c808d' }}>{c.cheque ? `₹${c.cheque}` : '-'}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--success)' }}>₹{c.total}</td>
-                      </tr>
-                    ))}
-                    {dailyCollections.length === 0 && (
+                    {filteredCollections.map((c, index) => {
+                      const rowTotalCollected = c.total;
+                      const rowOutstanding = c.outstanding_amount || 0;
+                      const rowGrandTotal = rowTotalCollected + rowOutstanding;
+                      return (
+                        <tr key={index}>
+                          <td>{new Date(c.date).toLocaleDateString()}</td>
+                          <td><strong>{c.shop_name}</strong></td>
+                          <td>👤 {c.salesman_name}</td>
+                          <td style={{ textAlign: 'right', color: c.cash ? 'var(--text-muted)' : '#7c808d' }}>{c.cash ? `₹${c.cash}` : '-'}</td>
+                          <td style={{ textAlign: 'right', color: c.gpay ? 'var(--text-muted)' : '#7c808d' }}>{c.gpay ? `₹${c.gpay}` : '-'}</td>
+                          <td style={{ textAlign: 'right', color: c.cheque ? 'var(--text-muted)' : '#7c808d' }}>{c.cheque ? `₹${c.cheque}` : '-'}</td>
+                          <td style={{ textAlign: 'right', color: 'var(--success)', fontWeight: '600' }}>₹{rowTotalCollected}</td>
+                          <td style={{ textAlign: 'right', color: 'var(--danger)', fontWeight: '600' }}>₹{rowOutstanding}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--accent-blue)' }}>₹{rowGrandTotal}</td>
+                        </tr>
+                      );
+                    })}
+                    {filteredCollections.length === 0 && (
                       <tr>
                         <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                          No collections registered on this date.
+                          No collections registered in this date range.
                         </td>
                       </tr>
                     )}
@@ -1575,8 +1627,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   return (
     <div>
       <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>📈 Operational Intelligence Reports</h1>
-        <p style={{ color: 'var(--text-muted)' }}>Query and verify active ledgers, profitability indexes, and collection reports</p>
+        <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>Daily Collection Reports</h1>
       </div>
 
       {/* Global Search Bar */}

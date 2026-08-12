@@ -14,6 +14,7 @@ import OrderTaking from './components/OrderTaking';
 import DeliveryMgr from './components/DeliveryMgr';
 import Reports from './components/Reports';
 import Billing from './components/Billing';
+import VehicleLoading from './components/VehicleLoading';
 import UserMgr from './components/UserMgr';
 import RecycleBin from './components/RecycleBin';
 import VehicleDirectSales from './components/VehicleDirectSales';
@@ -262,6 +263,7 @@ export default function App() {
         { id: 'stock', label: t('stock_ledger'), icon: '📈' },
         { id: 'orders', label: t('order_taking'), icon: '🛒' },
         { id: 'deliveries', label: t('deliveries'), icon: '🚚' },
+        { id: 'vehicle_loading', label: lang === 'ta' ? 'வண்டி ஏற்றுதல்' : 'Vehicle Loading', icon: '📦' },
         { id: 'outstanding_collection', label: t('outstanding_collection'), icon: '💵' },
         { id: 'vehicle_sales', label: t('vehicle_direct_sales'), icon: '🚛' },
         { id: 'reports', label: t('reports'), icon: '📈' },
@@ -354,6 +356,8 @@ export default function App() {
         return <OrderTaking t={t} lang={lang} onOrderCreated={handleOrderCreated} />;
       case 'deliveries':
         return <DeliveryMgr t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} session={session} onBulkPrint={(ids) => setBulkPrintOrderIds(ids)} />;
+      case 'vehicle_loading':
+        return <VehicleLoading t={t} lang={lang} session={session} />;
       case 'reports':
         return <Reports t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} session={session} />;
       case 'users':

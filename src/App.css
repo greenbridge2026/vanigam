@@ -861,6 +861,24 @@ h1, h2, h3, h4, h5, h6 {
     page-break-after: always;
     box-sizing: border-box !important;
   }
+
+  .table-container {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    border: none !important;
+    width: 100% !important;
+  }
+
+  .custom-table {
+    width: 100% !important;
+    table-layout: auto !important;
+  }
+
+  .custom-table th, .custom-table td {
+    padding: 6px 8px !important;
+    font-size: 11px !important;
+    word-break: break-word !important;
+  }
 }
 
 /* Responsive Slide-out Sidebar for Mobile */
@@ -1006,5 +1024,58 @@ h1, h2, h3, h4, h5, h6 {
   transform: translateY(-3px);
   filter: brightness(1.15);
   box-shadow: 0 6px 15px rgba(255, 255, 255, 0.05);
+}
+
+/* Order Taking Redesign Styles */
+.order-taking-layout {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.brand-tabs-container {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.brand-tab-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  padding: 0.5rem 1.25rem;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: var(--transition);
+}
+
+.brand-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+}
+
+.brand-tab-btn.active {
+  background: var(--accent-cyan);
+  color: var(--text-on-accent);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 10px var(--accent-cyan-glow);
+}
+
+.sticky-checkout-summary {
+  position: sticky;
+  top: 80px;
+}
+
+@media (max-width: 1024px) {
+  .order-taking-layout {
+    grid-template-columns: 1fr;
+  }
+  .sticky-checkout-summary {
+    position: static;
+  }
 }
 

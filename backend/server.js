@@ -2051,6 +2051,23 @@ app.get('/api/vehicles/dispatches', async (req, res) => {
   res.json(db.vehicle_dispatches || []);
 });
 
+// Update dispatch status/items
+app.put('/api/vehicles/dispatches/:id', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const idx = db.vehicle_dispatches.findIndex(d => d.id === req.params.id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Dispatch not found' });
+    }
+    db.vehicle_dispatches[idx] = { ...db.vehicle_dispatches[idx], ...req.body };
+    await writeDB(req.tenantId, db);
+    res.json(db.vehicle_dispatches[idx]);
+  } finally {
+    releaseLock();
+  }
+});
+
 // 7. Dispatch stock to vehicle
 app.post('/api/vehicles/dispatch', async (req, res) => {
   await acquireLock();

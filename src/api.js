@@ -489,6 +489,18 @@ export const api = {
   async getVehicleDispatches() {
     return getTableData('vehicle_dispatches', `${API_BASE}/vehicles/dispatches`);
   },
+  async updateVehicleDispatch(id, dispatchData) {
+    const res = await apiFetch(`${API_BASE}/vehicles/dispatches/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dispatchData)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update vehicle dispatch');
+    }
+    return res.json();
+  },
   async dispatchVehicleStock(dispatchData) {
     const res = await apiFetch(`${API_BASE}/vehicles/dispatch`, {
       method: 'POST',
