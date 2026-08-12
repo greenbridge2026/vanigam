@@ -461,6 +461,20 @@ export const translateShopName = (shop, lang) => {
   if (lang === 'ta') {
     const trimmedEn = nameEn.trim();
     const dictionary = {
+      "Pavithra": "பவித்ரா",
+      "M.R.K": "எம்.ஆர்.கே",
+      "MRK": "எம்.ஆர்.கே",
+      "Sri Balaji": "ஸ்ரீ பாலாஜி",
+      "Balaji": "பாலாஜி",
+      "Krishna": "கிருஷ்ணா",
+      "Renukambal": "ரேணுகாம்பாள்",
+      "Dhanalakshmi": "தனலட்சுமி",
+      "Ponniy": "பொன்னி",
+      "Jayapal": "ஜெயபால்",
+      "Pacha": "பச்சை",
+      "Sri": "ஸ்ரீ",
+      "J.S.S.": "ஜே.எஸ்.எஸ்.",
+      "JSS": "ஜே.எஸ்.எஸ்.",
       "Kohinoor": "கோஹினூர்",
       "Rafik Maligai": "ரஃபிக் மளிகை",
       "Tamil Nadu": "தமிழ்நாடு",
@@ -785,3 +799,86 @@ export const translateRouteName = (route, lang) => {
   }
   return nameEn;
 };
+
+export const translateProductName = (prod, lang) => {
+  if (!prod) return '';
+  const nameEn = prod.name_en || prod.name || '';
+  const nameTa = prod.name_ta || '';
+  
+  if (lang === 'ta') {
+    const trimmedEn = nameEn.trim();
+    const dictionary = {
+      "Mountain Dew": "மவுண்டன் டியூ",
+      "Coca-Cola": "கோகோ கோலா",
+      "Coca Cola": "கோகோ கோலா",
+      "Frooti": "ஃப்ரூட்டி",
+      "ஃப்ரூட்டி": "ஃப்ரூட்டி",
+      "A. Apple": "ஏ. ஆப்பிள்",
+      "Apple": "ஆப்பிள்",
+      "B. Fizzi": "பி. ஃபிஸி",
+      "Fizzi": "ஃபிஸி",
+      "Smoodh": "ஸ்மூத்",
+      "7 Up": "7 அப்",
+      "7up": "7 அப்",
+      "Pepsi": "பெப்சி",
+      "Mirinda": "மிரிண்டா",
+      "Slice": "ஸ்லைஸ்",
+      "Maaza": "மாசா",
+      "Sprite": "ஸ்ப்ரைட்",
+      "Thums Up": "தம்ஸ் அப்",
+      "Fanta": "ஃபாண்டா",
+      "Limca": "லிம்கா"
+    };
+    if (dictionary[trimmedEn]) {
+      return dictionary[trimmedEn];
+    }
+    if (nameTa && nameTa.trim() !== nameEn.trim()) {
+      return nameTa;
+    }
+    let translated = nameEn;
+    Object.keys(dictionary)
+      .sort((a, b) => b.length - a.length)
+      .forEach(key => {
+        translated = translated.replace(new RegExp(key, 'gi'), dictionary[key]);
+      });
+    if (translated !== nameEn) return translated;
+    
+    return nameTa || nameEn;
+  }
+  return nameEn;
+};
+
+export const translateAddress = (address, lang) => {
+  if (!address) return '';
+  if (lang === 'ta') {
+    const trimmed = address.trim();
+    const dictionary = {
+      "CHENNAI HIGHWAY": "சென்னை நெடுஞ்சாலை",
+      "Chennai Highway": "சென்னை நெடுஞ்சாலை",
+      "Tindivanam": "திண்டிவனம்",
+      "Villupuram": "விழுப்புரம்",
+      "Pondicherry": "பாண்டிச்சேரி",
+      "Devanur": "தேவனூர்",
+      "Kootteripattu": "கூட்டேரிப்பட்டு",
+      "Vellimedupettai": "வெள்ளிமேடுபேட்டை",
+      "National Highway": "தேசிய நெடுஞ்சாலை",
+      "Highway": "நெடுஞ்சாலை",
+      "Road": "சாலை",
+      "Street": "தெரு",
+      "N/A": "N/A"
+    };
+    if (dictionary[trimmed]) {
+      return dictionary[trimmed];
+    }
+    
+    let translated = trimmed;
+    Object.keys(dictionary)
+      .sort((a, b) => b.length - a.length)
+      .forEach(key => {
+        translated = translated.replace(new RegExp(key, 'gi'), dictionary[key]);
+      });
+    return translated;
+  }
+  return address;
+};
+

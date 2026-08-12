@@ -256,12 +256,13 @@ app.get('/api/debug', (req, res) => {
   });
 });
 
-// Translation Endpoint
-app.post('/api/translate', async (req, res) => {
-  const { text, from, to } = req.body;
-  if (!text || !text.trim()) {
-    return res.json({ translatedText: '' });
-  }
+// Translation Utilities
+function containsEnglish(str) {
+  return /[a-zA-Z]/.test(str || '');
+}
+
+async function translateText(text, from = 'en', to = 'ta') {
+  if (!text || !text.trim()) return '';
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
     const response = await fetch(url);
@@ -270,12 +271,29 @@ app.post('/api/translate', async (req, res) => {
     }
     const result = await response.json();
     if (result && result[0]) {
-      const translatedText = result[0].map(item => item[0]).join('');
-      return res.json({ translatedText });
+      return result[0].map(item => item[0]).join('');
     }
     throw new Error('Unexpected translation response structure');
   } catch (err) {
-    console.error('Translation error:', err);
+    console.error('Translation error in helper:', err);
+    return '';
+  }
+}
+
+// Translation Endpoint
+app.post('/api/translate', async (req, res) => {
+  const { text, from, to } = req.body;
+  if (!text || !text.trim()) {
+    return res.json({ translatedText: '' });
+  }
+  try {
+    const translatedText = await translateText(text, from, to);
+    if (translatedText) {
+      return res.json({ translatedText });
+    }
+    throw new Error('Translation failed');
+  } catch (err) {
+    console.error('Translation endpoint error:', err);
     res.status(500).json({ error: 'Failed to translate text' });
   }
 });
@@ -488,10 +506,21 @@ app.post('/api/routes', async (req, res) => {
   await acquireLock();
   try {
     const db = await readDB(req.tenantId);
+    let name_en = req.body.name_en || '';
+    let name_ta = req.body.name_ta || '';
+
+    if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+      const translated = await translateText(name_en, 'en', 'ta');
+      if (translated) name_ta = translated;
+    } else if (name_ta && !name_en) {
+      const translated = await translateText(name_ta, 'ta', 'en');
+      if (translated) name_en = translated;
+    }
+
     const newRoute = {
       id: `r_${Date.now()}`,
-      name_en: req.body.name_en,
-      name_ta: req.body.name_ta,
+      name_en,
+      name_ta,
       salesman_id: req.body.salesman_id || '',
       delivery_man_id: req.body.delivery_man_id || ''
     };
@@ -509,7 +538,23 @@ app.put('/api/routes/:id', async (req, res) => {
     const db = await readDB(req.tenantId);
     const index = db.routes.findIndex(r => r.id === req.params.id);
     if (index !== -1) {
-      db.routes[index] = { ...db.routes[index], ...req.body };
+      const updatedFields = { ...req.body };
+      let name_en = updatedFields.name_en !== undefined ? updatedFields.name_en : db.routes[index].name_en;
+      let name_ta = updatedFields.name_ta !== undefined ? updatedFields.name_ta : db.routes[index].name_ta;
+
+      if (updatedFields.name_en !== undefined || updatedFields.name_ta !== undefined) {
+        if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+          const translated = await translateText(name_en, 'en', 'ta');
+          if (translated) name_ta = translated;
+        } else if (name_ta && !name_en) {
+          const translated = await translateText(name_ta, 'ta', 'en');
+          if (translated) name_en = translated;
+        }
+        updatedFields.name_en = name_en;
+        updatedFields.name_ta = name_ta;
+      }
+
+      db.routes[index] = { ...db.routes[index], ...updatedFields };
       await writeDB(req.tenantId, db);
       res.json(db.routes[index]);
     } else {
@@ -560,10 +605,21 @@ app.post('/api/shops', async (req, res) => {
   await acquireLock();
   try {
     const db = await readDB(req.tenantId);
+    let name_en = req.body.name_en || req.body.name || '';
+    let name_ta = req.body.name_ta || req.body.name || '';
+
+    if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+      const translated = await translateText(name_en, 'en', 'ta');
+      if (translated) name_ta = translated;
+    } else if (name_ta && !name_en) {
+      const translated = await translateText(name_ta, 'ta', 'en');
+      if (translated) name_en = translated;
+    }
+
     const newShop = {
       id: `s_${Date.now()}`,
-      name_en: req.body.name_en || req.body.name,
-      name_ta: req.body.name_ta || req.body.name,
+      name_en,
+      name_ta,
       contact_person: req.body.contact_person,
       mobile: req.body.mobile,
       gst_number: req.body.gst_number || '',
@@ -598,7 +654,24 @@ app.put('/api/shops/:id', async (req, res) => {
     const index = db.shops.findIndex(s => s.id === req.params.id);
     if (index !== -1) {
       const prevOutstanding = db.shops[index].outstanding_amount;
-      const updatedShop = { ...db.shops[index], ...req.body };
+      const updatedFields = { ...req.body };
+
+      let name_en = updatedFields.name_en !== undefined ? updatedFields.name_en : db.shops[index].name_en;
+      let name_ta = updatedFields.name_ta !== undefined ? updatedFields.name_ta : db.shops[index].name_ta;
+
+      if (updatedFields.name_en !== undefined || updatedFields.name_ta !== undefined) {
+        if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+          const translated = await translateText(name_en, 'en', 'ta');
+          if (translated) name_ta = translated;
+        } else if (name_ta && !name_en) {
+          const translated = await translateText(name_ta, 'ta', 'en');
+          if (translated) name_en = translated;
+        }
+        updatedFields.name_en = name_en;
+        updatedFields.name_ta = name_ta;
+      }
+
+      const updatedShop = { ...db.shops[index], ...updatedFields };
       updatedShop.outstanding_amount = Number(updatedShop.outstanding_amount || 0);
 
       // Track outstanding adjustment if modified manually
@@ -643,9 +716,20 @@ app.post('/api/shops/import', async (req, res) => {
       const item = shops[i];
       if (!item.name_en && !item.name_ta) continue;
 
+      let name_en = item.name_en || item.name_ta || '';
+      let name_ta = item.name_ta || item.name_en || '';
+
+      if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+        const translated = await translateText(name_en, 'en', 'ta');
+        if (translated) name_ta = translated;
+      } else if (name_ta && !name_en) {
+        const translated = await translateText(name_ta, 'ta', 'en');
+        if (translated) name_en = translated;
+      }
+
       // Check if shop already exists by name or mobile to avoid duplicates
       const existing = db.shops.find(
-        s => (item.name_en && s.name_en?.toLowerCase().trim() === item.name_en?.toLowerCase().trim()) ||
+        s => (name_en && s.name_en?.toLowerCase().trim() === name_en.toLowerCase().trim()) ||
              (item.mobile && s.mobile?.trim() === item.mobile?.trim())
       );
 
@@ -653,12 +737,14 @@ app.post('/api/shops/import', async (req, res) => {
         if (item.address) existing.address = item.address;
         if (item.mobile) existing.mobile = item.mobile;
         existing.route_id = routeId;
+        existing.name_en = name_en;
+        existing.name_ta = name_ta;
         results.push(existing);
       } else {
         const newShop = {
           id: `s_${now}_import_${i}`,
-          name_en: item.name_en || item.name_ta || '',
-          name_ta: item.name_ta || item.name_en || '',
+          name_en,
+          name_ta,
           contact_person: item.contact_person || 'Owner',
           mobile: item.mobile || '',
           gst_number: item.gst_number || '',

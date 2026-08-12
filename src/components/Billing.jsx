@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import html2pdf from 'html2pdf.js';
-import { translateShopName, translateRouteName } from '../translations';
+import { translateShopName, translateRouteName, translateProductName, translateAddress } from '../translations';
 
 export default function Billing({ orderId, t, lang, onBack }) {
   const [order, setOrder] = useState(null);
@@ -292,39 +292,39 @@ export default function Billing({ orderId, t, lang, onBack }) {
                 {/* Left side details */}
                 <div style={{ padding: isCompact ? '5px 8px' : '8px 10px', borderRight: '1.5px solid #1e293b', display: 'flex', flexDirection: 'column', gap: isCompact ? '3px' : '5px', background: '#f8fafc' }}>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: '90px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'பில் எண்:' : 'Invoice No:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'பில் எண்:' : 'Invoice No:'}</span>
                     <strong style={{ color: '#0f172a' }}>{order.invoice_number}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: '90px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'பில் தேதி:' : 'Invoice Date:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'பில் தேதி:' : 'Invoice Date:'}</span>
                     <span>{new Date(order.order_date).toLocaleDateString('en-GB')}</span>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: '90px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'வழித்தடம்:' : 'Route:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'வழித்தடம்:' : 'Route:'}</span>
                     <span>{translateRouteName(route, lang)}</span>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: '90px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'விற்பனையாளர்:' : 'Salesman:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'விற்பனையாளர்:' : 'Salesman:'}</span>
                     <span>{lang === 'ta' ? 'விநியோக நபர்' : 'Delivery Person'}</span>
                   </div>
                 </div>
                 {/* Right side Customer details */}
                 <div style={{ padding: isCompact ? '5px 8px' : '8px 10px', display: 'flex', flexDirection: 'column', gap: isCompact ? '3px' : '5px' }}>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: '100px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'வாடிக்கையாளர்:' : 'Customer Name:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'வாடிக்கையாளர்:' : 'Customer Name:'}</span>
                     <strong style={{ color: '#1e293b' }}>{translateShopName(shop, lang)}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: '100px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'தொடர்பு எண்:' : 'Mobile No:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'தொடர்பு எண்:' : 'Mobile No:'}</span>
                     <span>{shop ? shop.mobile : ''}</span>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: '100px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'ஜிஎஸ்டி எண்:' : 'Customer GSTIN:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'ஜிஎஸ்டி எண்:' : 'Customer GSTIN:'}</span>
                     <span style={{ fontWeight: '600' }}>{shop ? shop.gst_number || 'N/A' : 'N/A'}</span>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: '100px', color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'முகவரி:' : 'Shop Address:'}</span>
-                    <span style={{ color: '#334155' }}>{shop ? shop.address || 'N/A' : 'N/A'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'முகவரி:' : 'Shop Address:'}</span>
+                    <span style={{ color: '#334155' }}>{shop ? translateAddress(shop.address, lang) || 'N/A' : 'N/A'}</span>
                   </div>
                 </div>
               </div>
@@ -365,7 +365,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
                   <tbody>
                     {orderItems.map((item, idx) => {
                       const prod = products.find(p => p.id === item.product_id);
-                      const pName = prod ? (lang === 'ta' ? prod.name_ta : prod.name_en) : 'Product';
+                      const pName = prod ? translateProductName(prod, lang) : 'Product';
                       const pSize = prod ? prod.size : '';
 
                       return (
@@ -383,6 +383,27 @@ export default function Billing({ orderId, t, lang, onBack }) {
                         </tr>
                       );
                     })}
+                    {/* Total Row */}
+                    <tr style={{
+                      background: '#f8fafc',
+                      borderTop: '2px solid #1e293b',
+                      borderBottom: '2px solid #1e293b',
+                      fontWeight: '700'
+                    }}>
+                      <td style={{ padding: isCompact ? '4px 6px' : '6px 8px' }}></td>
+                      <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', color: '#1e293b' }}>{lang === 'ta' ? 'மொத்தம்' : 'Total'}</td>
+                      {!isCompact && <td style={{ padding: '6px 8px' }}></td>}
+                      <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', textAlign: 'center', color: '#1e293b', fontWeight: '800' }}>
+                        {orderItems.reduce((sum, item) => sum + (Number(item.cases) || 0), 0)}
+                      </td>
+                      <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', textAlign: 'center', color: '#1e293b', fontWeight: '800' }}>
+                        {orderItems.reduce((sum, item) => sum + (Number(item.bottles) || 0), 0)}
+                      </td>
+                      <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', textAlign: 'right' }}></td>
+                      <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>
+                        ₹{orderItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
