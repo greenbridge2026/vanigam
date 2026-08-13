@@ -151,10 +151,38 @@ export default function App() {
       let unsubscribe = null;
       let pollingTimer = null;
 
-      const syncUserName = (usersList) => {
+      const syncUserSession = (usersList) => {
         const currentUser = usersList.find(u => u.id === session.id);
-        if (currentUser && currentUser.name) {
-          setCurrentUserName(currentUser.name);
+        if (currentUser) {
+          if (currentUser.active === false) {
+            alert('Your account has been deactivated. Logging out / உங்கள் கணக்கு முடக்கப்பட்டுள்ளது.');
+            setSession(null);
+            setActiveTab('dashboard');
+            setSelectedOrderId(null);
+            return;
+          }
+
+          const userPerms = currentUser.permissions || [];
+          const sessPerms = session.permissions || [];
+          const permsChanged = JSON.stringify([...userPerms].sort()) !== JSON.stringify([...sessPerms].sort());
+
+          if (
+            currentUser.name !== session.name ||
+            currentUser.role !== session.role ||
+            permsChanged
+          ) {
+            setSession(prev => {
+              const updated = {
+                ...prev,
+                name: currentUser.name,
+                role: currentUser.role,
+                permissions: userPerms
+              };
+              localStorage.setItem('session', JSON.stringify(updated));
+              return updated;
+            });
+            setCurrentUserName(currentUser.name);
+          }
         }
       };
 
@@ -166,7 +194,7 @@ export default function App() {
           if (isFirebaseConfigured && db) {
             unsubscribe = onSnapshot(doc(db, 'tenants', session.tenantId || 'default', 'tables', 'users'), (docSnap) => {
               if (docSnap.exists()) {
-                syncUserName(docSnap.data().data || []);
+                syncUserSession(docSnap.data().data || []);
               }
             }, (err) => {
               console.warn('Firestore users listener failed, falling back to polling:', err);
@@ -185,7 +213,7 @@ export default function App() {
         const poll = async () => {
           try {
             const usersList = await api.getUsers();
-            syncUserName(usersList);
+            syncUserSession(usersList);
           } catch (err) {
             console.error('Error polling users', err);
           }
@@ -248,28 +276,36 @@ export default function App() {
   // Sidebar link details
   const getSidebarLinks = () => {
     const role = session.role;
-    const links = [{ id: 'dashboard', label: t('dashboard'), icon: '📊' }];
-
     if (role === 'superadmin') {
       return [{ id: 'dashboard', label: 'Super Admin', icon: '👑' }];
     }
 
+    const allLinks = [
+      { id: 'dashboard', label: t('dashboard'), icon: '📊' },
+      { id: 'routes', label: t('route_mgmt'), icon: '🗺️' },
+      { id: 'shops', label: t('shop_mgmt'), icon: '🏢' },
+      { id: 'products', label: t('product_mgmt'), icon: '🥤' },
+      { id: 'purchases', label: t('purchase_entry'), icon: '📥' },
+      { id: 'stock', label: t('stock_ledger'), icon: '📈' },
+      { id: 'orders', label: t('order_taking'), icon: '🛒' },
+      { id: 'deliveries', label: t('deliveries'), icon: '🚚' },
+      { id: 'vehicle_loading', label: lang === 'ta' ? 'வண்டி ஏற்றுதல்' : 'Vehicle Loading', icon: '📦' },
+      { id: 'outstanding_collection', label: t('outstanding_collection'), icon: '💵' },
+      { id: 'vehicle_sales', label: t('vehicle_direct_sales'), icon: '🚛' },
+      { id: 'reports', label: t('reports'), icon: '📈' },
+      { id: 'users', label: t('staff_mgmt'), icon: '👥' },
+      { id: 'recycle_bin', label: t('recycle_bin'), icon: '♻️' }
+    ];
+
+    const permissions = session.permissions;
+    if (permissions && Array.isArray(permissions)) {
+      return allLinks.filter(link => permissions.includes(link.id));
+    }
+
+    // Legacy fallback based on role
+    const links = [{ id: 'dashboard', label: t('dashboard'), icon: '📊' }];
     if (role === 'admin') {
-      links.push(
-        { id: 'routes', label: t('route_mgmt'), icon: '🗺️' },
-        { id: 'shops', label: t('shop_mgmt'), icon: '🏢' },
-        { id: 'products', label: t('product_mgmt'), icon: '🥤' },
-        { id: 'purchases', label: t('purchase_entry'), icon: '📥' },
-        { id: 'stock', label: t('stock_ledger'), icon: '📈' },
-        { id: 'orders', label: t('order_taking'), icon: '🛒' },
-        { id: 'deliveries', label: t('deliveries'), icon: '🚚' },
-        { id: 'vehicle_loading', label: lang === 'ta' ? 'வண்டி ஏற்றுதல்' : 'Vehicle Loading', icon: '📦' },
-        { id: 'outstanding_collection', label: t('outstanding_collection'), icon: '💵' },
-        { id: 'vehicle_sales', label: t('vehicle_direct_sales'), icon: '🚛' },
-        { id: 'reports', label: t('reports'), icon: '📈' },
-        { id: 'users', label: t('staff_mgmt'), icon: '👥' },
-        { id: 'recycle_bin', label: t('recycle_bin'), icon: '♻️' }
-      );
+      links.push(...allLinks.slice(1));
     } else if (role === 'salesman') {
       links.push(
         { id: 'shops', label: t('shop_mgmt'), icon: '🏢' },
@@ -300,6 +336,21 @@ export default function App() {
 
   // Content switching switcher
   const renderContent = () => {
+    // Page level permission check
+    if (session.role !== 'superadmin' && activeTab !== 'dashboard' && activeTab !== 'billing') {
+      const permissions = session.permissions;
+      if (permissions && Array.isArray(permissions) && !permissions.includes(activeTab)) {
+        return (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--danger)' }}>
+            <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>🚫 Access Denied / அனுமதி மறுக்கப்பட்டது</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>
+              You do not have permission to access this module. Please contact Super Admin.
+            </p>
+          </div>
+        );
+      }
+    }
+
     if (bulkPrintOrderIds && bulkPrintOrderIds.length > 0) {
       return (
         <BulkPrintLayout

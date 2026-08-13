@@ -3,21 +3,35 @@ import { doc, getDoc } from 'firebase/firestore';
 
 const API_BASE = '/api';
 
-function apiFetch(url, options = {}) {
+function apiFetch(url, options = {}, targetTenantId = null) {
   const headers = { ...options.headers };
-  const tenantId = localStorage.getItem('tenantId');
+  const tenantId = targetTenantId || localStorage.getItem('tenantId');
   if (tenantId) {
     headers['x-tenant-id'] = tenantId;
   }
+  
+  const sessionStr = localStorage.getItem('session');
+  if (sessionStr) {
+    try {
+      const session = JSON.parse(sessionStr);
+      if (session && session.id) {
+        headers['x-user-id'] = session.id;
+      }
+    } catch (e) {
+      console.error('Failed to parse session in apiFetch:', e);
+    }
+  }
+
   return fetch(url, { ...options, headers });
 }
 
 
 // Helper to load table data from Firestore directly (for real-time fallback/speed)
-async function getTableData(tableName, fallbackUrl) {
+async function getTableData(tableName, fallbackUrl, targetTenantId = null) {
+  const tenantId = targetTenantId || localStorage.getItem('tenantId');
   if (isFirebaseConfigured && db) {
     try {
-      const docRef = doc(db, 'tenants', localStorage.getItem('tenantId') || 'default', 'tables', tableName);
+      const docRef = doc(db, 'tenants', tenantId || 'default', 'tables', tableName);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
         return docSnap.data().data || [];
@@ -27,7 +41,7 @@ async function getTableData(tableName, fallbackUrl) {
       console.warn(`Firestore read failed for "${tableName}", falling back to REST API:`, err);
     }
   }
-  const res = await apiFetch(fallbackUrl);
+  const res = await apiFetch(fallbackUrl, {}, tenantId);
   return res.json();
 }
 
@@ -85,8 +99,8 @@ export const api = {
     return res.json();
   },
 
-  async getUsers() {
-    return getTableData('users', `${API_BASE}/users`);
+  async getUsers(targetTenantId = null) {
+    return getTableData('users', `${API_BASE}/users`, targetTenantId);
   },
 
   // Routes
@@ -385,34 +399,34 @@ export const api = {
   },
 
   // User Access Management
-  async createUser(userData) {
+  async createUser(userData, targetTenantId = null) {
     const res = await apiFetch(`${API_BASE}/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData)
-    });
+    }, targetTenantId);
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Failed to create user access');
     }
     return res.json();
   },
-  async updateUser(id, userData) {
+  async updateUser(id, userData, targetTenantId = null) {
     const res = await apiFetch(`${API_BASE}/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData)
-    });
+    }, targetTenantId);
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Failed to update user access');
     }
     return res.json();
   },
-  async deleteUser(id) {
+  async deleteUser(id, targetTenantId = null) {
     const res = await apiFetch(`${API_BASE}/users/${id}`, {
       method: 'DELETE'
-    });
+    }, targetTenantId);
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Failed to delete user access');

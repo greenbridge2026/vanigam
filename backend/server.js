@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { promises as fs } from 'fs';
+import { promises as fs, existsSync, unlinkSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { db as firestoreDb, isMock as isFirebaseMock, initError as firebaseInitError, credentialSource as firebaseCredSource, debugInfo as firebaseDebugInfo } from './firebaseAdmin.js';
@@ -181,11 +181,48 @@ async function writeSystemDB(data) {
 }
 
 // Initial Data Seeding
-async function seedDB(tenantId) {
+async function seedDB(tenantId, adminUsername = 'admin', adminPassword = '123') {
+  const finalUsername = (adminUsername || 'admin').toLowerCase().trim();
+  const finalPassword = adminPassword || '123';
   const users = [
-    { id: 'u1', username: 'admin', password: '123', role: 'admin', name: 'Admin Murugan', mobile: '9876543210', active: true },
-    { id: 'u2', username: 'sales', password: '123', role: 'salesman', name: 'Salesman Karthik', mobile: '9876543211', active: true },
-    { id: 'u3', username: 'delivery', password: '123', role: 'delivery', name: 'Delivery Man Ramesh', mobile: '9876543212', active: true }
+    { 
+      id: 'u1', 
+      username: finalUsername, 
+      password: finalPassword, 
+      role: 'admin', 
+      name: 'Admin Murugan', 
+      mobile: '9876543210', 
+      active: true,
+      permissions: [
+        'dashboard', 'routes', 'shops', 'products', 'purchases', 'stock',
+        'orders', 'deliveries', 'vehicle_loading', 'outstanding_collection',
+        'vehicle_sales', 'reports', 'users', 'recycle_bin'
+      ]
+    },
+    { 
+      id: 'u2', 
+      username: 'sales', 
+      password: '123', 
+      role: 'salesman', 
+      name: 'Salesman Karthik', 
+      mobile: '9876543211', 
+      active: true,
+      permissions: [
+        'dashboard', 'shops', 'orders', 'outstanding_collection', 'vehicle_sales', 'stock'
+      ]
+    },
+    { 
+      id: 'u3', 
+      username: 'delivery', 
+      password: '123', 
+      role: 'delivery', 
+      name: 'Delivery Man Ramesh', 
+      mobile: '9876543212', 
+      active: true,
+      permissions: [
+        'dashboard', 'deliveries'
+      ]
+    }
   ];
 
   const db = {
@@ -221,16 +258,89 @@ async function seedDB(tenantId) {
   return db;
 }
 
-// Add req.tenantId middleware
-app.use((req, res, next) => {
+// Authenticate and attach user middleware
+app.use(async (req, res, next) => {
   if (req.path === '/api/login' || req.path === '/api/debug' || req.path === '/api/translate' || req.path.startsWith('/api/system')) {
     return next();
   }
+  
   const tenantId = req.headers['x-tenant-id'];
   if (!tenantId) {
     return res.status(400).json({ error: 'Missing x-tenant-id header' });
   }
   req.tenantId = tenantId;
+
+  if (tenantId === 'SYSTEM') {
+    return next();
+  }
+
+  const userId = req.headers['x-user-id'];
+  if (!userId) {
+    return next();
+  }
+
+  try {
+    const db = await readDB(tenantId);
+    const user = db.users.find(u => u.id === userId);
+    if (!user) {
+      return res.status(401).json({ error: 'User session not found or invalid' });
+    }
+    if (!user.active) {
+      return res.status(403).json({ error: 'Your account is deactivated' });
+    }
+    req.user = user;
+  } catch (err) {
+    console.error('Error fetching user for middleware:', err);
+  }
+
+  next();
+});
+
+// Enforce permissions middleware
+const routePermissionMap = {
+  '/api/routes': 'routes',
+  '/api/shops': 'shops',
+  '/api/products': 'products',
+  '/api/purchases': 'purchases',
+  '/api/stock': 'stock',
+  '/api/orders': 'orders',
+  '/api/deliveries': 'deliveries',
+  '/api/vehicles': 'vehicle_loading',
+  '/api/payments': 'outstanding_collection',
+  '/api/reports': 'reports',
+  '/api/users': 'users',
+  '/api/recycle-bin': 'recycle_bin'
+};
+
+app.use((req, res, next) => {
+  if (req.path === '/api/login' || req.path === '/api/debug' || req.path === '/api/translate' || req.path.startsWith('/api/system')) {
+    return next();
+  }
+  if (req.tenantId === 'SYSTEM') {
+    return next();
+  }
+
+  if (req.user) {
+    if (req.user.role === 'admin' && (!req.user.permissions || req.user.permissions.length === 0)) {
+      return next();
+    }
+
+    let requiredPermission = null;
+    for (const [routePrefix, permission] of Object.entries(routePermissionMap)) {
+      if (req.path.startsWith(routePrefix)) {
+        requiredPermission = permission;
+        break;
+      }
+    }
+
+    if (requiredPermission) {
+      const allowedPermissions = req.user.permissions || [];
+      if (!allowedPermissions.includes(requiredPermission)) {
+        return res.status(403).json({ error: `Access Denied: You do not have permission for the module '${requiredPermission}'` });
+      }
+    }
+  }
+
   next();
 });
 
@@ -305,7 +415,7 @@ app.post('/api/login', async (req, res) => {
   
   if (tenantId === 'SYSTEM') {
     if (username === 'superadmin' && password === 'superadmin123') {
-      return res.json({ id: 'sys_1', username: 'superadmin', role: 'superadmin', name: 'Super Admin', mobile: '', tenantId: 'SYSTEM' });
+      return res.json({ id: 'sys_1', username: 'superadmin', role: 'superadmin', name: 'Super Admin', mobile: '', tenantId: 'SYSTEM', permissions: [] });
     }
     return res.status(401).json({ error: 'Invalid super admin credentials' });
   }
@@ -322,7 +432,7 @@ app.post('/api/login', async (req, res) => {
   const db = await readDB(tenantId);
   const user = db.users.find(u => u.username === username && u.password === password && u.active);
   if (user) {
-    res.json({ id: user.id, username: user.username, role: user.role, name: user.name, mobile: user.mobile, tenantId });
+    res.json({ id: user.id, username: user.username, role: user.role, name: user.name, mobile: user.mobile, tenantId, permissions: user.permissions || [] });
   } else {
     res.status(401).json({ error: 'Invalid credentials or inactive user' });
   }
@@ -353,6 +463,8 @@ app.post('/api/system/tenants', async (req, res) => {
     const newTenant = {
       id: id.toUpperCase(),
       name,
+      adminUsername: adminUsername || 'admin',
+      adminPassword: adminPassword || '123',
       active: true,
       created_at: new Date().toISOString()
     };
@@ -403,9 +515,8 @@ app.delete('/api/system/tenants/:id', async (req, res) => {
     // Optionally delete the physical db file if local
     if (isFirebaseMock) {
       const tenantDbPath = path.join(__dirname, `db_${req.params.id}.json`);
-      const fsModule = require('fs');
-      if (fsModule.existsSync(tenantDbPath)) {
-        fsModule.unlinkSync(tenantDbPath);
+      if (existsSync(tenantDbPath)) {
+        unlinkSync(tenantDbPath);
       }
     }
 
@@ -425,7 +536,7 @@ app.post('/api/users', async (req, res) => {
   await acquireLock();
   try {
     const db = await readDB(req.tenantId);
-    const { username, password, role, name, mobile, active } = req.body;
+    const { username, password, role, name, mobile, active, permissions } = req.body;
     
     // Check duplicate username
     if (db.users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
@@ -439,7 +550,8 @@ app.post('/api/users', async (req, res) => {
       role,
       name,
       mobile: mobile || '',
-      active: active !== undefined ? active : true
+      active: active !== undefined ? active : true,
+      permissions: permissions || []
     };
 
     db.users.push(newUser);
