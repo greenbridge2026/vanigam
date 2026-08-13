@@ -44,13 +44,27 @@ export default function UserMgr({ t, lang }) {
     e.preventDefault();
     if (!name || !username || !password) return alert('Please enter all required fields');
 
+    const getDefaultPermissions = (userRole) => {
+      if (userRole === 'salesman') {
+        return ['dashboard', 'shops', 'stock', 'orders', 'deliveries', 'outstanding_collection', 'vehicle_sales'];
+      } else if (userRole === 'admin') {
+        return ['dashboard', 'routes', 'shops', 'products', 'purchases', 'stock', 'orders', 'deliveries', 'vehicle_loading', 'outstanding_collection', 'vehicle_sales', 'reports', 'users', 'recycle_bin'];
+      } else if (userRole === 'delivery') {
+        return ['dashboard', 'deliveries'];
+      }
+      return ['dashboard'];
+    };
+
     const payload = {
       name,
       mobile,
       role,
       username: username.toLowerCase().trim(),
       password,
-      active
+      active,
+      permissions: (editingUser?.permissions && editingUser.role === role) 
+        ? editingUser.permissions 
+        : getDefaultPermissions(role)
     };
 
     try {

@@ -309,10 +309,11 @@ export default function App() {
     } else if (role === 'salesman') {
       links.push(
         { id: 'shops', label: t('shop_mgmt'), icon: '🏢' },
+        { id: 'stock', label: t('stock_ledger'), icon: '📈' },
         { id: 'orders', label: t('order_taking'), icon: '🛒' },
+        { id: 'deliveries', label: t('deliveries'), icon: '🚚' },
         { id: 'outstanding_collection', label: t('outstanding_collection'), icon: '💵' },
-        { id: 'vehicle_sales', label: t('vehicle_direct_sales'), icon: '🚛' },
-        { id: 'stock', label: t('stock_ledger'), icon: '📈' }
+        { id: 'vehicle_sales', label: t('vehicle_direct_sales'), icon: '🚛' }
       );
     } else if (role === 'delivery') {
       links.push(

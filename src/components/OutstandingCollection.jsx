@@ -13,6 +13,9 @@ export default function OutstandingCollection({ t, lang }) {
   const [selectedRouteId, setSelectedRouteId] = useState('all');
   const [selectedShopId, setSelectedShopId] = useState('');
   const [targetInvoiceId, setTargetInvoiceId] = useState(''); // Empty means General Outstanding
+  const [searchQuery, setSearchQuery] = useState('');
+  const [onlyOutstanding, setOnlyOutstanding] = useState(true);
+
   const [paymentRows, setPaymentRows] = useState([
     {
       payment_mode: 'cash',
@@ -63,11 +66,22 @@ export default function OutstandingCollection({ t, lang }) {
     })
     .filter(o => o.remaining_outstanding > 0);
 
-  // Filter shops by route
-  const filteredShops = shops.filter(s => {
+  // Filter shops for shopwise outstanding list
+  const filteredShopsList = shops.filter(s => {
+    if (s.status !== 'active') return false;
     if (selectedRouteId !== 'all' && s.route_id !== selectedRouteId) return false;
-    return s.status === 'active';
-  });
+    if (onlyOutstanding && (!s.outstanding_amount || s.outstanding_amount <= 0)) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const nameTa = (s.name_ta || '').toLowerCase();
+      const nameEn = (s.name_en || s.name || '').toLowerCase();
+      const mob = (s.mobile || '');
+      if (!nameTa.includes(q) && !nameEn.includes(q) && !mob.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (b.outstanding_amount || 0) - (a.outstanding_amount || 0));
+
+  const totalOutstandingSum = filteredShopsList.reduce((sum, s) => sum + (Number(s.outstanding_amount) || 0), 0);
 
   const handleAddRow = () => {
     setPaymentRows([
@@ -102,20 +116,33 @@ export default function OutstandingCollection({ t, lang }) {
 
   const balanceOutstanding = outstandingToResolve - totalCollected;
 
+  const handleSelectShop = (shopId) => {
+    setSelectedShopId(shopId);
+    setTargetInvoiceId('');
+    // Auto populate first payment row with outstanding amount if 0
+    const targetShop = shops.find(s => s.id === shopId);
+    if (targetShop && targetShop.outstanding_amount > 0 && paymentRows.length === 1 && paymentRows[0].collected_amount === 0) {
+      setPaymentRows([{
+        ...paymentRows[0],
+        collected_amount: targetShop.outstanding_amount
+      }]);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedShopId) {
-      alert('Please select a shop / கடையைத் தேர்ந்தெடுக்கவும்.');
+      alert(lang === 'ta' ? 'தயவுசெய்து பட்டியலிலிருந்து கடையைத் தேர்ந்தெடுக்கவும்.' : 'Please select a shop from the list.');
       return;
     }
     if (totalCollected <= 0) {
-      alert('Total collected amount must be greater than 0 / வசூலிக்கப்பட்ட தொகை பூஜ்ஜியத்தை விட அதிகமாக இருக்க வேண்டும்.');
+      alert(lang === 'ta' ? 'வசூலிக்கப்பட்ட தொகை பூஜ்ஜியத்தை விட அதிகமாக இருக்க வேண்டும்.' : 'Total collected amount must be greater than 0.');
       return;
     }
 
     const invalidRow = paymentRows.find(row => !row.collected_amount || Number(row.collected_amount) <= 0);
     if (invalidRow) {
-      alert('Please enter a valid amount for all payment rows / அனைத்து வரிசைகளிலும் சரியான தொகையை உள்ளிடவும்.');
+      alert(lang === 'ta' ? 'அனைத்து வரிசைகளிலும் சரியான தொகையை உள்ளிடவும்.' : 'Please enter a valid amount for all payment rows.');
       return;
     }
 
@@ -178,90 +205,165 @@ export default function OutstandingCollection({ t, lang }) {
     }
   };
 
-  if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading Outstanding Collection...</div>;
+  if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '3rem' }}>Loading Outstanding Collection...</div>;
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '2rem' }}>
+    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      <div style={{ marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>💵 {t('outstanding_collection')}</h1>
         <p style={{ color: 'var(--text-muted)' }}>
-          {lang === 'ta' ? 'கடைகளின் முந்தைய நிலுவைத் தொகைகளை வசூலித்து பற்று வைக்கவும்.' : 'Record partial or full payment collections for general shop outstanding or specific invoices.'}
+          {lang === 'ta' ? 'கடைகளின் நிலுவைத் தொகையை நேரடியாகப் பார்த்து விரைவாக வசூல் தொகையைப் பதிவு செய்யவும்.' : 'View shopwise outstanding balances and quickly record partial or full payment collections.'}
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '1.5rem', alignItems: 'flex-start' }} className="collection-grid">
+      <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1.65fr', gap: '1.5rem', alignItems: 'flex-start' }} className="collection-grid">
         
-        {/* Left side - shop selector and invoice listing */}
+        {/* Left side - Interactive Shopwise Outstanding List */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          
           <div className="glass-card">
-            <h2 style={{ fontSize: '1.15rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-              🎯 {lang === 'ta' ? 'கடை தேர்வு' : 'Select Customer'}
-            </h2>
-
-            <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-              <label>{lang === 'ta' ? 'வழித்தடம்' : 'Filter Route'}</label>
-              <select 
-                className="form-select" 
-                value={selectedRouteId} 
-                onChange={e => {
-                  setSelectedRouteId(e.target.value);
-                  setSelectedShopId('');
-                  setTargetInvoiceId('');
-                }}
-              >
-                <option value="all">{lang === 'ta' ? 'அனைத்து வழித்தடங்கள்' : 'All Routes'}</option>
-                {routes.map(r => (
-                  <option key={r.id} value={r.id}>{lang === 'ta' ? r.name_ta : r.name_en}</option>
-                ))}
-              </select>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+              <h2 style={{ fontSize: '1.15rem', margin: 0 }}>
+                🏬 {lang === 'ta' ? 'கடைவாரி நிலுவை பட்டியல்' : 'Shopwise Outstanding List'}
+              </h2>
+              <span style={{ fontSize: '0.75rem', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)', padding: '2px 8px', borderRadius: '12px', fontWeight: '600' }}>
+                {filteredShopsList.length} {lang === 'ta' ? 'கடைகள்' : 'Shops'}
+              </span>
             </div>
 
-            <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-              <label>{lang === 'ta' ? 'கடை' : 'Select Shop'}</label>
-              <select 
-                className="form-select" 
-                value={selectedShopId} 
-                onChange={e => {
-                  setSelectedShopId(e.target.value);
-                  setTargetInvoiceId('');
-                }}
-              >
-                <option value="">-- {lang === 'ta' ? 'கடையைத் தேர்ந்தெடுக்கவும்' : 'Choose Shop'} --</option>
-                {filteredShops.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {translateShopName(s, lang)} {s.outstanding_amount > 0 ? `(₹${s.outstanding_amount})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {selectedShop && (
-            <div className="glass-card" style={{ borderLeft: '4px solid var(--warning)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '1rem' }}>{translateShopName(selectedShop, lang)}</h3>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mob: {selectedShop.mobile}</span>
+            {/* Filter and Search controls */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group">
+                  <label style={{ fontSize: '0.75rem' }}>{lang === 'ta' ? 'வழித்தடம்' : 'Filter Route'}</label>
+                  <select 
+                    className="form-select" 
+                    value={selectedRouteId} 
+                    onChange={e => {
+                      setSelectedRouteId(e.target.value);
+                    }}
+                    style={{ fontSize: '0.85rem' }}
+                  >
+                    <option value="all">{lang === 'ta' ? 'அனைத்து வழித்தடங்கள்' : 'All Routes'}</option>
+                    {routes.map(r => (
+                      <option key={r.id} value={r.id}>{lang === 'ta' ? r.name_ta : r.name_en}</option>
+                    ))}
+                  </select>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block' }}>Total Outstanding</span>
-                  <strong style={{ fontSize: '1.4rem', color: 'var(--warning)' }}>₹{selectedShop.outstanding_amount}</strong>
+
+                <div className="form-group">
+                  <label style={{ fontSize: '0.75rem' }}>{lang === 'ta' ? 'தேடல்' : 'Search Shop'}</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder={lang === 'ta' ? 'கடை பெயர் / மொபைல்...' : 'Shop name / mobile...'}
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    style={{ fontSize: '0.85rem' }}
+                  />
+                </div>
+              </div>
+
+              {/* Filter toggle */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={onlyOutstanding}
+                    onChange={e => setOnlyOutstanding(e.target.checked)}
+                  />
+                  <span>{lang === 'ta' ? 'நிலுவை உள்ள கடைகள் மட்டும்' : 'Shops with Outstanding Only'}</span>
+                </label>
+                <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--warning)' }}>
+                  Total: ₹{totalOutstandingSum.toLocaleString()}
                 </div>
               </div>
             </div>
-          )}
 
+            {/* Shopwise Scrollable List */}
+            {filteredShopsList.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textAlign: 'center', margin: '2rem 0' }}>
+                {lang === 'ta' ? 'கடைகள் எதுவும் கிடைக்கவில்லை.' : 'No shops found matching filter criteria.'}
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '420px', overflowY: 'auto', paddingRight: '4px' }}>
+                {filteredShopsList.map(s => {
+                  const isSelected = selectedShopId === s.id;
+                  const routeObj = routes.find(r => r.id === s.route_id);
+                  const routeName = routeObj ? (lang === 'ta' ? routeObj.name_ta : routeObj.name_en) : 'Unassigned';
+
+                  return (
+                    <div 
+                      key={s.id}
+                      onClick={() => handleSelectShop(s.id)}
+                      style={{
+                        padding: '0.75rem',
+                        background: isSelected ? 'rgba(6, 182, 212, 0.12)' : 'rgba(255,255,255,0.02)',
+                        border: isSelected ? '2px solid var(--accent-cyan)' : '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        transition: 'all 0.2s ease',
+                        boxShadow: isSelected ? '0 0 10px rgba(6, 182, 212, 0.2)' : 'none'
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0, paddingRight: '0.5rem' }}>
+                        <div style={{ fontWeight: '700', fontSize: '0.95rem', color: isSelected ? 'var(--accent-cyan)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {translateShopName(s, lang)}
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.2rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px', color: 'var(--text-muted)' }}>
+                            🗺️ {routeName}
+                          </span>
+                          {s.mobile && (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              📞 {s.mobile}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
+                        <div style={{ fontSize: '1.05rem', fontWeight: '800', color: s.outstanding_amount > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                          ₹{(s.outstanding_amount || 0).toLocaleString()}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{
+                            padding: '0.2rem 0.5rem',
+                            fontSize: '0.75rem',
+                            fontWeight: '600',
+                            background: isSelected ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.08)',
+                            color: isSelected ? '#0f172a' : 'var(--text-primary)',
+                            border: 'none',
+                            borderRadius: '4px'
+                          }}
+                        >
+                          {isSelected ? '✓ Selected' : '⚡ Collect'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Unpaid Invoices card for selected shop */}
           {selectedShopId && (
             <div className="glass-card">
-              <h2 style={{ fontSize: '1.15rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+              <h2 style={{ fontSize: '1.1rem', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
                 📄 {lang === 'ta' ? 'நிலுவை பில்கள்' : 'Unpaid Invoices'} ({shopInvoices.length})
               </h2>
               {shopInvoices.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', margin: '1rem 0' }}>
-                  {lang === 'ta' ? 'நிலுவை பில்கள் எதுவும் இல்லை.' : 'No unpaid invoices found for this shop.'}
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', margin: '0.75rem 0' }}>
+                  {lang === 'ta' ? 'நிலுவை பில்கள் எதுவும் இல்லை.' : 'No specific unpaid invoices found for this shop.'}
                 </p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '200px', overflowY: 'auto' }}>
                   {shopInvoices.map(inv => (
                     <div 
                       key={inv.id} 
@@ -294,6 +396,7 @@ export default function OutstandingCollection({ t, lang }) {
               )}
             </div>
           )}
+
         </div>
 
         {/* Right side - Payment Entry Form */}
@@ -311,32 +414,53 @@ export default function OutstandingCollection({ t, lang }) {
             )}
           </h2>
 
+          {/* Selected Shop Banner */}
+          {selectedShop ? (
+            <div style={{ padding: '0.75rem 1rem', background: 'rgba(6, 182, 212, 0.1)', border: '1px solid var(--accent-cyan)', borderRadius: 'var(--radius)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', fontWeight: '600', display: 'block' }}>SELECTED SHOP</span>
+                <strong style={{ fontSize: '1.1rem' }}>{translateShopName(selectedShop, lang)}</strong>
+                {selectedShop.mobile && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>📞 {selectedShop.mobile}</span>}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Shop Outstanding</span>
+                <strong style={{ fontSize: '1.25rem', color: 'var(--warning)' }}>₹{selectedShop.outstanding_amount}</strong>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '1rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px dashed var(--warning)', borderRadius: 'var(--radius)', textAlign: 'center', color: 'var(--warning)' }}>
+              👈 {lang === 'ta' ? 'பட்டியலிலிருந்து கடையைத் தேர்ந்தெடுக்கவும்' : 'Please select a shop from the list on the left to start collecting.'}
+            </div>
+          )}
+
           {/* Target application toggle */}
-          <div>
-            <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '0.4rem' }}>
-              {lang === 'ta' ? 'வசூல் வகை' : 'Apply Collection To'}
-            </label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                type="button"
-                className={`language-btn ${!targetInvoiceId ? 'active' : ''}`}
-                style={{ flex: 1, padding: '0.5rem', background: !targetInvoiceId ? 'var(--accent-cyan)' : '', color: !targetInvoiceId ? '#0f172a' : '' }}
-                onClick={() => setTargetInvoiceId('')}
-              >
-                💼 {lang === 'ta' ? 'பொது கணக்கு வசூல்' : 'General Account Outstanding'}
-              </button>
-              {shopInvoices.length > 0 && (
+          {selectedShopId && (
+            <div>
+              <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '0.4rem' }}>
+                {lang === 'ta' ? 'வசூல் வகை' : 'Apply Collection To'}
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button
                   type="button"
-                  className={`language-btn ${targetInvoiceId ? 'active' : ''}`}
-                  style={{ flex: 1, padding: '0.5rem', background: targetInvoiceId ? 'var(--accent-cyan)' : '', color: targetInvoiceId ? '#0f172a' : '' }}
-                  onClick={() => handleInvoiceSelect(shopInvoices[0].id)}
+                  className={`language-btn ${!targetInvoiceId ? 'active' : ''}`}
+                  style={{ flex: 1, padding: '0.5rem', background: !targetInvoiceId ? 'var(--accent-cyan)' : '', color: !targetInvoiceId ? '#0f172a' : '' }}
+                  onClick={() => setTargetInvoiceId('')}
                 >
-                  📄 {lang === 'ta' ? 'குறிப்பிட்ட பில்' : 'Specific Invoice'}
+                  💼 {lang === 'ta' ? 'பொது கணக்கு வசூல்' : 'General Account Outstanding'}
                 </button>
-              )}
+                {shopInvoices.length > 0 && (
+                  <button
+                    type="button"
+                    className={`language-btn ${targetInvoiceId ? 'active' : ''}`}
+                    style={{ flex: 1, padding: '0.5rem', background: targetInvoiceId ? 'var(--accent-cyan)' : '', color: targetInvoiceId ? '#0f172a' : '' }}
+                    onClick={() => handleInvoiceSelect(shopInvoices[0].id)}
+                  >
+                    📄 {lang === 'ta' ? 'குறிப்பிட்ட பில்' : 'Specific Invoice'}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Dynamic Payment Rows */}
           <div>

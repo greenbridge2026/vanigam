@@ -208,7 +208,7 @@ async function seedDB(tenantId, adminUsername = 'admin', adminPassword = '123') 
       mobile: '9876543211', 
       active: true,
       permissions: [
-        'dashboard', 'shops', 'orders', 'outstanding_collection', 'vehicle_sales', 'stock'
+        'dashboard', 'shops', 'stock', 'orders', 'deliveries', 'outstanding_collection', 'vehicle_sales'
       ]
     },
     { 
@@ -552,6 +552,12 @@ app.post('/api/users', async (req, res) => {
       return res.status(400).json({ error: 'Username already exists' });
     }
 
+    const defaultPermissions = role === 'admin'
+      ? ['dashboard', 'routes', 'shops', 'products', 'purchases', 'stock', 'orders', 'deliveries', 'vehicle_loading', 'outstanding_collection', 'vehicle_sales', 'reports', 'users', 'recycle_bin']
+      : role === 'salesman'
+      ? ['dashboard', 'shops', 'stock', 'orders', 'deliveries', 'outstanding_collection', 'vehicle_sales']
+      : ['dashboard', 'deliveries'];
+
     const newUser = {
       id: `u_${Date.now()}`,
       username: username.toLowerCase(),
@@ -560,7 +566,7 @@ app.post('/api/users', async (req, res) => {
       name,
       mobile: mobile || '',
       active: active !== undefined ? active : true,
-      permissions: permissions || []
+      permissions: (permissions && Array.isArray(permissions) && permissions.length > 0) ? permissions : defaultPermissions
     };
 
     db.users.push(newUser);

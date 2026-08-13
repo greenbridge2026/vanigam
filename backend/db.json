@@ -16,7 +16,8 @@
       "role": "salesman",
       "name": "Salesman Karthik",
       "mobile": "9876543211",
-      "active": true
+      "active": true,
+      "permissions": ["dashboard", "shops", "stock", "orders", "deliveries", "outstanding_collection", "vehicle_sales"]
     },
     {
       "id": "u3",
@@ -25,7 +26,8 @@
       "role": "delivery",
       "name": "Delivery Man Ramesh",
       "mobile": "9876543212",
-      "active": true
+      "active": true,
+      "permissions": ["dashboard", "deliveries"]
     },
     {
       "id": "u_1783262545005",

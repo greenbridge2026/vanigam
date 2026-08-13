@@ -44,7 +44,7 @@ export default function SuperAdminDashboard({ t, lang }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [active, setActive] = useState(true);
-  const [permissions, setPermissions] = useState(['dashboard', 'shops', 'orders', 'outstanding_collection', 'vehicle_sales', 'stock']);
+  const [permissions, setPermissions] = useState(['dashboard', 'shops', 'stock', 'orders', 'deliveries', 'outstanding_collection', 'vehicle_sales']);
 
   // Shared Notifications
   const [error, setError] = useState('');
@@ -163,7 +163,7 @@ export default function SuperAdminDashboard({ t, lang }) {
     if (newRole === 'admin') {
       setPermissions(MODULES.map(m => m.id));
     } else if (newRole === 'salesman') {
-      setPermissions(['dashboard', 'shops', 'orders', 'outstanding_collection', 'vehicle_sales', 'stock']);
+      setPermissions(['dashboard', 'shops', 'stock', 'orders', 'deliveries', 'outstanding_collection', 'vehicle_sales']);
     } else if (newRole === 'delivery') {
       setPermissions(['dashboard', 'deliveries']);
     }
@@ -263,7 +263,7 @@ export default function SuperAdminDashboard({ t, lang }) {
     setUsername('');
     setPassword('');
     setActive(true);
-    setPermissions(['dashboard', 'shops', 'orders', 'outstanding_collection', 'vehicle_sales', 'stock']);
+    setPermissions(['dashboard', 'shops', 'stock', 'orders', 'deliveries', 'outstanding_collection', 'vehicle_sales']);
   };
 
   return (
