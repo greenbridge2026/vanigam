@@ -240,6 +240,18 @@ export const api = {
     }
     return res.json();
   },
+  async updatePurchase(id, purchaseData) {
+    const res = await apiFetch(`${API_BASE}/purchases/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(purchaseData)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update purchase entry');
+    }
+    return res.json();
+  },
 
   // Stock Ledger
   async getStockLedger() {

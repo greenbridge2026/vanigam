@@ -472,109 +472,229 @@ export default function SuperAdminDashboard({ t, lang }) {
 
           {selectedTenantId && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem' }}>
-              {/* Form Card */}
-              <div className="glass-panel">
-                <h3>{editingUser ? '✏️ Edit Tenant User' : '👥 Add Tenant User'}</h3>
-                <form onSubmit={handleUserSubmit}>
-                  <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
-                    <div className="form-group">
-                      <label>Full Name *</label>
-                      <input 
-                        type="text" 
-                        className="form-input"
-                        value={name} 
-                        onChange={e => setName(e.target.value)} 
-                        placeholder="e.g. Salesman Ram"
-                        required 
-                      />
+              {/* Add Tenant User Form Card (Normal view) */}
+              {!editingUser && (
+                <div className="glass-panel">
+                  <h3>👥 Add Tenant User</h3>
+                  <form onSubmit={handleUserSubmit}>
+                    <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+                      <div className="form-group">
+                        <label>Full Name *</label>
+                        <input 
+                          type="text" 
+                          className="form-input"
+                          value={name} 
+                          onChange={e => setName(e.target.value)} 
+                          placeholder="e.g. Salesman Ram"
+                          required 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Mobile Number</label>
+                        <input 
+                          type="text" 
+                          className="form-input"
+                          value={mobile} 
+                          onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))} 
+                          maxLength={10}
+                          pattern="[0-9]{10}"
+                          inputMode="numeric"
+                          placeholder="10-digit number" 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Username (Login ID) *</label>
+                        <input 
+                          type="text" 
+                          className="form-input"
+                          value={username} 
+                          onChange={e => setUsername(e.target.value)} 
+                          placeholder="e.g. ram123"
+                          required 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Password *</label>
+                        <input 
+                          type="text" 
+                          className="form-input"
+                          value={password} 
+                          onChange={e => setPassword(e.target.value)} 
+                          placeholder="Enter password" 
+                          required 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Role</label>
+                        <select 
+                          className="form-select"
+                          value={role} 
+                          onChange={e => handleRoleChange(e.target.value)}
+                        >
+                          <option value="admin">Admin</option>
+                          <option value="salesman">Salesman</option>
+                          <option value="delivery">Delivery Man</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>User Status</label>
+                        <select 
+                          className="form-select"
+                          value={active ? 'active' : 'inactive'}
+                          onChange={e => setActive(e.target.value === 'active')}
+                        >
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label>Mobile Number</label>
-                      <input 
-                        type="text" 
-                        className="form-input"
-                        value={mobile} 
-                        onChange={e => setMobile(e.target.value)} 
-                        placeholder="10-digit number" 
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Username (Login ID) *</label>
-                      <input 
-                        type="text" 
-                        className="form-input"
-                        value={username} 
-                        onChange={e => setUsername(e.target.value)} 
-                        placeholder="e.g. ram123"
-                        disabled={editingUser !== null}
-                        required 
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Password *</label>
-                      <input 
-                        type="text" 
-                        className="form-input"
-                        value={password} 
-                        onChange={e => setPassword(e.target.value)} 
-                        placeholder="Enter password" 
-                        required 
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Role</label>
-                      <select 
-                        className="form-select"
-                        value={role} 
-                        onChange={e => handleRoleChange(e.target.value)}
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="salesman">Salesman</option>
-                        <option value="delivery">Delivery Man</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label>User Status</label>
-                      <select 
-                        className="form-select"
-                        value={active ? 'active' : 'inactive'}
-                        onChange={e => setActive(e.target.value === 'active')}
-                      >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
-                    </div>
-                  </div>
 
-                  {/* Permissions checklist */}
-                  <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
-                    <h4 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>🛡️ Module Permissions Checklist</h4>
-                    <div className="permissions-grid">
-                      {MODULES.map(m => (
-                        <label key={m.id} className="permission-item">
-                          <input 
-                            type="checkbox"
-                            checked={permissions.includes(m.id)}
-                            onChange={() => togglePermission(m.id)}
-                          />
-                          <span>{m.label}</span>
-                        </label>
-                      ))}
+                    {/* Permissions checklist */}
+                    <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
+                      <h4 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>🛡️ Module Permissions Checklist</h4>
+                      <div className="permissions-grid">
+                        {MODULES.map(m => (
+                          <label key={m.id} className="permission-item">
+                            <input 
+                              type="checkbox"
+                              checked={permissions.includes(m.id)}
+                              onChange={() => togglePermission(m.id)}
+                            />
+                            <span>{m.label}</span>
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="btn-group" style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                    <button type="submit" className="primary-btn btn">
-                      {editingUser ? 'Save Changes' : 'Create Account'}
-                    </button>
-                    {editingUser && (
-                      <button type="button" className="btn danger-btn" onClick={resetUserForm}>
-                        Cancel
+                    <div className="btn-group" style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                      <button type="submit" className="primary-btn btn">
+                        Create Account
                       </button>
-                    )}
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* Edit Tenant User Popup Modal */}
+              {editingUser && (
+                <div className="modal-overlay">
+                  <div className="glass-card modal-card" style={{ maxWidth: '750px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+                      <h2 style={{ fontSize: '1.35rem', fontWeight: '700', margin: 0 }}>
+                        ✏️ Edit Tenant User: {editingUser.name} ({editingUser.username})
+                      </h2>
+                      <button 
+                        type="button" 
+                        onClick={resetUserForm}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleUserSubmit}>
+                      <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+                        <div className="form-group">
+                          <label>Full Name *</label>
+                          <input 
+                            type="text" 
+                            className="form-input"
+                            value={name} 
+                            onChange={e => setName(e.target.value)} 
+                            placeholder="e.g. Salesman Ram"
+                            required 
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Mobile Number</label>
+                          <input 
+                            type="text" 
+                            className="form-input"
+                            value={mobile} 
+                            onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))} 
+                            maxLength={10}
+                            pattern="[0-9]{10}"
+                            inputMode="numeric"
+                            placeholder="10-digit number" 
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Username (Login ID) *</label>
+                          <input 
+                            type="text" 
+                            className="form-input"
+                            value={username} 
+                            onChange={e => setUsername(e.target.value)} 
+                            placeholder="e.g. ram123"
+                            disabled={true}
+                            required 
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Password *</label>
+                          <input 
+                            type="text" 
+                            className="form-input"
+                            value={password} 
+                            onChange={e => setPassword(e.target.value)} 
+                            placeholder="Enter password" 
+                            required 
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Role</label>
+                          <select 
+                            className="form-select"
+                            value={role} 
+                            onChange={e => handleRoleChange(e.target.value)}
+                          >
+                            <option value="admin">Admin</option>
+                            <option value="salesman">Salesman</option>
+                            <option value="delivery">Delivery Man</option>
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label>User Status</label>
+                          <select 
+                            className="form-select"
+                            value={active ? 'active' : 'inactive'}
+                            onChange={e => setActive(e.target.value === 'active')}
+                          >
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Permissions checklist */}
+                      <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
+                        <h4 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>🛡️ Module Permissions Checklist</h4>
+                        <div className="permissions-grid">
+                          {MODULES.map(m => (
+                            <label key={m.id} className="permission-item">
+                              <input 
+                                type="checkbox"
+                                checked={permissions.includes(m.id)}
+                                onChange={() => togglePermission(m.id)}
+                              />
+                              <span>{m.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="btn-group" style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem', justifyContent: 'flex-end' }}>
+                        <button type="button" className="btn btn-secondary" onClick={resetUserForm}>
+                          Cancel
+                        </button>
+                        <button type="submit" className="primary-btn btn">
+                          💾 Save Changes
+                        </button>
+                      </div>
+                    </form>
                   </div>
-                </form>
-              </div>
+                </div>
+              )}
 
               {/* Users List Card */}
               <div className="glass-panel">

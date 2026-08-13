@@ -379,7 +379,17 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
               </div>
               <div className="form-group">
                 <label>{t('mobile_number')}</label>
-                <input type="text" className="form-input" value={mobile} onChange={e => setMobile(e.target.value)} required placeholder="e.g. 9876543210" />
+                <input
+                  type="text"
+                  className="form-input"
+                  value={mobile}
+                  onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  maxLength={10}
+                  pattern="[0-9]{10}"
+                  inputMode="numeric"
+                  required
+                  placeholder="e.g. 9876543210"
+                />
               </div>
               <div className="form-group">
                 <label>{t('gst_number')}</label>
@@ -460,7 +470,17 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                   </div>
                   <div className="form-group">
                     <label>{t('mobile_number')}</label>
-                    <input type="text" className="form-input" value={mobile} onChange={e => setMobile(e.target.value)} required placeholder="e.g. 9876543210" />
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={mobile}
+                      onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      maxLength={10}
+                      pattern="[0-9]{10}"
+                      inputMode="numeric"
+                      required
+                      placeholder="e.g. 9876543210"
+                    />
                   </div>
                   <div className="form-group">
                     <label>{t('gst_number')}</label>

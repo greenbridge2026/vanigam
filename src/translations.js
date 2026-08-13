@@ -91,6 +91,8 @@ export const translations = {
     shop_closed: "Shop Closed",
     payment_issue: "Payment Issue",
     other: "Other",
+    fulfill: "Fulfill",
+    fulfillment: "Fulfillment",
 
     // Purchase Module
     supplier: "Supplier Name",
@@ -317,6 +319,8 @@ export const translations = {
     shop_closed: "கடை மூடப்பட்டுள்ளது",
     payment_issue: "பணம் செலுத்துவதில் சிக்கல்",
     other: "மற்றவை",
+    fulfill: "நிறைவேற்று",
+    fulfillment: "நிறைவேற்றம்",
 
     // Purchase Module
     supplier: "விநியோகஸ்தர் பெயர்",

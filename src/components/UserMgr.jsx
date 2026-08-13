@@ -130,115 +130,237 @@ export default function UserMgr({ t, lang }) {
         <p style={{ color: 'var(--text-muted)' }}>Generate staff access profiles and manage credentials for Admin, Salesmen, and Delivery Men</p>
       </div>
 
-      {/* Form Card */}
-      <div className="glass-card">
-        <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>
-          {editingUser ? t('edit_user') : t('add_user')}
-        </h2>
-        <form onSubmit={handleSubmit}>
-          <div className="form-grid">
-            <div className="form-group">
-              <label>{t('full_name')} *</label>
-              <input
-                type="text"
-                className="form-input"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                required
-                placeholder="e.g. Salesman Ram"
-              />
+      {/* Add User Form Card (Normal view) */}
+      {!editingUser && (
+        <div className="glass-card">
+          <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>{t('add_user')}</h2>
+          <form onSubmit={handleSubmit}>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>{t('full_name')} *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  required
+                  placeholder="e.g. Salesman Ram"
+                />
+              </div>
+              <div className="form-group">
+                <label>{t('mobile_number')}</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={mobile}
+                  onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  maxLength={10}
+                  pattern="[0-9]{10}"
+                  inputMode="numeric"
+                  placeholder="10-digit number"
+                />
+              </div>
+              <div className="form-group">
+                <label>{t('role')}</label>
+                <select
+                  className="form-select"
+                  value={role}
+                  onChange={e => setRole(e.target.value)}
+                >
+                  <option value="admin">{t('admin')}</option>
+                  <option value="salesman">{t('salesman')}</option>
+                  <option value="delivery">{t('delivery_man')}</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>{t('username')} *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  required
+                  placeholder="e.g. ram123"
+                />
+              </div>
+              <div className="form-group">
+                <label>{t('password')} *</label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type={showFormPassword ? 'text' : 'password'}
+                    className="form-input"
+                    style={{ width: '100%', paddingRight: '2.5rem' }}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    required
+                    placeholder="Enter password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFormPassword(!showFormPassword)}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--accent-cyan)',
+                      fontSize: '1.1rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    title={showFormPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showFormPassword ? '🙈' : '👁️'}
+                  </button>
+                </div>
+              </div>
+              <div className="form-group">
+                <label>{t('user_status')}</label>
+                <select
+                  className="form-select"
+                  value={active ? 'active' : 'inactive'}
+                  onChange={e => setActive(e.target.value === 'active')}
+                >
+                  <option value="active">{t('active')}</option>
+                  <option value="inactive">{t('inactive')}</option>
+                </select>
+              </div>
             </div>
-            <div className="form-group">
-              <label>{t('mobile_number')}</label>
-              <input
-                type="text"
-                className="form-input"
-                value={mobile}
-                onChange={e => setMobile(e.target.value)}
-                placeholder="10-digit number"
-              />
-            </div>
-            <div className="form-group">
-              <label>{t('role')}</label>
-              <select
-                className="form-select"
-                value={role}
-                onChange={e => setRole(e.target.value)}
-              >
-                <option value="admin">{t('admin')}</option>
-                <option value="salesman">{t('salesman')}</option>
-                <option value="delivery">{t('delivery_man')}</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label>{t('username')} *</label>
-              <input
-                type="text"
-                className="form-input"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                required
-                disabled={editingUser !== null}
-                placeholder="e.g. ram123"
-              />
-            </div>
-             <div className="form-group">
-               <label>{t('password')} *</label>
-               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                 <input
-                   type={showFormPassword ? 'text' : 'password'}
-                   className="form-input"
-                   style={{ width: '100%', paddingRight: '2.5rem' }}
-                   value={password}
-                   onChange={e => setPassword(e.target.value)}
-                   required
-                   placeholder="Enter password"
-                 />
-                 <button
-                   type="button"
-                   onClick={() => setShowFormPassword(!showFormPassword)}
-                   style={{
-                     position: 'absolute',
-                     right: '10px',
-                     background: 'none',
-                     border: 'none',
-                     cursor: 'pointer',
-                     color: 'var(--accent-cyan)',
-                     fontSize: '1.1rem',
-                     display: 'flex',
-                     alignItems: 'center',
-                     justifyContent: 'center'
-                   }}
-                   title={showFormPassword ? 'Hide password' : 'Show password'}
-                 >
-                   {showFormPassword ? '🙈' : '👁️'}
-                 </button>
-               </div>
-             </div>
-            <div className="form-group">
-              <label>{t('user_status')}</label>
-              <select
-                className="form-select"
-                value={active ? 'active' : 'inactive'}
-                onChange={e => setActive(e.target.value === 'active')}
-              >
-                <option value="active">{t('active')}</option>
-                <option value="inactive">{t('inactive')}</option>
-              </select>
-            </div>
-          </div>
-          <div className="btn-group">
-            {editingUser && (
-              <button type="button" className="btn btn-secondary" onClick={resetForm}>
-                {t('cancel')}
+            <div className="btn-group">
+              <button type="submit" className="btn btn-primary">
+                💾 {t('save')}
               </button>
-            )}
-            <button type="submit" className="btn btn-primary">
-              💾 {t('save')}
-            </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Edit User Popup Modal */}
+      {editingUser && (
+        <div className="modal-overlay">
+          <div className="glass-card modal-card" style={{ maxWidth: '650px', width: '95%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h2 style={{ fontSize: '1.35rem', fontWeight: '700', margin: 0 }}>
+                ✏️ {t('edit_user')}: {editingUser.name} ({editingUser.username})
+              </h2>
+              <button 
+                type="button" 
+                onClick={resetForm}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit}>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>{t('full_name')} *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    required
+                    placeholder="e.g. Salesman Ram"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>{t('mobile_number')}</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={mobile}
+                    onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    maxLength={10}
+                    pattern="[0-9]{10}"
+                    inputMode="numeric"
+                    placeholder="10-digit number"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>{t('role')}</label>
+                  <select
+                    className="form-select"
+                    value={role}
+                    onChange={e => setRole(e.target.value)}
+                  >
+                    <option value="admin">{t('admin')}</option>
+                    <option value="salesman">{t('salesman')}</option>
+                    <option value="delivery">{t('delivery_man')}</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>{t('username')} *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    required
+                    disabled={true}
+                    placeholder="e.g. ram123"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>{t('password')} *</label>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      type={showFormPassword ? 'text' : 'password'}
+                      className="form-input"
+                      style={{ width: '100%', paddingRight: '2.5rem' }}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      required
+                      placeholder="Enter password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowFormPassword(!showFormPassword)}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--accent-cyan)',
+                        fontSize: '1.1rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      title={showFormPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showFormPassword ? '🙈' : '👁️'}
+                    </button>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>{t('user_status')}</label>
+                  <select
+                    className="form-select"
+                    value={active ? 'active' : 'inactive'}
+                    onChange={e => setActive(e.target.value === 'active')}
+                  >
+                    <option value="active">{t('active')}</option>
+                    <option value="inactive">{t('inactive')}</option>
+                  </select>
+                </div>
+              </div>
+              <div className="btn-group" style={{ marginTop: '1.5rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary" onClick={resetForm}>
+                  {t('cancel')}
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  💾 {t('save')}
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
-      </div>
+        </div>
+      )}
 
       {/* Staff List Table */}
       <div className="glass-card">

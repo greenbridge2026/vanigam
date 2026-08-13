@@ -465,7 +465,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                 👁️
                               </button>
                               <button className="btn btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }} onClick={() => handleSelectDelivery(d)}>
-                                ⚡ Fulfill
+                                ⚡ {t('fulfill')}
                               </button>
                             </>
                           ) : (
@@ -512,7 +512,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
             <div className="glass-card modal-card" style={{ border: '1px solid var(--accent-cyan)', maxWidth: '520px', width: '95%', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
               <h2 style={{ fontSize: '1.25rem', color: 'var(--accent-cyan)', margin: 0 }}>
-                Fulfill Invoice: {activeDelivery.order.invoice_number}
+                {t('fulfill')} {lang === 'ta' ? 'விலைப்பட்டியல்' : 'Invoice'}: {activeDelivery.order.invoice_number}
               </h2>
               <button 
                 type="button" 
@@ -620,48 +620,19 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
                     <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>💵 {t('payment_collection')}</h3>
                     
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
-                        <label style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>💵 {t('cash')} Amount (₹)</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          className="form-input"
-                          style={{ width: '100%', boxSizing: 'border-box' }}
-                          value={cashAmount || ''}
-                          onChange={e => setCashAmount(Math.max(0, parseInt(e.target.value.replace(/\D/g, '')) || 0))}
-                          placeholder="Cash"
-                        />
-                      </div>
-                      
-                      <div className="form-group" style={{ margin: 0, minWidth: 0 }}>
-                        <label style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>📱 {t('gpay')} Amount (₹)</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          className="form-input"
-                          style={{ width: '100%', boxSizing: 'border-box' }}
-                          value={gpayAmount || ''}
-                          onChange={e => setGpayAmount(Math.max(0, parseInt(e.target.value.replace(/\D/g, '')) || 0))}
-                          placeholder="GPay"
-                        />
-                      </div>
+                    <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                      <label style={{ fontSize: '0.8rem', display: 'block' }}>💵 {t('cash')} Amount (₹)</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        className="form-input"
+                        style={{ width: '100%', boxSizing: 'border-box' }}
+                        value={cashAmount || ''}
+                        onChange={e => setCashAmount(Math.max(0, parseInt(e.target.value.replace(/\D/g, '')) || 0))}
+                        placeholder="Cash Collected Amount"
+                      />
                     </div>
-
-                    {gpayAmount > 0 && (
-                      <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-                        <label style={{ fontSize: '0.8rem' }}>{t('transaction_id')} (GPay Ref ID)</label>
-                        <input
-                          type="text"
-                          className="form-input"
-                          value={gpayTxn}
-                          onChange={e => setGpayTxn(e.target.value)}
-                          placeholder="UPI Ref ID"
-                        />
-                      </div>
-                    )}
 
                     {/* Live calculation for collection */}
                     <div style={{ marginTop: '0.75rem', padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius)', fontSize: '0.85rem' }}>

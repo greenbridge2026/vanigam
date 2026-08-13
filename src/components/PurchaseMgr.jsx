@@ -7,6 +7,9 @@ export default function PurchaseMgr({ t, lang }) {
   const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Editing State
+  const [editingId, setEditingId] = useState(null);
+
   // Form Fields
   const [supplier, setSupplier] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
@@ -33,11 +36,32 @@ export default function PurchaseMgr({ t, lang }) {
   const handleProductChange = (id) => {
     setProductId(id);
     const prod = products.find(p => p.id === id);
-    if (prod) {
+    if (prod && !purchasePrice) {
       setPurchasePrice(prod.purchase_price);
-    } else {
+    } else if (!id) {
       setPurchasePrice('');
     }
+  };
+
+  const handleEditTrigger = (p) => {
+    setEditingId(p.id);
+    setSupplier(p.supplier || '');
+    setPurchaseDate(p.purchase_date ? p.purchase_date.split('T')[0] : new Date().toISOString().split('T')[0]);
+    setProductId(p.product_id);
+    setCases(p.cases || 0);
+    setBottles(p.bottles || 0);
+    setPurchasePrice(p.purchase_price || '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setSupplier('');
+    setPurchaseDate(new Date().toISOString().split('T')[0]);
+    setProductId('');
+    setCases(0);
+    setBottles(0);
+    setPurchasePrice('');
   };
 
   const handleSubmit = async (e) => {
@@ -55,22 +79,23 @@ export default function PurchaseMgr({ t, lang }) {
     };
 
     try {
-      const added = await api.createPurchase(payload);
-      setPurchases([added, ...purchases]);
-      
+      if (editingId) {
+        const updated = await api.updatePurchase(editingId, payload);
+        setPurchases(purchases.map(p => p.id === editingId ? updated : p));
+        alert('Purchase entry updated successfully! / கொள்முதல் பதிவு மாற்றப்பட்டது!');
+      } else {
+        const added = await api.createPurchase(payload);
+        setPurchases([added, ...purchases]);
+        alert('Purchase stock added successfully! / கொள்முதல் வெற்றிகரமாக சேர்க்கப்பட்டது!');
+      }
+
       // Reload products list to show new stock count
       const updatedProds = await api.getProducts();
       setProducts(updatedProds);
-      
-      // Reset form
-      setSupplier('');
-      setProductId('');
-      setCases(0);
-      setBottles(0);
-      setPurchasePrice('');
-      alert('Purchase stock added successfully! / கொள்முதல் வெற்றிகரமாக சேர்க்கப்பட்டது!');
+
+      handleCancelEdit();
     } catch (err) {
-      alert(err.message || 'Failed to record purchase stock');
+      alert(err.message || 'Failed to save purchase stock entry');
     }
   };
 
@@ -108,48 +133,112 @@ export default function PurchaseMgr({ t, lang }) {
         <p style={{ color: 'var(--text-muted)' }}>Log incoming supplier inventory to automatically increment product stock counts</p>
       </div>
 
-      {/* Form Card */}
-      <div className="glass-card">
-        <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>{t('enter_purchases')}</h2>
-        <form onSubmit={handleSubmit}>
-          <div className="form-grid">
-            <div className="form-group">
-              <label>{t('supplier')}</label>
-              <input type="text" className="form-input" value={supplier} onChange={e => setSupplier(e.target.value)} required placeholder="e.g. Coca-Cola Bottlers Chennai" />
+      {/* Form Card (Normal view when not editing) */}
+      {!editingId && (
+        <div className="glass-card">
+          <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>{t('enter_purchases')}</h2>
+          <form onSubmit={handleSubmit}>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>{t('supplier')}</label>
+                <input type="text" className="form-input" value={supplier} onChange={e => setSupplier(e.target.value)} required placeholder="e.g. Coca-Cola Bottlers Chennai" />
+              </div>
+              <div className="form-group">
+                <label>{t('purchase_date')}</label>
+                <input type="date" className="form-input" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} required />
+              </div>
+              <div className="form-group">
+                <label>{t('select_products')}</label>
+                <select className="form-select" value={productId} onChange={e => handleProductChange(e.target.value)} required>
+                  <option value="">-- Select Product --</option>
+                  {products.filter(p => p.status === 'active').map(p => (
+                    <option key={p.id} value={p.id}>{lang === 'ta' ? p.name_ta : p.name_en} ({p.size})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>{t('purchase_price')} (₹ per Case)</label>
+                <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} required placeholder="0.00" />
+              </div>
+              <div className="form-group">
+                <label>{t('qty_cases')}</label>
+                <input type="number" className="form-input" value={cases} onChange={e => setCases(e.target.value)} min="0" />
+              </div>
+              <div className="form-group">
+                <label>{t('qty_bottles')}</label>
+                <input type="number" className="form-input" value={bottles} onChange={e => setBottles(e.target.value)} min="0" />
+              </div>
             </div>
-            <div className="form-group">
-              <label>{t('purchase_date')}</label>
-              <input type="date" className="form-input" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} required />
+            <div className="btn-group">
+              <button type="submit" className="btn btn-primary">
+                📥 {t('submit_purchase')}
+              </button>
             </div>
-            <div className="form-group">
-              <label>{t('select_products')}</label>
-              <select className="form-select" value={productId} onChange={e => handleProductChange(e.target.value)} required>
-                <option value="">-- Select Product --</option>
-                {products.filter(p => p.status === 'active').map(p => (
-                  <option key={p.id} value={p.id}>{lang === 'ta' ? p.name_ta : p.name_en} ({p.size})</option>
-                ))}
-              </select>
+          </form>
+        </div>
+      )}
+
+      {/* Edit Purchase Popup Modal */}
+      {editingId && (
+        <div className="modal-overlay">
+          <div className="glass-card modal-card" style={{ maxWidth: '650px', width: '95%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h2 style={{ fontSize: '1.35rem', fontWeight: '700', margin: 0 }}>
+                ✏️ {lang === 'ta' ? 'கொள்முதல் பதிவை மாற்றுதல்' : 'Edit Purchase Entry'}
+              </h2>
+              <button 
+                type="button" 
+                onClick={handleCancelEdit}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
             </div>
-            <div className="form-group">
-              <label>{t('purchase_price')} (₹ per Case)</label>
-              <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} required placeholder="0.00" />
-            </div>
-            <div className="form-group">
-              <label>{t('qty_cases')}</label>
-              <input type="number" className="form-input" value={cases} onChange={e => setCases(e.target.value)} min="0" />
-            </div>
-            <div className="form-group">
-              <label>{t('qty_bottles')}</label>
-              <input type="number" className="form-input" value={bottles} onChange={e => setBottles(e.target.value)} min="0" />
-            </div>
+
+            <form onSubmit={handleSubmit}>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>{t('supplier')}</label>
+                  <input type="text" className="form-input" value={supplier} onChange={e => setSupplier(e.target.value)} required placeholder="e.g. Coca-Cola Bottlers Chennai" />
+                </div>
+                <div className="form-group">
+                  <label>{t('purchase_date')}</label>
+                  <input type="date" className="form-input" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} required />
+                </div>
+                <div className="form-group">
+                  <label>{t('select_products')}</label>
+                  <select className="form-select" value={productId} onChange={e => handleProductChange(e.target.value)} required>
+                    <option value="">-- Select Product --</option>
+                    {products.filter(p => p.status === 'active' || p.id === productId).map(p => (
+                      <option key={p.id} value={p.id}>{lang === 'ta' ? p.name_ta : p.name_en} ({p.size})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>{t('purchase_price')} (₹ per Case)</label>
+                  <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} required placeholder="0.00" />
+                </div>
+                <div className="form-group">
+                  <label>{t('qty_cases')}</label>
+                  <input type="number" className="form-input" value={cases} onChange={e => setCases(e.target.value)} min="0" />
+                </div>
+                <div className="form-group">
+                  <label>{t('qty_bottles')}</label>
+                  <input type="number" className="form-input" value={bottles} onChange={e => setBottles(e.target.value)} min="0" />
+                </div>
+              </div>
+              <div className="btn-group" style={{ marginTop: '1.5rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary" onClick={handleCancelEdit}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  💾 Save Changes
+                </button>
+              </div>
+            </form>
           </div>
-          <div className="btn-group">
-            <button type="submit" className="btn btn-primary">
-              📥 {t('submit_purchase')}
-            </button>
-          </div>
-        </form>
-      </div>
+        </div>
+      )}
 
       {/* Purchase Log History */}
       <div className="glass-card">
@@ -192,11 +281,16 @@ export default function PurchaseMgr({ t, lang }) {
                     <td>{qtyStr}</td>
                     <td>₹{p.purchase_price}</td>
                     <td style={{ color: 'var(--success)', fontWeight: '700' }}>₹{totalCost}</td>
-                     <td style={{ textAlign: 'right' }}>
-                       <button className="btn btn-danger" onClick={() => handleDeleteTrigger(p.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}>
-                         🗑️ Delete
-                       </button>
-                     </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>
+                        <button className="btn btn-secondary" onClick={() => handleEditTrigger(p)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}>
+                          ✏️ Edit
+                        </button>
+                        <button className="btn btn-danger" onClick={() => handleDeleteTrigger(p.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}>
+                          🗑️ Delete
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}

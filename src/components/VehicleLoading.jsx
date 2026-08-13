@@ -29,7 +29,8 @@ export default function VehicleLoading({ t, lang, session }) {
   const [selectedDispatchId, setSelectedDispatchId] = useState('');
   const [trackingQuantities, setTrackingQuantities] = useState({}); // key: product_id, val: { delivered: 0, returned: 0 }
 
-  // Reports States
+  // Reports & Print Scope States
+  const [printScope, setPrintScope] = useState('all'); // 'all' | 'consolidated' | 'routewise'
   const [reportType, setReportType] = useState('loading_report'); // 'loading_report' | 'route_report' | 'requirement_report' | 'dispatch_report' | 'delivery_return_report'
   const [reportDateFrom, setReportDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [reportDateTo, setReportDateTo] = useState(new Date().toISOString().split('T')[0]);
@@ -501,10 +502,58 @@ export default function VehicleLoading({ t, lang, session }) {
     window.print();
   };
 
+  const handlePrintScope = (scope = 'all') => {
+    setPrintScope(scope);
+    setTimeout(() => {
+      window.print();
+    }, 120);
+  };
+
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '3rem' }}>Loading Loading sheet Desk...</div>;
+
+  const currentRouteObj = routes.find(r => r.id === filterRoute);
+  const currentVehicleObj = vehicles.find(v => v.id === filterVehicle);
+  const currentSalesmanObj = users.find(u => u.id === filterSalesman);
+  const currentDeliveryObj = users.find(u => u.id === filterDeliveryPerson);
 
   return (
     <div>
+      {/* Embedded Print CSS for print options */}
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          .printable-header-banner { display: block !important; margin-bottom: 20px; }
+          body { background: #fff !important; color: #000 !important; font-family: sans-serif; }
+          .glass-card {
+            background: #fff !important;
+            border: 1px solid #999 !important;
+            box-shadow: none !important;
+            color: #000 !important;
+            padding: 12px !important;
+            margin-bottom: 20px !important;
+            break-inside: avoid;
+          }
+          .custom-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            color: #000 !important;
+          }
+          .custom-table th, .custom-table td {
+            border: 1px solid #333 !important;
+            padding: 6px 10px !important;
+            color: #000 !important;
+            font-size: 11pt !important;
+          }
+          .custom-table th {
+            background-color: #f0f0f0 !important;
+            color: #000 !important;
+            font-weight: bold !important;
+          }
+          .print-hide-consolidated { display: none !important; }
+          .print-hide-routewise { display: none !important; }
+        }
+      `}</style>
+
       {/* Title */}
       <div style={{ marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>📦 {lang === 'ta' ? 'வாகன ஏற்றுதல் சுருக்கம்' : 'Vehicle Loading Summary'}</h1>
@@ -534,6 +583,27 @@ export default function VehicleLoading({ t, lang, session }) {
         >
           📊 {lang === 'ta' ? 'அறிக்கைகள்' : 'Loading Sheets & Reports'}
         </button>
+      </div>
+
+      {/* Printable Banner Header (Visible only when printed) */}
+      <div className="printable-header-banner" style={{ display: 'none' }}>
+        <div style={{ textAlign: 'center', marginBottom: '1rem', borderBottom: '2px solid #000', paddingBottom: '0.5rem' }}>
+          <h2 style={{ fontSize: '1.6rem', margin: '0 0 0.25rem 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            {printScope === 'consolidated' 
+              ? (lang === 'ta' ? 'வாகன மொத்த ஏற்றுதல் பட்டியல்' : 'CONSOLIDATED VEHICLE LOAD LIST')
+              : printScope === 'routewise' 
+              ? (lang === 'ta' ? 'வழித்தடம் வாரியான ஏற்றுதல் பிரிவு' : 'ROUTE-WISE LOADING BREAKDOWN')
+              : (lang === 'ta' ? 'வாகன ஏற்றுதல் சீட்டு & வழித்தட பிரிவு' : 'VEHICLE LOADING SHEET & ROUTE BREAKDOWN')}
+          </h2>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem', fontSize: '0.95rem', color: '#222', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+            <span><strong>Date:</strong> {filterDate}</span>
+            {currentRouteObj && <span><strong>Route:</strong> {currentRouteObj.name_en}</span>}
+            {currentVehicleObj && <span><strong>Vehicle:</strong> {currentVehicleObj.vehicle_number}</span>}
+            {currentSalesmanObj && <span><strong>Salesman:</strong> {currentSalesmanObj.name}</span>}
+            {currentDeliveryObj && <span><strong>Delivery:</strong> {currentDeliveryObj.name}</span>}
+            <span><strong>Orders:</strong> {filteredOrders.length}</span>
+          </div>
+        </div>
       </div>
 
       {/* -------------------- TAB 1: LOADING SUMMARY COCKPIT -------------------- */}
@@ -597,6 +667,43 @@ export default function VehicleLoading({ t, lang, session }) {
             </div>
           </div>
 
+          {/* Print Options Toolbar */}
+          <div className="glass-card no-print" style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', background: 'rgba(59, 130, 246, 0.05)', borderColor: 'var(--accent-cyan)' }}>
+            <div style={{ fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-cyan)' }}>
+              <span style={{ fontSize: '1.1rem' }}>🖨️</span>
+              <span>{lang === 'ta' ? 'அச்சிடும் தேர்வுகள் (Print Options):' : 'Print Options:'}</span>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => handlePrintScope('consolidated')}
+                style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                title="Print Consolidated Load List only"
+              >
+                📋 {lang === 'ta' ? 'மொத்த பட்டியல் அச்சிடு' : 'Print Consolidated Load List'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => handlePrintScope('routewise')}
+                style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                title="Print Route-wise Loading Breakdown only"
+              >
+                🗺️ {lang === 'ta' ? 'வழித்தடம் பிரிவு அச்சிடு' : 'Print Route-wise Breakdown'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => handlePrintScope('all')}
+                style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                title="Print Full Loading Sheet containing both list & route breakdown"
+              >
+                🖨️ {lang === 'ta' ? 'முழு பட்டியல் அச்சிடு (இரண்டும்)' : 'Print Full Sheet (Both)'}
+              </button>
+            </div>
+          </div>
+
           {/* Shortage Warning Box */}
           {hasStockShortage && (
             <div className="glass-card" style={{ borderColor: 'var(--danger)', background: 'rgba(239, 68, 68, 0.05)', padding: '1rem' }}>
@@ -617,20 +724,31 @@ export default function VehicleLoading({ t, lang, session }) {
           )}
 
           {/* Consolidated Loading Summary Table */}
-          <div className="glass-card" id="printable-loading-summary">
+          <div className={`glass-card ${printScope === 'routewise' ? 'print-hide-consolidated' : ''}`} id="printable-loading-summary">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
               <h3 style={{ fontSize: '1.2rem', fontWeight: '700', margin: 0 }}>
                 📋 {lang === 'ta' ? 'ஏற்றுதல் விபரம் - ' : 'Consolidated Load List - '} {new Date(filterDate).toLocaleDateString()}
               </h3>
-              <span style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '700' }}>
-                {filteredOrders.length} Orders
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '700' }}>
+                  {filteredOrders.length} Orders
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary no-print"
+                  onClick={() => handlePrintScope('consolidated')}
+                  style={{ fontSize: '0.8rem', padding: '0.25rem 0.6rem' }}
+                >
+                  🖨️ Print
+                </button>
+              </div>
             </div>
 
             <div className="table-container">
               <table className="custom-table" style={{ fontSize: '0.9rem' }}>
                 <thead>
                   <tr>
+                    <th>S.No</th>
                     <th>Product</th>
                     <th>Brand</th>
                     <th>Size</th>
@@ -642,6 +760,7 @@ export default function VehicleLoading({ t, lang, session }) {
                 <tbody>
                   {consolidatedRequirements.map((req, idx) => (
                     <tr key={idx}>
+                      <td>{idx + 1}</td>
                       <td><strong>{translateProductName(req.product, lang)}</strong></td>
                       <td>{req.product.brand}</td>
                       <td>{req.product.size}</td>
@@ -652,7 +771,7 @@ export default function VehicleLoading({ t, lang, session }) {
                   ))}
                   {consolidatedRequirements.length === 0 && (
                     <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                      <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                         No order requirements found for this filter criteria.
                       </td>
                     </tr>
@@ -664,10 +783,20 @@ export default function VehicleLoading({ t, lang, session }) {
 
           {/* Route-wise Load Summary */}
           {routeWiseBreakdown.length > 0 && (
-            <div className="glass-card">
-              <h3 style={{ fontSize: '1.2rem', fontWeight: '700', marginBottom: '1.25rem' }}>
-                🗺️ {lang === 'ta' ? 'வழித்தடம் வாரியான ஏற்றுதல் விபரம்' : 'Route-wise Loading Breakdown'}
-              </h3>
+            <div className={`glass-card ${printScope === 'consolidated' ? 'print-hide-routewise' : ''}`}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: '700', margin: 0 }}>
+                  🗺️ {lang === 'ta' ? 'வழித்தடம் வாரியான ஏற்றுதல் விபரம்' : 'Route-wise Loading Breakdown'}
+                </h3>
+                <button
+                  type="button"
+                  className="btn btn-secondary no-print"
+                  onClick={() => handlePrintScope('routewise')}
+                  style={{ fontSize: '0.8rem', padding: '0.25rem 0.6rem' }}
+                >
+                  🖨️ Print
+                </button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {routeWiseBreakdown.map((route, routeIdx) => (
                   <div key={routeIdx} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', background: 'rgba(255,255,255,0.01)' }}>
@@ -676,6 +805,7 @@ export default function VehicleLoading({ t, lang, session }) {
                       <table className="custom-table" style={{ fontSize: '0.85rem' }}>
                         <thead>
                           <tr>
+                            <th>S.No</th>
                             <th>Product</th>
                             <th style={{ textAlign: 'right' }}>Cases Required</th>
                             <th style={{ textAlign: 'right' }}>Bottles Required</th>
@@ -685,6 +815,7 @@ export default function VehicleLoading({ t, lang, session }) {
                         <tbody>
                           {route.requirements.map((req, reqIdx) => (
                             <tr key={reqIdx}>
+                              <td>{reqIdx + 1}</td>
                               <td>{translateProductName(req.product, lang)}</td>
                               <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{req.cases}</td>
                               <td style={{ textAlign: 'right' }}>{req.bottles}</td>

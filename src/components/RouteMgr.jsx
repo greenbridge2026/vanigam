@@ -173,74 +173,150 @@ export default function RouteMgr({ t, lang }) {
         <p style={{ color: 'var(--text-muted)' }}>Manage wholesale routes and assign field sales/delivery staff</p>
       </div>
 
-      {/* Form Card */}
-      <div className="glass-card">
-        <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>
-          {editingRoute ? t('edit_route') : t('add_route')}
-        </h2>
-        <form onSubmit={handleSubmit}>
-          <div className="form-grid">
-            <div className="form-group">
-              <label>{t('route_name_en')}</label>
-              <input
-                type="text"
-                className="form-input"
-                value={nameEn}
-                onChange={e => setNameEn(e.target.value)}
-                onFocus={() => setActiveField('en')}
-                placeholder="e.g. Trichy Road Route"
-              />
+      {/* Add Route Form Card (Normal view) */}
+      {!editingRoute && (
+        <div className="glass-card">
+          <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>{t('add_route')}</h2>
+          <form onSubmit={handleSubmit}>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>{t('route_name_en')}</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={nameEn}
+                  onChange={e => setNameEn(e.target.value)}
+                  onFocus={() => setActiveField('en')}
+                  placeholder="e.g. Trichy Road Route"
+                />
+              </div>
+              <div className="form-group">
+                <label>{t('route_name_ta')}</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={nameTa}
+                  onChange={e => setNameTa(e.target.value)}
+                  onFocus={() => setActiveField('ta')}
+                  placeholder="எ.கா. திருச்சி சாலை வழித்தடம்"
+                />
+              </div>
+              <div className="form-group">
+                <label>{t('assign_salesman')}</label>
+                <select
+                  className="form-select"
+                  value={salesmanId}
+                  onChange={e => setSalesmanId(e.target.value)}
+                >
+                  <option value="">-- {t('assign_salesman')} --</option>
+                  {salesmanList.map(u => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>{t('assign_delivery')}</label>
+                <select
+                  className="form-select"
+                  value={deliveryManId}
+                  onChange={e => setDeliveryManId(e.target.value)}
+                >
+                  <option value="">-- {t('assign_delivery')} --</option>
+                  {deliveryList.map(u => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="form-group">
-              <label>{t('route_name_ta')}</label>
-              <input
-                type="text"
-                className="form-input"
-                value={nameTa}
-                onChange={e => setNameTa(e.target.value)}
-                onFocus={() => setActiveField('ta')}
-                placeholder="எ.கா. திருச்சி சாலை வழித்தடம்"
-              />
-            </div>
-            <div className="form-group">
-              <label>{t('assign_salesman')}</label>
-              <select
-                className="form-select"
-                value={salesmanId}
-                onChange={e => setSalesmanId(e.target.value)}
-              >
-                <option value="">-- {t('assign_salesman')} --</option>
-                {salesmanList.map(u => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>{t('assign_delivery')}</label>
-              <select
-                className="form-select"
-                value={deliveryManId}
-                onChange={e => setDeliveryManId(e.target.value)}
-              >
-                <option value="">-- {t('assign_delivery')} --</option>
-                {deliveryList.map(u => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="btn-group">
-            {editingRoute && (
-              <button type="button" className="btn btn-secondary" onClick={resetForm}>
-                {t('cancel')}
+            <div className="btn-group">
+              <button type="submit" className="btn btn-primary">
+                💾 {t('save')}
               </button>
-            )}
-            <button type="submit" className="btn btn-primary">
-              💾 {t('save')}
-            </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Edit Route Popup Modal */}
+      {editingRoute && (
+        <div className="modal-overlay">
+          <div className="glass-card modal-card" style={{ maxWidth: '650px', width: '95%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h2 style={{ fontSize: '1.35rem', fontWeight: '700', margin: 0 }}>
+                ✏️ {t('edit_route')}: {editingRoute.name_en || editingRoute.name_ta}
+              </h2>
+              <button 
+                type="button" 
+                onClick={resetForm}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit}>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>{t('route_name_en')}</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={nameEn}
+                    onChange={e => setNameEn(e.target.value)}
+                    onFocus={() => setActiveField('en')}
+                    placeholder="e.g. Trichy Road Route"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>{t('route_name_ta')}</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={nameTa}
+                    onChange={e => setNameTa(e.target.value)}
+                    onFocus={() => setActiveField('ta')}
+                    placeholder="எ.கா. திருச்சி சாலை வழித்தடம்"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>{t('assign_salesman')}</label>
+                  <select
+                    className="form-select"
+                    value={salesmanId}
+                    onChange={e => setSalesmanId(e.target.value)}
+                  >
+                    <option value="">-- {t('assign_salesman')} --</option>
+                    {salesmanList.map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>{t('assign_delivery')}</label>
+                  <select
+                    className="form-select"
+                    value={deliveryManId}
+                    onChange={e => setDeliveryManId(e.target.value)}
+                  >
+                    <option value="">-- {t('assign_delivery')} --</option>
+                    {deliveryList.map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="btn-group" style={{ marginTop: '1.5rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-secondary" onClick={resetForm}>
+                  {t('cancel')}
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  💾 {t('save')}
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
-      </div>
+        </div>
+      )}
 
       {/* Routes List */}
       <div className="glass-card">

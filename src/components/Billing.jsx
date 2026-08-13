@@ -610,9 +610,6 @@ export default function Billing({ orderId, t, lang, onBack }) {
                           }}
                         >
                           <option value="cash">{t('cash')}</option>
-                          <option value="gpay">{t('gpay')}</option>
-                          <option value="bank">{t('bank')}</option>
-                          <option value="upi">{t('upi')}</option>
                           <option value="cheque">{t('cheque')}</option>
                         </select>
                       </div>

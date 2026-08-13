@@ -279,6 +279,12 @@ app.use(async (req, res, next) => {
     return next();
   }
 
+  // Bypassing lookup for global Super Admin
+  if (userId === 'sys_1') {
+    req.user = { id: 'sys_1', username: 'superadmin', role: 'superadmin', name: 'Super Admin', active: true, permissions: [] };
+    return next();
+  }
+
   try {
     const db = await readDB(tenantId);
     const user = db.users.find(u => u.id === userId);
@@ -321,6 +327,9 @@ app.use((req, res, next) => {
   }
 
   if (req.user) {
+    if (req.user.role === 'superadmin') {
+      return next();
+    }
     if (req.user.role === 'admin' && (!req.user.permissions || req.user.permissions.length === 0)) {
       return next();
     }
@@ -1113,6 +1122,75 @@ app.post('/api/purchases', async (req, res) => {
 
     await writeDB(req.tenantId, db);
     res.status(201).json(newPurchase);
+  } finally {
+    releaseLock();
+  }
+});
+
+// Edit Purchase Entry
+app.put('/api/purchases/:id', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const purchaseId = req.params.id;
+    const existingIndex = db.purchases.findIndex(p => p.id === purchaseId);
+    if (existingIndex === -1) {
+      return res.status(404).json({ error: 'Purchase record not found' });
+    }
+    const oldPurchase = db.purchases[existingIndex];
+
+    const { supplier, purchase_date, product_id, cases, bottles, purchase_price } = req.body;
+    const targetProductId = product_id || oldPurchase.product_id;
+    const productIndex = db.products.findIndex(p => p.id === targetProductId);
+    if (productIndex === -1) {
+      return res.status(404).json({ error: 'Associated product not found' });
+    }
+    const product = db.products[productIndex];
+    const oldProduct = db.products.find(p => p.id === oldPurchase.product_id);
+
+    const oldBottles = (Number(oldPurchase.cases || 0) * (oldProduct ? oldProduct.case_qty_rule : 1)) + Number(oldPurchase.bottles || 0);
+    const newBottles = (Number(cases || 0) * product.case_qty_rule) + Number(bottles || 0);
+
+    if (oldPurchase.product_id === targetProductId) {
+      const diff = newBottles - oldBottles;
+      if (product.current_stock_bottles + diff < 0) {
+        return res.status(400).json({ error: `Cannot update purchase. Stock would drop below zero.` });
+      }
+      product.current_stock_bottles += diff;
+    } else {
+      if (oldProduct) {
+        if (oldProduct.current_stock_bottles - oldBottles < 0) {
+          return res.status(400).json({ error: `Cannot change product. Reverting previous stock would drop stock below zero.` });
+        }
+        oldProduct.current_stock_bottles -= oldBottles;
+      }
+      product.current_stock_bottles += newBottles;
+    }
+
+    const updatedPurchase = {
+      ...oldPurchase,
+      supplier: supplier || oldPurchase.supplier,
+      purchase_date: purchase_date || oldPurchase.purchase_date,
+      product_id: targetProductId,
+      cases: Number(cases !== undefined ? cases : oldPurchase.cases),
+      bottles: Number(bottles !== undefined ? bottles : oldPurchase.bottles),
+      purchase_price: Number(purchase_price !== undefined ? purchase_price : oldPurchase.purchase_price)
+    };
+
+    db.purchases[existingIndex] = updatedPurchase;
+
+    db.stock_ledger.push({
+      id: `sl_${Date.now()}_edit`,
+      product_id: targetProductId,
+      transaction_type: 'purchase_edit',
+      cases_change: Number(cases || 0) - Number(oldPurchase.cases || 0),
+      bottles_change: Number(bottles || 0) - Number(oldPurchase.bottles || 0),
+      running_stock_bottles: product.current_stock_bottles,
+      timestamp: new Date().toISOString()
+    });
+
+    await writeDB(req.tenantId, db);
+    res.json(updatedPurchase);
   } finally {
     releaseLock();
   }

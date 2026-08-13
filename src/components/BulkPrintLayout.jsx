@@ -253,27 +253,13 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
 
               {/* Bottom Summary Section */}
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: isCompact ? '10px' : '15px', marginTop: '2px' }}>
-                <div style={{ border: '1.5px solid #1e293b', borderRadius: '4px', padding: isCompact ? '6px 10px' : '10px 12px', background: '#f8fafc', display: 'flex', gap: isCompact ? '8px' : '12px', alignItems: 'center' }}>
-                  <svg viewBox="0 0 100 100" style={{ width: isCompact ? '55px' : '70px', height: isCompact ? '55px' : '70px', background: '#ffffff', padding: '3px', border: '1px solid #cbd5e1' }}>
-                    <rect width="100" height="100" fill="white" />
-                    <rect x="10" y="10" width="20" height="20" fill="black" />
-                    <rect x="15" y="15" width="10" height="10" fill="white" />
-                    <rect x="70" y="10" width="20" height="20" fill="black" />
-                    <rect x="75" y="15" width="10" height="10" fill="white" />
-                    <rect x="10" y="70" width="20" height="20" fill="black" />
-                    <rect x="15" y="75" width="10" height="10" fill="white" />
-                    <rect x="40" y="40" width="20" height="20" fill="black" />
-                    <path d="M 35 15 H 65 V 25 H 35 Z M 15 35 H 25 V 65 H 15 Z M 45 75 H 85 V 85 H 45 Z" fill="black" />
-                  </svg>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: isCompact ? '8.5px' : '9.5px', color: '#334155' }}>
-                    <strong style={{ fontSize: isCompact ? '9.5px' : '11px', color: '#1e293b', textTransform: 'uppercase' }}>
-                      {lang === 'ta' ? 'யூபிஐ கட்டணம்' : 'UPI Payment'}
-                    </strong>
-                    <span>{lang === 'ta' ? 'கியூஆர் ஸ்கேன் செய்து செலுத்தலாம்' : 'Scan to pay directly from mobile bank apps.'}</span>
-                    <div style={{ marginTop: '1px', fontWeight: '700' }}>
-                      <div>📞 Mobile: {settings.upi_mobile}</div>
-                    </div>
-                  </div>
+                <div style={{ border: '1.5px solid #1e293b', borderRadius: '4px', padding: isCompact ? '6px 10px' : '10px 12px', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '4px', justifyContent: 'center' }}>
+                  <strong style={{ fontSize: isCompact ? '10px' : '11px', color: '#1e293b', textTransform: 'uppercase', borderBottom: '1px solid #cbd5e1', paddingBottom: '3px', marginBottom: '2px' }}>
+                    {lang === 'ta' ? 'கட்டண விவரங்கள்' : 'Payment Information'}
+                  </strong>
+                  <span style={{ fontSize: isCompact ? '8.5px' : '9.5px', color: '#334155' }}>
+                    {lang === 'ta' ? 'கட்டணங்கள் ரொக்கம் அல்லது காசோலை மூலம் பெறப்படும்.' : 'Accepted Payments: Cash or Cheque.'}
+                  </span>
                 </div>
 
                 <div style={{ border: '1.5px solid #1e293b', borderRadius: '4px', overflow: 'hidden', fontSize: isCompact ? '10px' : '11px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>

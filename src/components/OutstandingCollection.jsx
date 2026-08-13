@@ -395,9 +395,6 @@ export default function OutstandingCollection({ t, lang }) {
                           onChange={e => handleRowChange(index, 'payment_mode', e.target.value)}
                         >
                           <option value="cash">{t('cash')}</option>
-                          <option value="gpay">{t('gpay')}</option>
-                          <option value="bank">{t('bank')}</option>
-                          <option value="upi">{t('upi')}</option>
                           <option value="cheque">{t('cheque')}</option>
                         </select>
                       </div>

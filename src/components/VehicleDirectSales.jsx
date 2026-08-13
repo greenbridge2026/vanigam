@@ -569,24 +569,9 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                         <label>{t('payment_mode')}</label>
                         <select className="form-select" value={paymentMode} onChange={e => setPaymentMode(e.target.value)}>
                           <option value="cash">{t('cash')}</option>
-                          <option value="upi">{t('gpay')}</option>
                           <option value="credit">Credit / Outstanding</option>
                         </select>
                       </div>
-
-                      {paymentMode === 'upi' && (
-                        <div className="form-group">
-                          <label>{t('transaction_id')}</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={upiReference}
-                            onChange={e => setUpiReference(e.target.value)}
-                            required
-                            placeholder="Ref Number / UPI ID"
-                          />
-                        </div>
-                      )}
 
                       <button type="submit" className="btn btn-primary" style={{ marginTop: '0.5rem' }} disabled={submitting}>
                         {submitting ? 'Processing...' : '💳 Complete & Print Invoice'}
