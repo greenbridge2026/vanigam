@@ -584,19 +584,19 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'inline-flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                          {(!session || session.role === 'admin' || session.role === 'salesman') && (
-                            <button
-                              type="button"
-                              className="language-btn"
-                              onClick={() => handleStartEditOrder(order)}
-                              style={{ padding: '0.4rem 0.6rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                              title={lang === 'ta' ? 'பில் திருத்துக' : 'Edit Invoice'}
-                            >
-                              ✏️
-                            </button>
-                          )}
                           {d.status === 'pending' ? (
                             <>
+                              {(!session || session.role === 'admin' || session.role === 'salesman') && (
+                                <button
+                                  type="button"
+                                  className="language-btn"
+                                  onClick={() => handleStartEditOrder(order)}
+                                  style={{ padding: '0.4rem 0.6rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                  title={lang === 'ta' ? 'பில் திருத்துக' : 'Edit Invoice'}
+                                >
+                                  ✏️
+                                </button>
+                              )}
                               <button 
                                 className="language-btn" 
                                 style={{ padding: '0.4rem 0.6rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} 

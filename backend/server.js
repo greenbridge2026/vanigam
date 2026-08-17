@@ -1391,6 +1391,10 @@ app.put('/api/orders/:id', async (req, res) => {
     }
 
     const order = db.orders[orderIndex];
+    if (order.status !== 'pending') {
+      return res.status(400).json({ error: 'Cannot edit completed or fulfilled invoices. Only open pending invoices can be edited.' });
+    }
+
     const shop = db.shops.find(s => s.id === order.shop_id);
     const { items, discount } = req.body;
 

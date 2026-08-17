@@ -50,9 +50,30 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
   const shopObj = shops.find(s => s.id === selectedShop);
   const activeProducts = products.filter(p => p.status === 'active');
 
-  // Filter Catalog Products by Tab & Search
+  function parseVolumeInMl(sizeStr) {
+    if (!sizeStr) return 999999;
+    const str = String(sizeStr).toLowerCase().trim();
+    
+    const numMatch = str.match(/([\d.]+)/);
+    if (!numMatch) return 999999;
+    
+    const val = parseFloat(numMatch[1]);
+    if (isNaN(val)) return 999999;
+
+    const isLiters = /l(?:iter|itre)?/i.test(str) && !/ml/i.test(str);
+
+    // Decimal or small numbers (< 15 like 1.2, 1.7, 1.5, 2.25, 1) are in Liters (1200ml, 1700ml, etc.)
+    if (val < 15 || isLiters) {
+      return val * 1000;
+    }
+    
+    // Numbers >= 15 (e.g. 200, 250, 400, 500, 600, 750) are in ml
+    return val;
+  }
+
+  // Filter Catalog Products by Tab & Search, and sort by size volume (200ml, 400ml, 500ml...)
   const getFilteredCatalogProducts = () => {
-    return activeProducts.filter(p => {
+    const filtered = activeProducts.filter(p => {
       // 1. Search filter (brand or name)
       if (catalogSearch) {
         const query = catalogSearch.toLowerCase();
@@ -74,6 +95,14 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
         return !isKnown;
       }
       return true;
+    });
+
+    // Sort by size volume ascending (200ml, 400ml, 500ml...)
+    return filtered.sort((a, b) => {
+      const volA = parseVolumeInMl(a.size);
+      const volB = parseVolumeInMl(b.size);
+      if (volA !== volB) return volA - volB;
+      return (a.name_en || '').localeCompare(b.name_en || '');
     });
   };
 
@@ -193,20 +222,21 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
 
   return (
     <div>
-      <div style={{ marginBottom: '1.5rem' }}>
-        <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>🛒 {t('order_taking')}</h1>
-        <p style={{ color: 'var(--text-muted)' }}>Quick Order entry with live-synced smart cart panel</p>
+      <div style={{ marginBottom: '0.75rem' }}>
+        <h1 style={{ fontSize: '1.75rem', marginBottom: '0.15rem' }}>🛒 {t('order_taking')}</h1>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Quick Order entry with live-synced smart cart panel</p>
       </div>
 
       {/* Selectors Bar */}
-      <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '1.25rem' }}>
+      <div className="glass-card" style={{ marginBottom: '0.75rem', padding: '0.75rem 1.25rem' }}>
         <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-          <div className="form-group" style={{ flex: 1, minWidth: '240px', margin: 0 }}>
-            <label style={{ fontWeight: '600' }}>{t('route_mgmt')}</label>
+          <div className="form-group" style={{ flex: 1, minWidth: '220px', margin: 0 }}>
+            <label style={{ fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.25rem' }}>{t('route_mgmt')}</label>
             <select
               className="form-select"
               value={selectedRoute}
               onChange={e => { setSelectedRoute(e.target.value); setSelectedShop(''); setCart({}); }}
+              style={{ padding: '0.4rem 0.75rem', fontSize: '0.9rem' }}
             >
               <option value="">-- {lang === 'ta' ? 'வழித்தடத்தை தேர்வு செய்க' : 'Select Route'} --</option>
               {routes.map(r => (
@@ -215,13 +245,14 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
             </select>
           </div>
 
-          <div className="form-group" style={{ flex: 1, minWidth: '240px', margin: 0 }}>
-            <label style={{ fontWeight: '600' }}>{t('select_shop')}</label>
+          <div className="form-group" style={{ flex: 1, minWidth: '220px', margin: 0 }}>
+            <label style={{ fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.25rem' }}>{t('select_shop')}</label>
             <select
               className="form-select"
               value={selectedShop}
               onChange={e => { setSelectedShop(e.target.value); setCart({}); }}
               disabled={!selectedRoute}
+              style={{ padding: '0.4rem 0.75rem', fontSize: '0.9rem' }}
             >
               <option value="">-- {t('select_shop')} --</option>
               {routeShops.map(s => (
@@ -236,39 +267,40 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
 
       {/* Shop Info Summary */}
       {shopObj && (
-        <div className="glass-card" style={{ marginBottom: '1.5rem', borderColor: 'var(--accent-cyan-glow)', background: 'rgba(6,182,212,0.02)', padding: '1rem' }}>
+        <div className="glass-card" style={{ marginBottom: '0.75rem', borderColor: 'var(--accent-cyan-glow)', background: 'rgba(6,182,212,0.02)', padding: '0.75rem 1.25rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <h3 style={{ color: 'var(--accent-cyan)', margin: 0, fontSize: '1.2rem' }}>{translateShopName(shopObj, lang)}</h3>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0' }}>📍 Address: {shopObj.address} | Contact: {shopObj.contact_person}</p>
+              <h3 style={{ color: 'var(--accent-cyan)', margin: 0, fontSize: '1.1rem' }}>{translateShopName(shopObj, lang)}</h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.15rem 0 0 0' }}>📍 Address: {shopObj.address} | Contact: {shopObj.contact_person}</p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <span style={{ fontSize: '0.8rem', display: 'block', color: 'var(--text-muted)' }}>Previous Outstanding:</span>
-              <span style={{ fontSize: '1.25rem', fontWeight: '800', color: 'var(--danger)' }}>₹{shopObj.outstanding_amount}</span>
+              <span style={{ fontSize: '0.75rem', display: 'block', color: 'var(--text-muted)' }}>Previous Outstanding:</span>
+              <span style={{ fontSize: '1.2rem', fontWeight: '800', color: 'var(--danger)' }}>₹{shopObj.outstanding_amount}</span>
             </div>
           </div>
         </div>
       )}
 
       {selectedShop ? (
-        <div className="order-taking-layout">
+        <div className="order-taking-layout" style={{ gap: '1rem' }}>
           
           {/* LEFT: Quick Catalog Entry */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             
             {/* Search & Add Items Catalog */}
-            <div className="glass-card" style={{ padding: '1.5rem' }}>
-              <h3 style={{ fontSize: '1.15rem', color: 'var(--accent-cyan)', fontWeight: '700', marginBottom: '1.25rem' }}>
+            <div className="glass-card" style={{ padding: '1rem 1.25rem' }}>
+              <h3 style={{ fontSize: '1.05rem', color: 'var(--accent-cyan)', fontWeight: '700', marginBottom: '0.75rem' }}>
                 🔍 {lang === 'ta' ? 'பொருட்களைத் தேடி அளவை உள்ளிடவும்' : 'Search & Enter Quantities'}
               </h3>
 
               {/* Brand Tabs */}
-              <div className="brand-tabs-container">
+              <div className="brand-tabs-container" style={{ marginBottom: '0.75rem' }}>
                 {brandTabsList.map(tab => (
                   <button
                     key={tab.id}
                     className={`brand-tab-btn ${selectedBrandTab === tab.id ? 'active' : ''}`}
                     onClick={() => setSelectedBrandTab(tab.id)}
+                    style={{ padding: '0.35rem 0.9rem', fontSize: '0.8rem' }}
                   >
                     {tab.label}
                   </button>
@@ -276,20 +308,20 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
               </div>
 
               {/* Product Search Bar */}
-              <div style={{ position: 'relative', marginBottom: '1rem' }}>
+              <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
                 <input
                   type="text"
                   className="form-input"
                   placeholder={lang === 'ta' ? 'பெயர் அல்லது பிராண்ட் மூலம் தேடவும்...' : 'Search by name, brand, size...'}
-                  style={{ width: '100%', paddingLeft: '2.5rem' }}
+                  style={{ width: '100%', paddingLeft: '2.5rem', padding: '0.4rem 2.5rem 0.4rem 2.5rem', fontSize: '0.85rem' }}
                   value={catalogSearch}
                   onChange={e => setCatalogSearch(e.target.value)}
                 />
-                <span style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}>🔍</span>
+                <span style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>🔍</span>
               </div>
 
               {/* Filtered Catalog List */}
-              <div className="table-container" style={{ maxHeight: '520px', overflowY: 'auto' }}>
+              <div className="table-container" style={{ maxHeight: 'calc(100vh - 350px)', minHeight: '300px', overflowY: 'auto' }}>
                 <table className="custom-table" style={{ fontSize: '0.9rem' }}>
                   <thead>
                     <tr>
