@@ -68,6 +68,136 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [nonDeliveryModalOpen, setNonDeliveryModalOpen] = useState(false);
   const [nonDeliveryType, setNonDeliveryType] = useState('not_delivered'); // 'not_delivered' | 'returned'
 
+  // Order Editing states
+  const [products, setProducts] = useState([]);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [orderToEdit, setOrderToEdit] = useState(null);
+  const [editItems, setEditItems] = useState([]);
+  const [editDiscount, setEditDiscount] = useState(0);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const handleStartEditOrder = async (order) => {
+    try {
+      const [pData, oiData] = await Promise.all([
+        api.getProducts(),
+        api.getOrderItems()
+      ]);
+      setProducts(pData);
+      
+      const currentShop = shops.find(s => s.id === order.shop_id);
+      const existingItems = oiData.filter(oi => oi.order_id === order.id);
+      
+      const formattedItems = existingItems.map(oi => {
+        const prod = pData.find(p => p.id === oi.product_id);
+        const caseQtyRule = prod ? prod.case_qty_rule : 24;
+        const rate = oi.rate !== undefined ? oi.rate : (currentShop && currentShop.shop_type === 'wholesale' ? (prod ? prod.wholesale_price : 0) : (prod ? prod.retail_price : 0));
+        const amount = oi.amount !== undefined ? oi.amount : Math.round(((Number(oi.cases || 0) * caseQtyRule) + Number(oi.bottles || 0)) * (rate / caseQtyRule));
+        return {
+          id: oi.id,
+          product_id: oi.product_id,
+          cases: oi.cases || 0,
+          bottles: oi.bottles || 0,
+          rate: rate,
+          amount: amount
+        };
+      });
+
+      setOrderToEdit(order);
+      setEditItems(formattedItems.length > 0 ? formattedItems : [
+        { id: `oi_new_${Date.now()}`, product_id: pData[0]?.id || '', cases: 1, bottles: 0, rate: pData[0]?.wholesale_price || 0, amount: pData[0]?.wholesale_price || 0 }
+      ]);
+      setEditDiscount(order.discount || 0);
+      setEditModalOpen(true);
+    } catch (err) {
+      alert('Failed to load invoice items for editing: ' + (err.message || err));
+    }
+  };
+
+  const handleEditItemChange = (index, field, value) => {
+    const updated = [...editItems];
+    const item = { ...updated[index], [field]: value };
+    const prod = products.find(p => p.id === item.product_id);
+    const caseQtyRule = prod ? prod.case_qty_rule : 24;
+
+    if (field === 'product_id') {
+      const orderShop = orderToEdit ? shops.find(s => s.id === orderToEdit.shop_id) : null;
+      const defaultRate = orderShop && orderShop.shop_type === 'wholesale' ? (prod ? prod.wholesale_price : 0) : (prod ? prod.retail_price : 0);
+      item.rate = defaultRate;
+    }
+
+    if (field !== 'amount') {
+      const cases = Number(item.cases || 0);
+      const bottles = Number(item.bottles || 0);
+      const rate = Number(item.rate || 0);
+      const totalBottles = (cases * caseQtyRule) + bottles;
+      item.amount = Math.round(totalBottles * (rate / caseQtyRule));
+    }
+
+    updated[index] = item;
+    setEditItems(updated);
+  };
+
+  const handleAddEditItem = () => {
+    if (products.length === 0) return;
+    const firstProd = products[0];
+    const orderShop = orderToEdit ? shops.find(s => s.id === orderToEdit.shop_id) : null;
+    const defaultRate = orderShop && orderShop.shop_type === 'wholesale' ? firstProd.wholesale_price : firstProd.retail_price;
+    setEditItems(prev => [
+      ...prev,
+      {
+        id: `oi_new_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        product_id: firstProd.id,
+        cases: 1,
+        bottles: 0,
+        rate: defaultRate,
+        amount: defaultRate
+      }
+    ]);
+  };
+
+  const handleRemoveEditItem = (index) => {
+    if (editItems.length === 1) {
+      alert('Invoice must have at least one product item / பில்லில் குறைந்தபட்சம் ஒரு பொருள் இருக்க வேண்டும்.');
+      return;
+    }
+    setEditItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSaveEditedOrder = async () => {
+    if (!orderToEdit) return;
+    if (editItems.length === 0) {
+      alert('Please add at least one product item');
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      await api.updateOrder(orderToEdit.id, {
+        items: editItems,
+        discount: Number(editDiscount || 0)
+      });
+
+      alert(lang === 'ta' ? 'விலைப்பட்டியல் வெற்றிகரமாக மாற்றப்பட்டது!' : 'Invoice updated successfully!');
+
+      // Reload dataset
+      const [dData, oData, sData] = await Promise.all([
+        api.getDeliveries(),
+        api.getOrders(),
+        api.getShops()
+      ]);
+      setDeliveries(dData);
+      setOrders(oData);
+      setShops(sData);
+
+      setEditModalOpen(false);
+      setOrderToEdit(null);
+    } catch (err) {
+      alert('Failed to update invoice: ' + (err.message || err));
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
 
   useEffect(() => {
     async function loadData() {
@@ -454,6 +584,17 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'inline-flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                          {(!session || session.role === 'admin' || session.role === 'salesman') && (
+                            <button
+                              type="button"
+                              className="language-btn"
+                              onClick={() => handleStartEditOrder(order)}
+                              style={{ padding: '0.4rem 0.6rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                              title={lang === 'ta' ? 'பில் திருத்துக' : 'Edit Invoice'}
+                            >
+                              ✏️
+                            </button>
+                          )}
                           {d.status === 'pending' ? (
                             <>
                               <button 
@@ -831,6 +972,186 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Invoice Modal */}
+      {editModalOpen && orderToEdit && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }}>
+          <div className="glass-card modal-card" style={{ maxWidth: '780px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', color: 'var(--accent-cyan)', margin: 0 }}>
+                  ✏️ {lang === 'ta' ? 'விலைப்பட்டியல் திருத்து' : 'Edit Invoice'}: {orderToEdit.invoice_number}
+                </h2>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Shop: {translateShopName(shops.find(s => s.id === orderToEdit.shop_id), lang)}
+                </span>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setEditModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Products Table */}
+            <div style={{ marginBottom: '1rem', overflowX: 'auto' }}>
+              <table className="custom-table" style={{ width: '100%', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th style={{ width: '80px', textAlign: 'center' }}>Cases</th>
+                    <th style={{ width: '80px', textAlign: 'center' }}>Bottles</th>
+                    <th style={{ width: '110px', textAlign: 'right' }}>Rate (₹/Case)</th>
+                    <th style={{ width: '110px', textAlign: 'right' }}>Amount (₹)</th>
+                    <th style={{ width: '50px', textAlign: 'center' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editItems.map((item, idx) => {
+                    return (
+                      <tr key={item.id || idx}>
+                        <td>
+                          <select
+                            className="form-select"
+                            value={item.product_id}
+                            onChange={e => handleEditItemChange(idx, 'product_id', e.target.value)}
+                            style={{ width: '100%', fontSize: '0.85rem', padding: '0.35rem 0.5rem' }}
+                          >
+                            {products.map(p => (
+                              <option key={p.id} value={p.id}>
+                                {lang === 'ta' ? p.name_ta : p.name_en} ({p.size}) - Stock: {p.current_stock_bottles}b
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            className="form-input"
+                            value={item.cases}
+                            onChange={e => handleEditItemChange(idx, 'cases', Math.max(0, parseInt(e.target.value) || 0))}
+                            style={{ width: '70px', textAlign: 'center', padding: '0.35rem' }}
+                          />
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            className="form-input"
+                            value={item.bottles}
+                            onChange={e => handleEditItemChange(idx, 'bottles', Math.max(0, parseInt(e.target.value) || 0))}
+                            style={{ width: '70px', textAlign: 'center', padding: '0.35rem' }}
+                          />
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="form-input"
+                            value={item.rate}
+                            onChange={e => handleEditItemChange(idx, 'rate', parseFloat(e.target.value) || 0)}
+                            style={{ width: '90px', textAlign: 'right', padding: '0.35rem' }}
+                          />
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                          ₹{item.amount}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            onClick={() => handleRemoveEditItem(idx)}
+                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                            title="Remove item"
+                          >
+                            🗑️
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleAddEditItem}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem' }}
+              >
+                ➕ {lang === 'ta' ? 'பொருள் சேர்க்க' : 'Add Product'}
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: '600' }}>Discount (₹):</label>
+                <input
+                  type="number"
+                  min="0"
+                  className="form-input"
+                  value={editDiscount}
+                  onChange={e => setEditDiscount(Math.max(0, parseFloat(e.target.value) || 0))}
+                  style={{ width: '100px', textAlign: 'right', padding: '0.35rem' }}
+                />
+              </div>
+            </div>
+
+            {/* Calculations Summary */}
+            {(() => {
+              const editSubtotal = editItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+              const editNetTotal = Math.max(0, editSubtotal - Number(editDiscount || 0));
+              const diffNet = editNetTotal - (orderToEdit.net_amount || 0);
+
+              return (
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius)', padding: '0.85rem', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                    <span>Items Subtotal:</span>
+                    <strong>₹{editSubtotal}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                    <span>Discount:</span>
+                    <span style={{ color: 'var(--danger)' }}>- ₹{editDiscount}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '0.4rem', marginTop: '0.4rem', fontSize: '1.05rem', fontWeight: 'bold' }}>
+                    <span>New Net Total:</span>
+                    <strong style={{ color: 'var(--accent-cyan)' }}>₹{editNetTotal}</strong>
+                  </div>
+                  {diffNet !== 0 && (
+                    <div style={{ fontSize: '0.8rem', color: diffNet > 0 ? 'var(--warning)' : 'var(--success)', marginTop: '0.3rem', textAlign: 'right' }}>
+                      Shop Outstanding Impact: {diffNet > 0 ? `+ ₹${diffNet}` : `- ₹${Math.abs(diffNet)}`}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="btn-group" style={{ justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setEditModalOpen(false)}
+                disabled={savingEdit}
+              >
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSaveEditedOrder}
+                disabled={savingEdit}
+              >
+                💾 {savingEdit ? '...' : (lang === 'ta' ? 'மாற்றங்களை சேமி' : 'Save Changes')}
+              </button>
+            </div>
+
           </div>
         </div>
       )}

@@ -1379,6 +1379,163 @@ app.get('/api/orders/items', async (req, res) => {
   res.json(db.order_items);
 });
 
+// Edit Order / Invoice Entry
+app.put('/api/orders/:id', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const orderId = req.params.id;
+    const orderIndex = db.orders.findIndex(o => o.id === orderId);
+    if (orderIndex === -1) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const order = db.orders[orderIndex];
+    const shop = db.shops.find(s => s.id === order.shop_id);
+    const { items, discount } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Invoice must contain at least one product item' });
+    }
+
+    // 1. Temporarily revert stock for existing order items
+    const oldOrderItems = db.order_items.filter(oi => oi.order_id === orderId);
+    for (const oldItem of oldOrderItems) {
+      const product = db.products.find(p => p.id === oldItem.product_id);
+      if (product) {
+        const qtyToRestore = (Number(oldItem.cases || 0) * product.case_qty_rule) + Number(oldItem.bottles || 0);
+        product.current_stock_bottles += qtyToRestore;
+      }
+    }
+
+    // 2. Validate stock for new items list
+    const newOrderItemsToCreate = [];
+    const stockUpdates = [];
+
+    for (const item of items) {
+      const product = db.products.find(p => p.id === item.product_id);
+      if (!product) {
+        // Revert stock restoration on error
+        for (const oldItem of oldOrderItems) {
+          const p = db.products.find(prod => prod.id === oldItem.product_id);
+          if (p) {
+            const qty = (Number(oldItem.cases || 0) * p.case_qty_rule) + Number(oldItem.bottles || 0);
+            p.current_stock_bottles -= qty;
+          }
+        }
+        return res.status(400).json({ error: `Product not found: ${item.product_id}` });
+      }
+
+      const totalQtyRequested = (Number(item.cases || 0) * product.case_qty_rule) + Number(item.bottles || 0);
+      if (product.current_stock_bottles < totalQtyRequested) {
+        // Revert stock restoration on error
+        for (const oldItem of oldOrderItems) {
+          const p = db.products.find(prod => prod.id === oldItem.product_id);
+          if (p) {
+            const qty = (Number(oldItem.cases || 0) * p.case_qty_rule) + Number(oldItem.bottles || 0);
+            p.current_stock_bottles -= qty;
+          }
+        }
+        return res.status(400).json({
+          error: `Insufficient stock for ${product.name_en}. Available: ${product.current_stock_bottles} bottles. Requested: ${totalQtyRequested} bottles.`
+        });
+      }
+
+      stockUpdates.push({
+        product,
+        qtyToSubtract: totalQtyRequested,
+        casesChanged: Number(item.cases || 0),
+        bottlesChanged: Number(item.bottles || 0)
+      });
+
+      // Custom rate or fallback to shop type rate
+      const rate = item.rate !== undefined ? Number(item.rate) : (shop && shop.shop_type === 'wholesale' ? product.wholesale_price : product.retail_price);
+      const amount = item.amount !== undefined ? Number(item.amount) : Math.round(totalQtyRequested * (rate / product.case_qty_rule));
+
+      newOrderItemsToCreate.push({
+        id: item.id || `oi_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        order_id: orderId,
+        product_id: product.id,
+        cases: Number(item.cases || 0),
+        bottles: Number(item.bottles || 0),
+        rate: Number(rate),
+        amount: Math.round(amount)
+      });
+    }
+
+    // 3. Deduct stock for new items & update ledger
+    for (const update of stockUpdates) {
+      const { product, qtyToSubtract, casesChanged, bottlesChanged } = update;
+      product.current_stock_bottles -= qtyToSubtract;
+
+      db.stock_ledger.push({
+        id: `sl_${Date.now()}_edit_${product.id}`,
+        product_id: product.id,
+        transaction_type: 'sale_edit',
+        cases_change: -casesChanged,
+        bottles_change: -bottlesChanged,
+        running_stock_bottles: product.current_stock_bottles,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 4. Calculate new order totals
+    const totalAmount = newOrderItemsToCreate.reduce((sum, item) => sum + item.amount, 0);
+    const discountAmt = Number(discount !== undefined ? discount : order.discount || 0);
+    const netAmount = Math.max(0, totalAmount - discountAmt);
+    const oldNetAmount = order.net_amount;
+
+    // 5. Adjust Shop Outstanding
+    if (shop) {
+      const netDiff = netAmount - oldNetAmount;
+      if (netDiff !== 0) {
+        shop.outstanding_amount += netDiff;
+        db.outstanding_history.push({
+          id: `oh_${Date.now()}_edit`,
+          shop_id: shop.id,
+          change_amount: netDiff,
+          balance_amount: shop.outstanding_amount,
+          description: `Order ${order.invoice_number} updated (Diff: ₹${netDiff > 0 ? '+' : ''}${netDiff})`,
+          date: new Date().toISOString()
+        });
+      }
+    }
+
+    // 6. Replace order items in DB
+    db.order_items = db.order_items.filter(oi => oi.order_id !== orderId);
+    newOrderItemsToCreate.forEach(oi => db.order_items.push(oi));
+
+    // 7. Update order record
+    order.total_amount = totalAmount;
+    order.discount = discountAmt;
+    order.net_amount = netAmount;
+
+    // 8. Log in Audit Trail
+    if (!db.delivery_audit_trail) db.delivery_audit_trail = [];
+    const editingUser = req.user || { name: 'Admin', username: 'admin' };
+    const routeObj = db.routes.find(r => r.id === order.route_id);
+    db.delivery_audit_trail.push({
+      id: `dat_edit_${Date.now()}`,
+      order_number: order.invoice_number,
+      route_name: routeObj ? routeObj.name_en : '',
+      shop_name: shop ? shop.name_en : '',
+      delivery_person: editingUser.name || editingUser.username || 'Admin',
+      status: 'edited',
+      reason: `Invoice edited. Net amount changed from ₹${oldNetAmount} to ₹${netAmount}`,
+      remarks: `Items updated: ${newOrderItemsToCreate.length} product(s)`,
+      timestamp: new Date().toISOString(),
+      old_net_amount: oldNetAmount,
+      new_net_amount: netAmount,
+      edited_by: editingUser.name || editingUser.username || 'Admin'
+    });
+
+    await writeDB(req.tenantId, db);
+    res.json({ order, items: newOrderItemsToCreate });
+  } finally {
+    releaseLock();
+  }
+});
+
 // Deliveries Management
 app.get('/api/deliveries', async (req, res) => {
   const db = await readDB(req.tenantId);

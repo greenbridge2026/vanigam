@@ -277,6 +277,18 @@ export const api = {
     }
     return res.json();
   },
+  async updateOrder(id, orderData) {
+    const res = await apiFetch(`${API_BASE}/orders/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update order/invoice');
+    }
+    return res.json();
+  },
 
   // Deliveries
   async getDeliveries() {
