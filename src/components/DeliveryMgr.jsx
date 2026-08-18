@@ -56,6 +56,8 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [cashAmount, setCashAmount] = useState(0);
   const [gpayAmount, setGpayAmount] = useState(0);
   const [gpayTxn, setGpayTxn] = useState('');
+  const [chequeAmount, setChequeAmount] = useState(0);
+  const [chequeNo, setChequeNo] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // Order Deletion states
@@ -235,6 +237,8 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
             setCashAmount(matchedOrder ? matchedOrder.net_amount : 0);
             setGpayAmount(0);
             setGpayTxn('');
+            setChequeAmount(0);
+            setChequeNo('');
             setFulfillmentType('delivered');
             setReason('');
           }
@@ -253,6 +257,8 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     setCashAmount(order ? order.net_amount : 0);
     setGpayAmount(0);
     setGpayTxn('');
+    setChequeAmount(0);
+    setChequeNo('');
     setFulfillmentType('delivered');
     setReason('');
   };
@@ -265,7 +271,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       
       // 1. Process Collection Payment if status is delivered and collected amount is entered
       if (status === 'delivered') {
-        const totalAmt = Number(cashAmount || 0) + Number(gpayAmount || 0);
+        const totalAmt = Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0);
         if (totalAmt > 0) {
           const paymentsToSubmit = [];
           if (Number(cashAmount) > 0) {
@@ -287,6 +293,17 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
               payment_mode: 'gpay',
               transaction_number: gpayTxn || `TXN-${Date.now()}`,
               reference_number: '',
+              payment_date: new Date().toISOString()
+            });
+          }
+          if (Number(chequeAmount) > 0) {
+            paymentsToSubmit.push({
+              shop_id: shop.id,
+              order_id: order.id,
+              collected_amount: Number(chequeAmount),
+              payment_mode: 'cheque',
+              transaction_number: '',
+              reference_number: chequeNo || `CHQ-${Date.now()}`,
               payment_date: new Date().toISOString()
             });
           }
@@ -763,40 +780,125 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
               {fulfillmentType === 'delivered' ? (
                 <>
-                  {/* Outstanding collections input */}
+                  {/* Payment Collection Options */}
                   <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
-                    <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>💵 {t('payment_collection')}</h3>
-                    
-                    <div className="form-group" style={{ marginBottom: '0.75rem' }}>
-                      <label style={{ fontSize: '0.8rem', display: 'block' }}>💵 {t('cash')} Amount (₹)</label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        className="form-input"
-                        style={{ width: '100%', boxSizing: 'border-box' }}
-                        value={cashAmount || ''}
-                        onChange={e => setCashAmount(Math.max(0, parseInt(e.target.value.replace(/\D/g, '')) || 0))}
-                        placeholder="Cash Collected Amount"
-                      />
+                    <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>💰 {t('payment_collection')}</h3>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                      {/* Cash Option */}
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '0.75rem', display: 'block', fontWeight: 600, color: 'var(--success)' }}>
+                          💵 {t('cash')} (₹)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          className="form-input"
+                          style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600 }}
+                          value={cashAmount === '' || cashAmount === 0 ? (cashAmount === '' ? '' : '0') : cashAmount}
+                          onChange={e => {
+                            const val = e.target.value.replace(/\D/g, '');
+                            setCashAmount(val === '' ? '' : parseInt(val, 10));
+                          }}
+                          placeholder="0"
+                        />
+                      </div>
+
+                      {/* GPay Option */}
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '0.75rem', display: 'block', fontWeight: 600, color: '#34a853' }}>
+                          📱 {t('gpay')} (₹)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          className="form-input"
+                          style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600 }}
+                          value={gpayAmount === '' || gpayAmount === 0 ? (gpayAmount === '' ? '' : '0') : gpayAmount}
+                          onChange={e => {
+                            const val = e.target.value.replace(/\D/g, '');
+                            setGpayAmount(val === '' ? '' : parseInt(val, 10));
+                          }}
+                          placeholder="0"
+                        />
+                      </div>
+
+                      {/* Cheque Option */}
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '0.75rem', display: 'block', fontWeight: 600, color: 'var(--accent-cyan)' }}>
+                          🏦 {t('cheque')} (₹)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          className="form-input"
+                          style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600 }}
+                          value={chequeAmount === '' || chequeAmount === 0 ? (chequeAmount === '' ? '' : '0') : chequeAmount}
+                          onChange={e => {
+                            const val = e.target.value.replace(/\D/g, '');
+                            setChequeAmount(val === '' ? '' : parseInt(val, 10));
+                          }}
+                          placeholder="0"
+                        />
+                      </div>
                     </div>
 
+                    {/* Optional reference numbers */}
+                    {(Number(gpayAmount) > 0 || Number(chequeAmount) > 0) && (
+                      <div style={{ display: 'grid', gridTemplateColumns: Number(gpayAmount) > 0 && Number(chequeAmount) > 0 ? '1fr 1fr' : '1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                        {Number(gpayAmount) > 0 && (
+                          <input
+                            type="text"
+                            className="form-input"
+                            style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
+                            value={gpayTxn}
+                            onChange={e => setGpayTxn(e.target.value)}
+                            placeholder="GPay / UPI Txn No (optional)"
+                          />
+                        )}
+                        {Number(chequeAmount) > 0 && (
+                          <input
+                            type="text"
+                            className="form-input"
+                            style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
+                            value={chequeNo}
+                            onChange={e => setChequeNo(e.target.value)}
+                            placeholder="Cheque No / Bank Ref (optional)"
+                          />
+                        )}
+                      </div>
+                    )}
+
                     {/* Live calculation for collection */}
-                    <div style={{ marginTop: '0.75rem', padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius)', fontSize: '0.85rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                    <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius)', fontSize: '0.85rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                         <span>Invoice Total:</span>
                         <strong style={{ color: 'var(--accent-cyan)' }}>₹{activeDelivery.order.net_amount}</strong>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
                         <span>Total Collected:</span>
                         <strong style={{ color: 'var(--success)' }}>
-                          ₹{Number(cashAmount || 0) + Number(gpayAmount || 0)}
+                          ₹{Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0)}
                         </strong>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '0.2rem', marginTop: '0.2rem' }}>
+
+                      {(Number(cashAmount) > 0 || Number(gpayAmount) > 0 || Number(chequeAmount) > 0) && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right', marginBottom: '0.25rem' }}>
+                          ({[
+                            Number(cashAmount) > 0 ? `Cash: ₹${cashAmount}` : null,
+                            Number(gpayAmount) > 0 ? `GPay: ₹${gpayAmount}` : null,
+                            Number(chequeAmount) > 0 ? `Cheque: ₹${chequeAmount}` : null
+                          ].filter(Boolean).join(' + ')})
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '0.3rem', marginTop: '0.25rem' }}>
                         <span>Remaining Balance:</span>
-                        <strong style={{ color: (activeDelivery.order.net_amount - (Number(cashAmount || 0) + Number(gpayAmount || 0))) > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                          ₹{activeDelivery.order.net_amount - (Number(cashAmount || 0) + Number(gpayAmount || 0))}
+                        <strong style={{ color: (activeDelivery.order.net_amount - (Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0))) > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                          ₹{activeDelivery.order.net_amount - (Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0))}
                         </strong>
                       </div>
                     </div>

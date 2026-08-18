@@ -16,15 +16,12 @@ export default function OutstandingCollection({ t, lang }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [onlyOutstanding, setOnlyOutstanding] = useState(true);
 
-  const [paymentRows, setPaymentRows] = useState([
-    {
-      payment_mode: 'cash',
-      collected_amount: 0,
-      transaction_number: '',
-      reference_number: '',
-      payment_date: new Date().toISOString().split('T')[0]
-    }
-  ]);
+  const [cashAmount, setCashAmount] = useState(0);
+  const [gpayAmount, setGpayAmount] = useState(0);
+  const [gpayTxn, setGpayTxn] = useState('');
+  const [chequeAmount, setChequeAmount] = useState(0);
+  const [chequeNo, setChequeNo] = useState('');
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -107,7 +104,7 @@ export default function OutstandingCollection({ t, lang }) {
     setPaymentRows(updated);
   };
 
-  const totalCollected = paymentRows.reduce((sum, row) => sum + Number(row.collected_amount || 0), 0);
+  const totalCollected = Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0);
 
   // Total outstanding to resolve (either shop outstanding or specific invoice remaining)
   const outstandingToResolve = targetInvoiceId 
@@ -119,13 +116,19 @@ export default function OutstandingCollection({ t, lang }) {
   const handleSelectShop = (shopId) => {
     setSelectedShopId(shopId);
     setTargetInvoiceId('');
-    // Auto populate first payment row with outstanding amount if 0
     const targetShop = shops.find(s => s.id === shopId);
-    if (targetShop && targetShop.outstanding_amount > 0 && paymentRows.length === 1 && paymentRows[0].collected_amount === 0) {
-      setPaymentRows([{
-        ...paymentRows[0],
-        collected_amount: targetShop.outstanding_amount
-      }]);
+    if (targetShop && targetShop.outstanding_amount > 0) {
+      setCashAmount(targetShop.outstanding_amount);
+      setGpayAmount(0);
+      setGpayTxn('');
+      setChequeAmount(0);
+      setChequeNo('');
+    } else {
+      setCashAmount(0);
+      setGpayAmount(0);
+      setGpayTxn('');
+      setChequeAmount(0);
+      setChequeNo('');
     }
   };
 
@@ -140,40 +143,52 @@ export default function OutstandingCollection({ t, lang }) {
       return;
     }
 
-    const invalidRow = paymentRows.find(row => !row.collected_amount || Number(row.collected_amount) <= 0);
-    if (invalidRow) {
-      alert(lang === 'ta' ? 'அனைத்து வரிசைகளிலும் சரியான தொகையை உள்ளிடவும்.' : 'Please enter a valid amount for all payment rows.');
-      return;
-    }
-
     setSubmitting(true);
     try {
-      // Map rows for submission
-      const paymentsToSubmit = paymentRows.map(row => ({
-        shop_id: selectedShopId,
-        order_id: targetInvoiceId || '',
-        collected_amount: Number(row.collected_amount),
-        payment_mode: row.payment_mode,
-        transaction_number: row.transaction_number,
-        reference_number: row.reference_number,
-        payment_date: new Date(row.payment_date).toISOString()
-      }));
+      const paymentsToSubmit = [];
+      if (Number(cashAmount) > 0) {
+        paymentsToSubmit.push({
+          shop_id: selectedShopId,
+          order_id: targetInvoiceId || '',
+          collected_amount: Number(cashAmount),
+          payment_mode: 'cash',
+          transaction_number: '',
+          reference_number: '',
+          payment_date: new Date(paymentDate).toISOString()
+        });
+      }
+      if (Number(gpayAmount) > 0) {
+        paymentsToSubmit.push({
+          shop_id: selectedShopId,
+          order_id: targetInvoiceId || '',
+          collected_amount: Number(gpayAmount),
+          payment_mode: 'gpay',
+          transaction_number: gpayTxn || `TXN-${Date.now()}`,
+          reference_number: '',
+          payment_date: new Date(paymentDate).toISOString()
+        });
+      }
+      if (Number(chequeAmount) > 0) {
+        paymentsToSubmit.push({
+          shop_id: selectedShopId,
+          order_id: targetInvoiceId || '',
+          collected_amount: Number(chequeAmount),
+          payment_mode: 'cheque',
+          transaction_number: '',
+          reference_number: chequeNo || `CHQ-${Date.now()}`,
+          payment_date: new Date(paymentDate).toISOString()
+        });
+      }
 
-      // Submit payment
       await api.createPayment({ payments: paymentsToSubmit });
 
       alert(lang === 'ta' ? 'வசூல் வெற்றிகரமாகப் பதிவு செய்யப்பட்டது!' : 'Outstanding collection recorded successfully!');
 
-      // Reset form
-      setPaymentRows([
-        {
-          payment_mode: 'cash',
-          collected_amount: 0,
-          transaction_number: '',
-          reference_number: '',
-          payment_date: new Date().toISOString().split('T')[0]
-        }
-      ]);
+      setCashAmount(0);
+      setGpayAmount(0);
+      setGpayTxn('');
+      setChequeAmount(0);
+      setChequeNo('');
       setTargetInvoiceId('');
 
       // Reload dataset
@@ -196,11 +211,12 @@ export default function OutstandingCollection({ t, lang }) {
     setTargetInvoiceId(invoiceId);
     if (invoiceId) {
       const selectedInvoice = shopInvoices.find(inv => inv.id === invoiceId);
-      if (selectedInvoice && paymentRows.length === 1 && paymentRows[0].collected_amount === 0) {
-        // Autofill first row with remaining balance
-        const updated = [...paymentRows];
-        updated[0].collected_amount = selectedInvoice.remaining_outstanding;
-        setPaymentRows(updated);
+      if (selectedInvoice) {
+        setCashAmount(selectedInvoice.remaining_outstanding);
+        setGpayAmount(0);
+        setGpayTxn('');
+        setChequeAmount(0);
+        setChequeNo('');
       }
     }
   };
@@ -462,118 +478,112 @@ export default function OutstandingCollection({ t, lang }) {
             </div>
           )}
 
-          {/* Dynamic Payment Rows */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <label style={{ fontWeight: '700', fontSize: '0.9rem' }}>📬 {t('split_payment')}</label>
-              <button 
-                type="button" 
-                className="btn btn-secondary" 
-                onClick={handleAddRow}
-                style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
-              >
-                ➕ {t('add_payment_row')}
-              </button>
+          {/* Payment Collection Options (Cash, GPay, Cheque) */}
+          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+            <label style={{ fontWeight: '700', fontSize: '0.9rem', display: 'block', marginBottom: '0.75rem' }}>
+              💰 {t('payment_collection')}
+            </label>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              {/* Cash Option */}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: '0.75rem', display: 'block', fontWeight: 600, color: 'var(--success)' }}>
+                  💵 {t('cash')} (₹)
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="form-input"
+                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600 }}
+                  value={cashAmount === '' || cashAmount === 0 ? (cashAmount === '' ? '' : '0') : cashAmount}
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    setCashAmount(val === '' ? '' : parseInt(val, 10));
+                  }}
+                  placeholder="0"
+                />
+              </div>
+
+              {/* GPay Option */}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: '0.75rem', display: 'block', fontWeight: 600, color: '#34a853' }}>
+                  📱 {t('gpay')} (₹)
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="form-input"
+                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600 }}
+                  value={gpayAmount === '' || gpayAmount === 0 ? (gpayAmount === '' ? '' : '0') : gpayAmount}
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    setGpayAmount(val === '' ? '' : parseInt(val, 10));
+                  }}
+                  placeholder="0"
+                />
+              </div>
+
+              {/* Cheque Option */}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: '0.75rem', display: 'block', fontWeight: 600, color: 'var(--accent-cyan)' }}>
+                  🏦 {t('cheque')} (₹)
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  className="form-input"
+                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600 }}
+                  value={chequeAmount === '' || chequeAmount === 0 ? (chequeAmount === '' ? '' : '0') : chequeAmount}
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    setChequeAmount(val === '' ? '' : parseInt(val, 10));
+                  }}
+                  placeholder="0"
+                />
+              </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {paymentRows.map((row, index) => {
-                const isMetadataRequired = ['gpay', 'bank', 'upi', 'cheque'].includes(row.payment_mode);
-                return (
-                  <div 
-                    key={index} 
-                    style={{ 
-                      padding: '0.75rem', 
-                      background: 'rgba(255,255,255,0.01)', 
-                      border: '1px solid var(--border-color)', 
-                      borderRadius: 'var(--radius)',
-                      position: 'relative'
-                    }}
-                  >
-                    {paymentRows.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveRow(index)}
-                        style={{
-                          position: 'absolute',
-                          top: '0.5rem',
-                          right: '0.5rem',
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--danger)',
-                          fontSize: '1rem',
-                          cursor: 'pointer'
-                        }}
-                        title="Remove Row"
-                      >
-                        ✕
-                      </button>
-                    )}
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                      <div className="form-group">
-                        <label style={{ fontSize: '0.75rem' }}>{t('payment_mode')}</label>
-                        <select
-                          className="form-select"
-                          value={row.payment_mode}
-                          onChange={e => handleRowChange(index, 'payment_mode', e.target.value)}
-                        >
-                          <option value="cash">{t('cash')}</option>
-                          <option value="cheque">{t('cheque')}</option>
-                        </select>
-                      </div>
-
-                      <div className="form-group">
-                        <label style={{ fontSize: '0.75rem' }}>{lang === 'ta' ? 'தொகை (₹)' : 'Amount (₹)'}</label>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={row.collected_amount || ''}
-                          onChange={e => handleRowChange(index, 'collected_amount', Math.max(0, parseInt(e.target.value) || 0))}
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    {isMetadataRequired && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginTop: '0.5rem' }}>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.7rem' }}>{t('transaction_id')}</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            style={{ fontSize: '0.75rem', padding: '0.3rem' }}
-                            value={row.transaction_number || ''}
-                            onChange={e => handleRowChange(index, 'transaction_number', e.target.value)}
-                            placeholder="TXN ID"
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.7rem' }}>{t('ref_number')}</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            style={{ fontSize: '0.75rem', padding: '0.3rem' }}
-                            value={row.reference_number || ''}
-                            onChange={e => handleRowChange(index, 'reference_number', e.target.value)}
-                            placeholder="Ref No"
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.7rem' }}>{t('payment_date')}</label>
-                          <input
-                            type="date"
-                            className="form-input"
-                            style={{ fontSize: '0.75rem', padding: '0.2rem' }}
-                            value={row.payment_date}
-                            onChange={e => handleRowChange(index, 'payment_date', e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            {/* Optional reference numbers & date */}
+            <div style={{ display: 'grid', gridTemplateColumns: Number(gpayAmount) > 0 && Number(chequeAmount) > 0 ? '1fr 1fr 1fr' : (Number(gpayAmount) > 0 || Number(chequeAmount) > 0 ? '1.5fr 1fr' : '1fr'), gap: '0.5rem', marginBottom: '0.75rem' }}>
+              {Number(gpayAmount) > 0 && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.7rem' }}>{t('transaction_id')}</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
+                    value={gpayTxn}
+                    onChange={e => setGpayTxn(e.target.value)}
+                    placeholder="GPay / UPI Txn No (optional)"
+                  />
+                </div>
+              )}
+              {Number(chequeAmount) > 0 && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.7rem' }}>{t('ref_number')}</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
+                    value={chequeNo}
+                    onChange={e => setChequeNo(e.target.value)}
+                    placeholder="Cheque No / Bank Ref (optional)"
+                  />
+                </div>
+              )}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: '0.7rem' }}>{t('payment_date')}</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
+                  value={paymentDate}
+                  onChange={e => setPaymentDate(e.target.value)}
+                />
+              </div>
             </div>
           </div>
 
