@@ -265,6 +265,13 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
   const handleFulfillOrder = async (status, selectedReason, customRemarks) => {
     if (!activeDelivery) return;
+
+    const finalRemarks = customRemarks !== undefined ? customRemarks : remarks;
+    if (status === 'delivered' && (!finalRemarks || !finalRemarks.trim())) {
+      alert(lang === 'ta' ? 'கருத்துரைகள் (Remarks) நிரப்புவது கட்டாயமாகும்!' : 'Remarks is mandatory to fill before marking delivery as delivered!');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const { del, order, shop } = activeDelivery;
@@ -905,21 +912,42 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   </div>
 
                   <div className="form-group" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
-                    <label>{t('remarks')}</label>
+                    <label style={{ fontWeight: 600 }}>
+                      {t('remarks')} <span style={{ color: 'var(--danger)' }}>* ({lang === 'ta' ? 'கட்டாயமானது' : 'Mandatory'})</span>
+                    </label>
                     <input
                       type="text"
                       className="form-input"
+                      style={{
+                        borderColor: !remarks.trim() ? 'var(--danger)' : undefined,
+                        boxShadow: !remarks.trim() ? '0 0 0 1px var(--danger)' : undefined
+                      }}
                       value={remarks}
                       onChange={e => setRemarks(e.target.value)}
-                      placeholder="e.g. Received intact, signature verified"
+                      placeholder={lang === 'ta' ? 'கருத்துரையை உள்ளிடவும் (கட்டாயமானது)...' : 'Enter remarks (e.g. Received intact, signature verified)'}
+                      required
                     />
+                    {!remarks.trim() && (
+                      <p style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.35rem', marginBottom: 0 }}>
+                        ⚠️ {lang === 'ta' ? 'டெலிவரியை உறுதிப்படுத்த கருத்துரைகளை உள்ளிடவும்.' : 'Please enter remarks to enable the Mark as Delivered button.'}
+                      </p>
+                    )}
                   </div>
 
                   <div className="btn-group" style={{ marginTop: '1rem' }}>
                     <button type="button" className="btn btn-secondary" onClick={() => setActiveDelivery(null)}>
                       {t('cancel')}
                     </button>
-                    <button type="button" className="btn btn-primary" onClick={() => handleFulfillOrder('delivered', '', remarks)} disabled={submitting}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => handleFulfillOrder('delivered', '', remarks)}
+                      disabled={submitting || !remarks.trim()}
+                      style={{
+                        opacity: !remarks.trim() ? 0.5 : 1,
+                        cursor: !remarks.trim() ? 'not-allowed' : 'pointer'
+                      }}
+                    >
                       ✔ {submitting ? '...' : t('mark_delivered')}
                     </button>
                   </div>

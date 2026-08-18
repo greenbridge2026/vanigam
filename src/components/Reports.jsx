@@ -32,6 +32,131 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   const [dailyCollections, setDailyCollections] = useState([]);
   const [users, setUsers] = useState([]);
 
+  // Edit Daily Collection Modal states
+  const [editingCollection, setEditingCollection] = useState(null);
+  const [editCollectionCash, setEditCollectionCash] = useState(0);
+  const [editCollectionGpay, setEditCollectionGpay] = useState(0);
+  const [editCollectionGpayTxn, setEditCollectionGpayTxn] = useState('');
+  const [editCollectionCheque, setEditCollectionCheque] = useState(0);
+  const [editCollectionChequeNo, setEditCollectionChequeNo] = useState('');
+  const [editCollectionDate, setEditCollectionDate] = useState('');
+  const [savingCollectionEdit, setSavingCollectionEdit] = useState(false);
+
+  const handleOpenEditCollection = (c) => {
+    setEditingCollection(c);
+    setEditCollectionCash(c.cash || 0);
+    setEditCollectionGpay(c.gpay || 0);
+    setEditCollectionGpayTxn(c.gpay_txn || '');
+    setEditCollectionCheque(c.cheque || 0);
+    setEditCollectionChequeNo(c.cheque_no || '');
+    setEditCollectionDate(c.date ? c.date.split('T')[0] : new Date().toISOString().split('T')[0]);
+  };
+
+  const handleSaveCollectionEdit = async () => {
+    if (!editingCollection) return;
+    setSavingCollectionEdit(true);
+
+    try {
+      const newCash = Number(editCollectionCash || 0);
+      const newGpay = Number(editCollectionGpay || 0);
+      const newCheque = Number(editCollectionCheque || 0);
+      const newTotal = newCash + newGpay + newCheque;
+      const oldTotal = Number(editingCollection.total || 0);
+      const diff = newTotal - oldTotal;
+
+      const shopId = editingCollection.shop_id;
+      const orderId = editingCollection.order_id;
+      const paymentIds = editingCollection.payment_ids || [];
+
+      // Update payments array
+      let updatedPayments = [...payments];
+
+      if (paymentIds.length > 0) {
+        updatedPayments = updatedPayments.filter(p => !paymentIds.includes(p.id));
+      } else {
+        updatedPayments = updatedPayments.filter(p => {
+          if (orderId && p.order_id === orderId) return false;
+          if (!orderId && p.shop_id === shopId && p.payment_date?.slice(0, 10) === editingCollection.date?.slice(0, 10)) return false;
+          return true;
+        });
+      }
+
+      const formattedDate = editCollectionDate ? new Date(editCollectionDate).toISOString() : new Date().toISOString();
+
+      if (newCash > 0) {
+        updatedPayments.push({
+          id: `pay_cash_${Date.now()}`,
+          shop_id: shopId,
+          order_id: orderId || null,
+          collected_amount: newCash,
+          payment_mode: 'cash',
+          transaction_number: '',
+          reference_number: '',
+          payment_date: formattedDate
+        });
+      }
+
+      if (newGpay > 0) {
+        updatedPayments.push({
+          id: `pay_gpay_${Date.now()}`,
+          shop_id: shopId,
+          order_id: orderId || null,
+          collected_amount: newGpay,
+          payment_mode: 'gpay',
+          transaction_number: editCollectionGpayTxn || `TXN-${Date.now()}`,
+          reference_number: '',
+          payment_date: formattedDate
+        });
+      }
+
+      if (newCheque > 0) {
+        updatedPayments.push({
+          id: `pay_cheque_${Date.now()}`,
+          shop_id: shopId,
+          order_id: orderId || null,
+          collected_amount: newCheque,
+          payment_mode: 'cheque',
+          transaction_number: '',
+          reference_number: editCollectionChequeNo || `CHQ-${Date.now()}`,
+          payment_date: formattedDate
+        });
+      }
+
+      // Update shop outstanding balance
+      let updatedShops = [...shops];
+      if (shopId && diff !== 0) {
+        updatedShops = updatedShops.map(s => {
+          if (s.id === shopId) {
+            const newOutstanding = Math.max(0, Number(s.outstanding_amount || 0) - diff);
+            return { ...s, outstanding_amount: newOutstanding };
+          }
+          return s;
+        });
+        setShops(updatedShops);
+      }
+
+      setPayments(updatedPayments);
+
+      // Save to Firestore
+      const { db, isFirebaseConfigured } = await import('../firebase');
+      const { doc, setDoc } = await import('firebase/firestore');
+      if (isFirebaseConfigured && db) {
+        const tenantId = localStorage.getItem('tenantId') || 'default';
+        await setDoc(doc(db, 'tenants', tenantId, 'tables', 'payments'), { data: updatedPayments }, { merge: true });
+        if (shopId && diff !== 0) {
+          await setDoc(doc(db, 'tenants', tenantId, 'tables', 'shops'), { data: updatedShops }, { merge: true });
+        }
+      }
+
+      alert(lang === 'ta' ? 'வசூல் விவரங்கள் வெற்றிகரமாக புதுப்பிக்கப்பட்டன!' : 'Collection details updated successfully!');
+      setEditingCollection(null);
+    } catch (err) {
+      alert(err.message || 'Failed to update collection details');
+    } finally {
+      setSavingCollectionEdit(false);
+    }
+  };
+
   // Daily Sales states
   const [dailySalesStartDate, setDailySalesStartDate] = useState('');
   const [dailySalesEndDate, setDailySalesEndDate] = useState('');
@@ -227,25 +352,37 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         const outstanding = shop ? shop.outstanding_amount : 0;
 
         grouped[groupKey] = {
+          shop_id: p.shop_id,
+          order_id: p.order_id,
           date: p.payment_date,
           shop_name: shop ? (lang === 'ta' ? shop.name_ta : shop.name_en) : 'N/A',
           salesman_name: salesmanName,
           outstanding_amount: outstanding,
           cash: 0,
           gpay: 0,
+          gpay_txn: '',
+          cheque: 0,
+          cheque_no: '',
           bank: 0,
           upi: 0,
-          cheque: 0,
-          total: 0
+          total: 0,
+          payment_ids: []
         };
       }
 
+      grouped[groupKey].payment_ids.push(p.id);
       const mode = p.payment_mode.toLowerCase();
       if (mode === 'cash') grouped[groupKey].cash += p.collected_amount;
-      else if (mode === 'gpay') grouped[groupKey].gpay += p.collected_amount;
+      else if (mode === 'gpay') {
+        grouped[groupKey].gpay += p.collected_amount;
+        if (p.transaction_number) grouped[groupKey].gpay_txn = p.transaction_number;
+      }
+      else if (mode === 'cheque') {
+        grouped[groupKey].cheque += p.collected_amount;
+        if (p.reference_number) grouped[groupKey].cheque_no = p.reference_number;
+      }
       else if (mode === 'bank' || mode === 'bank transfer' || mode === 'bank_transfer') grouped[groupKey].bank += p.collected_amount;
       else if (mode === 'upi') grouped[groupKey].upi += p.collected_amount;
-      else if (mode === 'cheque') grouped[groupKey].cheque += p.collected_amount;
       
       grouped[groupKey].total += p.collected_amount;
     });
@@ -1828,6 +1965,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                       <th style={{ textAlign: 'right' }}>Total Collected</th>
                       <th style={{ textAlign: 'right' }}>Outstanding</th>
                       <th style={{ textAlign: 'right' }}>Total</th>
+                      <th className="no-print" style={{ textAlign: 'center' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1846,6 +1984,16 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                           <td style={{ textAlign: 'right', color: 'var(--success)', fontWeight: '600' }}>₹{rowTotalCollected}</td>
                           <td style={{ textAlign: 'right', color: 'var(--danger)', fontWeight: '600' }}>₹{rowOutstanding}</td>
                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--accent-blue)' }}>₹{rowGrandTotal}</td>
+                          <td className="no-print" style={{ textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              className="language-btn"
+                              style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', fontWeight: 600 }}
+                              onClick={() => handleOpenEditCollection(c)}
+                            >
+                              ✏️ Edit
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -1930,6 +2078,135 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         onConfirm={executeDeleteOrder}
         onCancel={() => setConfirmOpen(false)}
       />
+
+      {/* Edit Collection Details Modal */}
+      {editingCollection && (
+        <div className="modal-overlay" style={{ zIndex: 1000 }}>
+          <div className="glass-card modal-card" style={{ maxWidth: '540px', width: '92%', margin: 'auto', boxSizing: 'border-box', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700 }}>
+                ✏️ {lang === 'ta' ? 'வசூல் விவரங்களைத் திருத்து' : 'Edit Collection Details'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingCollection(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '1.25rem', padding: '0.65rem 0.85rem', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+              <p style={{ margin: '0.15rem 0', fontWeight: 700, fontSize: '0.92rem', color: 'var(--text-main)' }}>
+                🏢 {editingCollection.shop_name}
+              </p>
+              <p style={{ margin: '0.15rem 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                👤 {lang === 'ta' ? 'விற்பனையாளர்' : 'Salesman'}: {editingCollection.salesman_name}
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: '0.35rem' }}>Payment Date</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '0.45rem 0.6rem' }}
+                  value={editCollectionDate}
+                  onChange={e => setEditCollectionDate(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.6rem', width: '100%', boxSizing: 'border-box' }}>
+                <div className="form-group" style={{ marginBottom: 0, minWidth: 0 }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--success)', display: 'block', marginBottom: '0.35rem', whiteSpace: 'nowrap' }}>💵 Cash (₹)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600, padding: '0.45rem 0.5rem' }}
+                    value={editCollectionCash}
+                    onChange={e => setEditCollectionCash(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0, minWidth: 0 }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#34a853', display: 'block', marginBottom: '0.35rem', whiteSpace: 'nowrap' }}>📱 GPay (₹)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600, padding: '0.45rem 0.5rem' }}
+                    value={editCollectionGpay}
+                    onChange={e => setEditCollectionGpay(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0, minWidth: 0 }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent-cyan)', display: 'block', marginBottom: '0.35rem', whiteSpace: 'nowrap' }}>🏦 Cheque (₹)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600, padding: '0.45rem 0.5rem' }}
+                    value={editCollectionCheque}
+                    onChange={e => setEditCollectionCheque(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {Number(editCollectionGpay) > 0 && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.35rem' }}>GPay / UPI Txn No (Optional)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '0.45rem 0.6rem' }}
+                    value={editCollectionGpayTxn}
+                    onChange={e => setEditCollectionGpayTxn(e.target.value)}
+                    placeholder="e.g. UPI/123456"
+                  />
+                </div>
+              )}
+
+              {Number(editCollectionCheque) > 0 && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.35rem' }}>Cheque No / Bank Ref (Optional)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '0.45rem 0.6rem' }}
+                    value={editCollectionChequeNo}
+                    onChange={e => setEditCollectionChequeNo(e.target.value)}
+                    placeholder="e.g. CHQ-987654"
+                  />
+                </div>
+              )}
+
+              <div style={{ background: 'rgba(6, 182, 212, 0.05)', border: '1px solid rgba(6, 182, 212, 0.2)', padding: '0.75rem 0.9rem', borderRadius: '6px', fontSize: '0.88rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 600 }}>
+                  <span>New Total Collected:</span>
+                  <strong style={{ color: 'var(--success)', fontSize: '1.05rem' }}>
+                    ₹{Number(editCollectionCash || 0) + Number(editCollectionGpay || 0) + Number(editCollectionCheque || 0)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="btn-group" style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditingCollection(null)}>
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSaveCollectionEdit}
+                disabled={savingCollectionEdit}
+                style={{ fontWeight: 600 }}
+              >
+                {savingCollectionEdit ? 'Saving...' : 'Save Changes / சேமி'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
