@@ -32,6 +32,106 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   const [dailyCollections, setDailyCollections] = useState([]);
   const [users, setUsers] = useState([]);
 
+  // Daily Sales states
+  const [dailySalesStartDate, setDailySalesStartDate] = useState('');
+  const [dailySalesEndDate, setDailySalesEndDate] = useState('');
+  const [dailySalesQuery, setDailySalesQuery] = useState('');
+  const [selectedDailySalesIds, setSelectedDailySalesIds] = useState([]);
+
+  const handleToggleSelectDailySales = (id) => {
+    setSelectedDailySalesIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAllDailySales = (filteredOrdersList) => {
+    if (selectedDailySalesIds.length === filteredOrdersList.length && filteredOrdersList.length > 0) {
+      setSelectedDailySalesIds([]);
+    } else {
+      setSelectedDailySalesIds(filteredOrdersList.map(o => o.id));
+    }
+  };
+
+  const handleExportDailySalesExcel = (filteredOrdersList) => {
+    const targetOrders = selectedDailySalesIds.length > 0
+      ? filteredOrdersList.filter(o => selectedDailySalesIds.includes(o.id))
+      : filteredOrdersList;
+
+    if (targetOrders.length === 0) {
+      alert(lang === 'ta' ? 'ஏற்றுமதி செய்ய ஆர்டர்கள் எதுவும் தேர்வு செய்யப்படவில்லை.' : 'No orders selected or available to export.');
+      return;
+    }
+
+    const exportRows = targetOrders.map((o, index) => {
+      const shop = shops.find(s => s.id === o.shop_id);
+      const route = routes.find(r => r.id === o.route_id);
+      const gross = Number(o.total_amount || (Number(o.net_amount || 0) + Number(o.discount || 0)));
+      const disc = Number(o.discount || 0);
+      const net = Number(o.net_amount || 0);
+
+      return {
+        'S.No': index + 1,
+        'Date': o.order_date ? new Date(o.order_date).toLocaleDateString() : '',
+        'Invoice No': o.invoice_number,
+        'Shop Name': translateShopName(shop, lang) || 'Shop',
+        'Route': route ? (route.name_en || route.name) : '-',
+        'Gross Amount (₹)': gross,
+        'Discount (₹)': disc,
+        'Net Amount (₹)': net,
+        'Status': o.status === 'delivered' ? 'Delivered' : (o.status === 'returned' ? 'Returned' : 'Pending')
+      };
+    });
+
+    // Auditor Summary Totals
+    const totalGross = targetOrders.reduce((sum, o) => sum + Number(o.total_amount || (Number(o.net_amount || 0) + Number(o.discount || 0))), 0);
+    const totalDiscount = targetOrders.reduce((sum, o) => sum + Number(o.discount || 0), 0);
+    const totalNet = targetOrders.reduce((sum, o) => sum + Number(o.net_amount || 0), 0);
+
+    // Empty separator row
+    exportRows.push({
+      'S.No': '',
+      'Date': '',
+      'Invoice No': '',
+      'Shop Name': '',
+      'Route': '',
+      'Gross Amount (₹)': '',
+      'Discount (₹)': '',
+      'Net Amount (₹)': '',
+      'Status': ''
+    });
+
+    // Auditor Total Row
+    exportRows.push({
+      'S.No': 'AUDITOR TOTAL SUMMARY',
+      'Date': `Invoices Count: ${targetOrders.length}`,
+      'Invoice No': 'GRAND TOTALS:',
+      'Shop Name': '',
+      'Route': '',
+      'Gross Amount (₹)': totalGross,
+      'Discount (₹)': totalDiscount,
+      'Net Amount (₹)': totalNet,
+      'Status': `Total Net: ₹${totalNet}`
+    });
+
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    ws['!cols'] = [
+      { wch: 8 },  // S.No
+      { wch: 12 }, // Date
+      { wch: 15 }, // Invoice No
+      { wch: 25 }, // Shop Name
+      { wch: 25 }, // Route
+      { wch: 16 }, // Gross Amount
+      { wch: 14 }, // Discount
+      { wch: 16 }, // Net Amount
+      { wch: 15 }  // Status
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Daily Sales');
+    const dateRangeStr = (dailySalesStartDate || dailySalesEndDate) ? `_${dailySalesStartDate}_to_${dailySalesEndDate}` : '';
+    XLSX.writeFile(wb, `Daily_Sales_Audit_Report${dateRangeStr}_${Date.now()}.xlsx`);
+  };
+
   // Calculate Customer Ledger transactions
   useEffect(() => {
     if (!ledgerShopId) {
@@ -308,56 +408,215 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       
       // 1. Daily Sales
       case 'daily_sales': {
-        const filtered = orders.filter(o => matchesSearch(o, 'order'));
+        const filtered = orders.filter(o => {
+          // Search query filter
+          const q = (dailySalesQuery || searchQuery).toLowerCase().trim();
+          if (q) {
+            const shopObj = shops.find(s => s.id === o.shop_id);
+            const routeObj = routes.find(r => r.id === o.route_id);
+            const sName = shopObj ? `${shopObj.name_en} ${shopObj.name_ta}` : '';
+            const rName = routeObj ? `${routeObj.name_en} ${routeObj.name_ta}` : '';
+            const matchesQ = (
+              (o.invoice_number || '').toLowerCase().includes(q) ||
+              sName.toLowerCase().includes(q) ||
+              rName.toLowerCase().includes(q) ||
+              (shopObj?.mobile || '').includes(q) ||
+              (shopObj?.gst_number || '').toLowerCase().includes(q)
+            );
+            if (!matchesQ) return false;
+          }
+
+          // Date Range filter
+          if (o.order_date) {
+            const oDate = o.order_date.split('T')[0];
+            if (dailySalesStartDate && oDate < dailySalesStartDate) return false;
+            if (dailySalesEndDate && oDate > dailySalesEndDate) return false;
+          } else {
+            if (dailySalesStartDate || dailySalesEndDate) return false;
+          }
+
+          return true;
+        });
+
+        const totalFilteredNet = filtered.reduce((sum, o) => sum + Number(o.net_amount || 0), 0);
+        const totalFilteredDiscount = filtered.reduce((sum, o) => sum + Number(o.discount || 0), 0);
+        const totalFilteredGross = filtered.reduce((sum, o) => sum + Number(o.total_amount || (Number(o.net_amount || 0) + Number(o.discount || 0))), 0);
+
         return (
-          <div className="table-container">
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Invoice No</th>
-                  <th>Shop</th>
-                  <th>Discount</th>
-                  <th>Net Total</th>
-                  <th>Status</th>
-                  <th>Bill</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(o => {
-                  const shop = shops.find(s => s.id === o.shop_id);
-                  return (
-                    <tr key={o.id}>
-                      <td>{new Date(o.order_date).toLocaleDateString()}</td>
-                      <td><strong>{o.invoice_number}</strong></td>
-                      <td>{translateShopName(shop, lang) || 'Shop'}</td>
-                      <td>₹{o.discount}</td>
-                      <td style={{ color: 'var(--accent-cyan)', fontWeight: '700' }}>₹{o.net_amount}</td>
-                      <td>
-                        <span style={{
-                          fontSize: '0.75rem', padding: '2px 6px', borderRadius: '4px',
-                          background: o.status === 'delivered' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-                          color: o.status === 'delivered' ? 'var(--success)' : 'var(--warning)',
-                          border: `1px solid ${o.status === 'delivered' ? 'var(--success)' : 'var(--warning)'}`
-                        }}>
-                          {o.status === 'delivered' ? t('delivered') : t('pending')}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'inline-flex', gap: '0.4rem' }}>
-                          <button className="language-btn" onClick={() => onBillSelected(o.id)}>View</button>
-                           {session?.role === 'admin' && (
-                             <button className="btn btn-danger" onClick={() => handleDeleteOrderTrigger(o.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
-                                Delete
-                             </button>
-                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Toolbar: Custom Date Range, Search & Excel Export */}
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '1rem',
+              justify: 'space-between',
+              alignItems: 'center',
+              padding: '0.85rem 1rem',
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--radius)'
+            }}>
+              {/* Date Range & Search Inputs */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>From:</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem' }}
+                    value={dailySalesStartDate}
+                    onChange={e => setDailySalesStartDate(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>To:</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    style={{ fontSize: '0.8rem', padding: '0.3rem 0.5rem' }}
+                    value={dailySalesEndDate}
+                    onChange={e => setDailySalesEndDate(e.target.value)}
+                  />
+                </div>
+                {(dailySalesStartDate || dailySalesEndDate) && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
+                    onClick={() => {
+                      setDailySalesStartDate('');
+                      setDailySalesEndDate('');
+                    }}
+                  >
+                    Clear Dates
+                  </button>
+                )}
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ fontSize: '0.88rem', padding: '0.35rem 0.65rem', minWidth: '220px' }}
+                    placeholder="🔍 Search Invoice, Shop, Route..."
+                    value={dailySalesQuery}
+                    onChange={e => setDailySalesQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Excel Export */}
+              <div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600 }}
+                  onClick={() => handleExportDailySalesExcel(filtered)}
+                >
+                  📊 {lang === 'ta' ? 'எக்செல் ஏற்றுமதி (Excel Export)' : 'Export to Excel'} ({selectedDailySalesIds.length > 0 ? `${selectedDailySalesIds.length} Selected` : `All ${filtered.length}`})
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '40px', textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedDailySalesIds.length === filtered.length && filtered.length > 0}
+                        onChange={() => handleToggleSelectAllDailySales(filtered)}
+                      />
+                    </th>
+                    <th>Date</th>
+                    <th>Invoice No</th>
+                    <th>Shop</th>
+                    <th>Discount</th>
+                    <th>Net Total</th>
+                    <th>Status</th>
+                    <th>Bill</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(o => {
+                    const shop = shops.find(s => s.id === o.shop_id);
+                    const isSelected = selectedDailySalesIds.includes(o.id);
+                    return (
+                      <tr key={o.id} style={{ background: isSelected ? 'rgba(6, 182, 212, 0.06)' : undefined }}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleSelectDailySales(o.id)}
+                          />
+                        </td>
+                        <td>{new Date(o.order_date).toLocaleDateString()}</td>
+                        <td><strong>{o.invoice_number}</strong></td>
+                        <td>{translateShopName(shop, lang) || 'Shop'}</td>
+                        <td>₹{o.discount}</td>
+                        <td style={{ color: 'var(--accent-cyan)', fontWeight: '700' }}>₹{o.net_amount}</td>
+                        <td>
+                          <span style={{
+                            fontSize: '0.75rem', padding: '2px 6px', borderRadius: '4px',
+                            background: o.status === 'delivered' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                            color: o.status === 'delivered' ? 'var(--success)' : 'var(--warning)',
+                            border: `1px solid ${o.status === 'delivered' ? 'var(--success)' : 'var(--warning)'}`
+                          }}>
+                            {o.status === 'delivered' ? t('delivered') : t('pending')}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'inline-flex', gap: '0.4rem' }}>
+                            <button className="language-btn" onClick={() => onBillSelected(o.id)}>View</button>
+                             {session?.role === 'admin' && (
+                               <button className="btn btn-danger" onClick={() => handleDeleteOrderTrigger(o.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>
+                                  Delete
+                               </button>
+                             )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Auditor Total Summary Footer Card */}
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              justify: 'space-between',
+              alignItems: 'center',
+              padding: '0.85rem 1.25rem',
+              background: 'rgba(6, 182, 212, 0.05)',
+              border: '1px solid var(--accent-cyan)',
+              borderRadius: 'var(--radius)',
+              marginTop: '0.5rem'
+            }}>
+              <div>
+                <strong style={{ fontSize: '0.95rem', color: 'var(--accent-cyan)', display: 'block' }}>
+                  📑 AUDITOR SUMMARY TOTALS ({selectedDailySalesIds.length > 0 ? `${selectedDailySalesIds.length} Selected Invoices` : `${filtered.length} Filtered Invoices`})
+                </strong>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Total calculated figures ready for inspection & Excel export
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Gross Value</span>
+                  <strong style={{ fontSize: '1.05rem' }}>₹{totalFilteredGross}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Total Discount</span>
+                  <strong style={{ fontSize: '1.05rem', color: 'var(--warning)' }}>₹{totalFilteredDiscount}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Net Sales Amount</span>
+                  <strong style={{ fontSize: '1.2rem', color: 'var(--success)' }}>₹{totalFilteredNet}</strong>
+                </div>
+              </div>
+            </div>
           </div>
         );
       }

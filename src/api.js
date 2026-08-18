@@ -1,5 +1,5 @@
 import { db, isFirebaseConfigured } from './firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 const API_BASE = '/api';
 
@@ -268,9 +268,36 @@ export const api = {
     return getTableData('stock_ledger', `${API_BASE}/stock/ledger`);
   },
 
-  // Orders
   async getOrders() {
-    return getTableData('orders', `${API_BASE}/orders`);
+    const orders = await getTableData('orders', `${API_BASE}/orders`);
+    if (orders && orders.length > 0) {
+      orders.sort((a, b) => {
+        const dateA = a.order_date ? new Date(a.order_date).getTime() : 0;
+        const dateB = b.order_date ? new Date(b.order_date).getTime() : 0;
+        if (dateA !== dateB) return dateA - dateB;
+        return (a.id || '').localeCompare(b.id || '');
+      });
+
+      let changed = false;
+      orders.forEach((order, index) => {
+        const expectedInvoiceNum = `INV-${1001 + index}`;
+        if (order.invoice_number !== expectedInvoiceNum) {
+          order.invoice_number = expectedInvoiceNum;
+          changed = true;
+        }
+      });
+
+      if (changed && isFirebaseConfigured && db) {
+        try {
+          const tenantId = localStorage.getItem('tenantId') || 'default';
+          const docRef = doc(db, 'tenants', tenantId, 'tables', 'orders');
+          await setDoc(docRef, { data: orders }, { merge: true });
+        } catch (e) {
+          console.warn('Auto-sync reindexed orders to Firestore failed:', e);
+        }
+      }
+    }
+    return orders;
   },
   async getOrderItems() {
     return getTableData('order_items', `${API_BASE}/orders/items`);

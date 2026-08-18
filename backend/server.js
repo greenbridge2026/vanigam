@@ -26,76 +26,131 @@ function releaseLock() {
 }
 
 // Database Helpers
-let cachedDBs = {};      // { [tenantId]: dbData }
+let cachedDBs = {};        // { [tenantId]: dbData }
 let cachedTimestamps = {}; // { [tenantId]: timestamp }
 
+function sanitizeAndReindexOrders(dbData) {
+  if (!dbData || !Array.isArray(dbData.orders) || dbData.orders.length === 0) return false;
+  
+  // Sort orders by order_date or creation time
+  dbData.orders.sort((a, b) => {
+    const dateA = a.order_date ? new Date(a.order_date).getTime() : 0;
+    const dateB = b.order_date ? new Date(b.order_date).getTime() : 0;
+    if (dateA !== dateB) return dateA - dateB;
+    return (a.id || '').localeCompare(b.id || '');
+  });
+
+  let changed = false;
+  dbData.orders.forEach((order, index) => {
+    const expectedInvoiceNum = `INV-${1001 + index}`;
+    if (order.invoice_number !== expectedInvoiceNum) {
+      const oldInv = order.invoice_number;
+      order.invoice_number = expectedInvoiceNum;
+      changed = true;
+
+      // Update references in bills if present
+      if (Array.isArray(dbData.bills)) {
+        dbData.bills.forEach(bill => {
+          if (bill.order_id === order.id || bill.invoice_number === oldInv) {
+            bill.invoice_number = expectedInvoiceNum;
+          }
+        });
+      }
+
+      // Update references in outstanding_history if present
+      if (Array.isArray(dbData.outstanding_history)) {
+        dbData.outstanding_history.forEach(oh => {
+          if (oh.order_number === oldInv) {
+            oh.order_number = expectedInvoiceNum;
+          }
+          if (oh.description && oldInv && oh.description.includes(oldInv)) {
+            oh.description = oh.description.replace(oldInv, expectedInvoiceNum);
+          }
+        });
+      }
+    }
+  });
+
+  return changed;
+}
+
 async function readDB(tenantId) {
+  let dbData = null;
+
   if (isFirebaseMock) {
     try {
       const data = await fs.readFile(getDbPath(tenantId), 'utf8');
-      const db = JSON.parse(data);
-      if (!db.vehicles) db.vehicles = [];
-      if (!db.vehicle_stock) db.vehicle_stock = [];
-      if (!db.vehicle_dispatches) db.vehicle_dispatches = [];
-      if (!db.vehicle_sales) db.vehicle_sales = [];
-      if (!db.vehicle_reconciliations) db.vehicle_reconciliations = [];
-      return db;
+      dbData = JSON.parse(data);
+      if (!dbData.vehicles) dbData.vehicles = [];
+      if (!dbData.vehicle_stock) dbData.vehicle_stock = [];
+      if (!dbData.vehicle_dispatches) dbData.vehicle_dispatches = [];
+      if (!dbData.vehicle_sales) dbData.vehicle_sales = [];
+      if (!dbData.vehicle_reconciliations) dbData.vehicle_reconciliations = [];
     } catch (error) {
-      return await seedDB(tenantId);
+      dbData = await seedDB(tenantId);
     }
-  }
-
-  try {
-    const metaRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc('_metadata');
-    const metaSnap = await metaRef.get();
-    
-    let lastUpdated = 0;
-    if (metaSnap.exists) {
-      lastUpdated = metaSnap.data().last_updated || 0;
-    }
-
-    if (cachedDBs[tenantId] && cachedTimestamps[tenantId] >= lastUpdated) {
-      return JSON.parse(JSON.stringify(cachedDBs[tenantId]));
-    }
-
-    // Cache missing or stale: load all docs from tenant-specific 'tables' collection
-    const snapshot = await firestoreDb.collection('tenants').doc(tenantId).collection('tables').get();
-    const dbData = {};
-    snapshot.forEach(doc => {
-      if (doc.id !== '_metadata') {
-        dbData[doc.id] = doc.data().data || [];
+  } else {
+    try {
+      const metaRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc('_metadata');
+      const metaSnap = await metaRef.get();
+      
+      let lastUpdated = 0;
+      if (metaSnap.exists) {
+        lastUpdated = metaSnap.data().last_updated || 0;
       }
-    });
 
-    const tableKeys = [
-      'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
-      'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
-      'bills', 'notifications', 'vehicles', 'vehicle_stock',
-      'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
-      'delivery_audit_trail', 'settings'
-    ];
-    for (const key of tableKeys) {
-      if (key === 'settings') {
-        if (!dbData[key] || Array.isArray(dbData[key]) || Object.keys(dbData[key]).length === 0) {
-          dbData[key] = {
-            company_name: "GSK Agency",
-            company_address: "Cooldrinks Shop - Tindivanam",
-            company_gst: "33CWRPK4071L1Z2",
-            upi_mobile: "9345463415"
-          };
-        }
+      if (cachedDBs[tenantId] && cachedTimestamps[tenantId] >= lastUpdated) {
+        dbData = cachedDBs[tenantId];
       } else {
-        if (!dbData[key]) dbData[key] = [];
-      }
-    }
+        const snapshot = await firestoreDb.collection('tenants').doc(tenantId).collection('tables').get();
+        dbData = {};
+        snapshot.forEach(doc => {
+          if (doc.id !== '_metadata') {
+            dbData[doc.id] = doc.data().data || [];
+          }
+        });
 
-    cachedDBs[tenantId] = dbData;
-    cachedTimestamps[tenantId] = lastUpdated || Date.now();
-    return JSON.parse(JSON.stringify(cachedDBs[tenantId]));
-  } catch (err) {
-    console.error('Error reading from Firestore:', err);
-    return await seedDB(tenantId);
+        const tableKeys = [
+          'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
+          'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
+          'bills', 'notifications', 'vehicles', 'vehicle_stock',
+          'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
+          'delivery_audit_trail', 'settings'
+        ];
+        for (const key of tableKeys) {
+          if (key === 'settings') {
+            if (!dbData[key] || Array.isArray(dbData[key]) || Object.keys(dbData[key]).length === 0) {
+              dbData[key] = {
+                company_name: "GSK Agency",
+                company_address: "Cooldrinks Shop - Tindivanam",
+                company_gst: "33CWRPK4071L1Z2",
+                upi_mobile: "9345463415"
+              };
+            }
+          } else {
+            if (!dbData[key]) dbData[key] = [];
+          }
+        }
+
+        cachedDBs[tenantId] = dbData;
+        cachedTimestamps[tenantId] = lastUpdated || Date.now();
+      }
+    } catch (err) {
+      console.error('Error reading from Firestore:', err);
+      dbData = await seedDB(tenantId);
+    }
   }
+
+  // Ensure ALL orders for tenant are strictly reindexed starting from INV-1001, INV-1002, INV-1003...
+  if (dbData && dbData.orders && dbData.orders.length > 0) {
+    const hasReindexed = sanitizeAndReindexOrders(dbData);
+    if (hasReindexed) {
+      cachedDBs[tenantId] = dbData;
+      writeDB(tenantId, dbData).catch(err => console.error(`Error auto-persisting reindexed orders for ${tenantId}:`, err));
+    }
+  }
+
+  return JSON.parse(JSON.stringify(dbData));
 }
 
 async function writeDB(tenantId, data) {
@@ -1418,8 +1473,23 @@ app.post('/api/orders', async (req, res) => {
     const discountAmt = Number(discount || 0);
     const netAmount = Math.max(0, totalAmount - discountAmt);
 
-    // Get order counter
-    const invoiceNum = `INV-${String(db.orders.length + 1001)}`;
+    // Find lowest available candidate starting from INV-1001 (fills gaps if any invoice was deleted!)
+    const usedNumbers = new Set();
+    (db.orders || []).forEach(o => {
+      if (o.invoice_number) {
+        const match = String(o.invoice_number).match(/INV-(\d+)/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num)) usedNumbers.add(num);
+        }
+      }
+    });
+
+    let candidate = 1001;
+    while (usedNumbers.has(candidate)) {
+      candidate++;
+    }
+    const invoiceNum = `INV-${candidate}`;
 
     const newOrder = {
       id: `ord_${Date.now()}`,

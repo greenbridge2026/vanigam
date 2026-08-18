@@ -22,6 +22,45 @@ import SuperAdminDashboard from './components/SuperAdminDashboard';
 import BulkPrintLayout from './components/BulkPrintLayout';
 import OutstandingCollection from './components/OutstandingCollection';
 
+function formatNotificationTime(dateStr, lang = 'en') {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return dateStr;
+
+  const now = new Date();
+  const diffMs = Math.max(0, now - date);
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+
+  let relative = '';
+  if (diffSec < 45) {
+    relative = lang === 'ta' ? 'இப்பொழுது' : 'Just now';
+  } else if (diffMin < 60) {
+    relative = lang === 'ta' ? `${diffMin} நிமிடங்களுக்கு முன்` : `${diffMin}m ago`;
+  } else if (diffHour < 24) {
+    relative = lang === 'ta' ? `${diffHour} மணி நேரத்திற்கு முன்` : `${diffHour}h ago`;
+  } else {
+    relative = lang === 'ta' ? `${diffDay} நாட்களுக்கு முன்` : `${diffDay}d ago`;
+  }
+
+  const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const isToday = date.toDateString() === now.toDateString();
+  const dateFormatted = isToday ? (lang === 'ta' ? 'இன்று' : 'Today') : date.toLocaleDateString();
+
+  return `${relative} • ${dateFormatted} ${timeString}`;
+}
+
+const sortNotifications = (list) => {
+  if (!Array.isArray(list)) return [];
+  return [...list].sort((a, b) => {
+    const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return dateB - dateA;
+  });
+};
+
 export default function App() {
   const [lang, setLang] = useState(() => {
     return localStorage.getItem('lang') || 'en';
@@ -105,7 +144,8 @@ export default function App() {
           if (isFirebaseConfigured && db) {
             unsubscribe = onSnapshot(doc(db, 'tenants', session.tenantId || 'default', 'tables', 'notifications'), (docSnap) => {
               if (docSnap.exists()) {
-                setNotifications(docSnap.data().data || []);
+                const raw = docSnap.data().data || [];
+                setNotifications(sortNotifications(raw));
               } else {
                 setNotifications([]);
               }
@@ -235,7 +275,7 @@ export default function App() {
   const loadNotifications = async () => {
     try {
       const data = await api.getNotifications();
-      setNotifications(data);
+      setNotifications(sortNotifications(data));
     } catch (err) {
       console.error('Error fetching notifications', err);
     }
@@ -247,6 +287,66 @@ export default function App() {
       setNotifications(notifications.map(n => ({ ...n, status: 'read' })));
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleNotificationClick = async (n) => {
+    setShowNotifications(false);
+
+    // Mark as read in state & server
+    if (n.status === 'unread') {
+      try {
+        await api.markNotificationsRead();
+        setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, status: 'read' } : item));
+      } catch (e) {
+        console.warn('Error marking notification read:', e);
+      }
+    }
+
+    const msg = (n.message_en || n.message_ta || '').toLowerCase();
+    const type = n.type || '';
+
+    // Extract invoice number (e.g., INV-1001, INV-1002) or order ID from notification
+    const invMatch = (n.message_en || '').match(/INV-\d+/i) || (n.message_ta || '').match(/INV-\d+/i);
+    const targetInvoice = invMatch ? invMatch[0].toUpperCase() : null;
+    const targetOrderId = n.order_id || null;
+
+    try {
+      const allOrders = await api.getOrders();
+      const matchedOrder = (allOrders || []).find(o =>
+        (targetInvoice && o.invoice_number && o.invoice_number.toUpperCase() === targetInvoice) ||
+        (targetOrderId && o.id === targetOrderId)
+      );
+
+      if (matchedOrder) {
+        setSelectedOrderId(matchedOrder.id);
+        setActiveTab('billing');
+        return;
+      }
+    } catch (err) {
+      console.warn('Failed to load orders for notification click:', err);
+    }
+
+    // Route to respective module fallback
+    if (type === 'pending_delivery' || msg.includes('delivery') || msg.includes('invoice') || msg.includes('order')) {
+      if (msg.includes('pending') || type === 'pending_delivery') {
+        localStorage.setItem('deliveryStatusFilter', 'pending');
+      }
+      setActiveTab('deliveries');
+    } else if (type === 'stock_refill' || msg.includes('stock') || msg.includes('refill')) {
+      setActiveTab('stock');
+    } else if (type === 'payment' || msg.includes('paid') || msg.includes('collection') || msg.includes('outstanding')) {
+      setActiveTab('outstanding_collection');
+    } else if (msg.includes('purchase')) {
+      setActiveTab('purchases');
+    } else if (msg.includes('vehicle')) {
+      setActiveTab('vehicle_loading');
+    } else if (msg.includes('shop')) {
+      setActiveTab('shops');
+    } else if (msg.includes('route')) {
+      setActiveTab('routes');
+    } else {
+      setActiveTab('deliveries');
     }
   };
 
@@ -493,26 +593,69 @@ export default function App() {
           {/* Notifications List Popup */}
           {showNotifications && (
             <div className="notifications-popup">
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '0.75rem' }}>
-                <strong style={{ fontSize: '0.9rem' }}>{t('notifications')}</strong>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '0.75rem' }}>
+                <div>
+                  <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span>🔔</span> {t('notifications')}
+                    <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', borderRadius: '10px' }}>
+                      Live Recent
+                    </span>
+                  </strong>
+                </div>
                 {unreadNotifications.length > 0 && (
                   <button onClick={markAllRead} style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold' }}>
                     {t('mark_all_read')}
                   </button>
                 )}
               </div>
-              <div>
+              <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
                 {notifications.length === 0 ? (
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center' }}>{t('no_notifications')}</p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>{t('no_notifications')}</p>
                 ) : (
-                  notifications.map(n => (
-                    <div key={n.id} className={`notification-item ${n.type}`}>
-                      <div>{lang === 'ta' ? n.message_ta : n.message_en}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                        {new Date(n.created_at).toLocaleTimeString()}
+                  sortNotifications(notifications).map(n => {
+                    const isUnread = n.status === 'unread';
+                    let typeIcon = '🔔';
+                    if (n.type === 'pending_delivery' || (n.message_en && n.message_en.includes('delivery'))) typeIcon = '📦';
+                    if (n.type === 'stock_refill' || (n.message_en && n.message_en.includes('stock'))) typeIcon = '🥤';
+                    if (n.type === 'payment' || (n.message_en && n.message_en.includes('Paid'))) typeIcon = '💰';
+
+                    return (
+                      <div
+                        key={n.id}
+                        className={`notification-item ${n.type}`}
+                        onClick={() => handleNotificationClick(n)}
+                        title="Click to view details / பக்கத்திற்கு செல்ல கிளிக் செய்க"
+                        style={{
+                          background: isUnread ? 'rgba(6, 182, 212, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                          borderLeft: isUnread ? '3px solid var(--accent-cyan)' : '3px solid transparent',
+                          padding: '0.65rem 0.75rem',
+                          borderRadius: '6px',
+                          marginBottom: '0.5rem',
+                          position: 'relative',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                          <span style={{ fontSize: '1rem', marginTop: '1px' }}>{typeIcon}</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.82rem', fontWeight: isUnread ? '600' : '400', color: 'var(--text-main)', lineHeight: '1.3' }}>
+                              {lang === 'ta' ? (n.message_ta || n.message_en) : (n.message_en || n.message_ta)}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: isUnread ? 'var(--accent-cyan)' : 'var(--text-muted)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                              <span>⏱️</span>
+                              <span>{formatNotificationTime(n.created_at, lang)}</span>
+                              {isUnread && (
+                                <span style={{ marginLeft: 'auto', fontSize: '0.65rem', background: 'var(--accent-cyan)', color: '#000', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                  NEW
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
