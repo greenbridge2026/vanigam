@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
 import * as XLSX from 'xlsx';
+import { translateProductName } from '../translations';
 
 export default function ProductMgr({ t, lang }) {
   const [products, setProducts] = useState([]);
@@ -140,10 +141,26 @@ export default function ProductMgr({ t, lang }) {
     }
   };
 
-  const handleEdit = (prod) => {
+  const handleEdit = async (prod) => {
     setEditingProduct(prod);
-    setNameEn(prod.name_en);
-    setNameTa(prod.name_ta);
+    setNameEn(prod.name_en || '');
+
+    let initialTa = prod.name_ta || '';
+    if (!initialTa || /[a-zA-Z]/.test(initialTa) || initialTa.trim() === (prod.name_en || '').trim()) {
+      const dictTa = translateProductName(prod, 'ta');
+      if (dictTa && !/[a-zA-Z]/.test(dictTa)) {
+        initialTa = dictTa;
+      } else {
+        try {
+          const translated = await api.translate(prod.name_en, 'en', 'ta');
+          if (translated) initialTa = translated;
+        } catch (err) {
+          console.warn('Auto-translate on edit failed', err);
+        }
+      }
+    }
+
+    setNameTa(initialTa || translateProductName(prod, 'ta'));
     setBrand(prod.brand);
     setCategory(prod.category || '');
     setSize(prod.size);
@@ -309,12 +326,33 @@ export default function ProductMgr({ t, lang }) {
     XLSX.writeFile(wb, 'products_list.xlsx');
   };
 
+  const [translatingAll, setTranslatingAll] = useState(false);
+
+  const handleAutoTranslateAll = async () => {
+    setTranslatingAll(true);
+    try {
+      const res = await api.autoTranslateProducts();
+      if (res && res.success) {
+        setProducts(res.products);
+        alert(
+          lang === 'ta'
+            ? `${res.updatedCount} தயாரிப்புகளின் தமிழ் பெயர்கள் வெற்றிகரமாக புதுப்பிக்கப்பட்டன!`
+            : `Successfully updated Tamil names for ${res.updatedCount} products!`
+        );
+      }
+    } catch (err) {
+      alert(err.message || 'Auto translation failed');
+    } finally {
+      setTranslatingAll(false);
+    }
+  };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const bstr = evt.target.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
@@ -338,11 +376,29 @@ export default function ProductMgr({ t, lang }) {
           return undefined;
         };
 
-        const mapped = data.map((row) => {
+        const mapped = await Promise.all(data.map(async (row) => {
+          const brand = getVal(row, ['Brand']) || '';
+          const name_en = getVal(row, ['ProductName', 'NameEn', 'Name']) || '';
+          let name_ta = getVal(row, ['ProductNameTamil', 'NameTa']) || '';
+
+          if (name_en && (!name_ta || /[a-zA-Z]/.test(name_ta) || name_ta.trim() === name_en.trim())) {
+            const dictTa = translateProductName({ name_en, name_ta: '' }, 'ta');
+            if (dictTa && !/[a-zA-Z]/.test(dictTa)) {
+              name_ta = dictTa;
+            } else {
+              try {
+                const translated = await api.translate(name_en, 'en', 'ta');
+                if (translated) name_ta = translated;
+              } catch (e) {
+                console.warn('Auto translate during Excel upload failed:', e);
+              }
+            }
+          }
+
           return {
-            brand: getVal(row, ['Brand']) || '',
-            name_en: getVal(row, ['ProductName', 'NameEn', 'Name']) || '',
-            name_ta: getVal(row, ['ProductNameTamil', 'NameTa']) || '',
+            brand,
+            name_en,
+            name_ta: name_ta || name_en,
             size: getVal(row, ['Size']) || '',
             mrp: Number(getVal(row, ['MRP']) || 0),
             case_qty_rule: Number(getVal(row, ['PackQty', 'CaseQty', 'CaseQtyRule']) || 24),
@@ -354,7 +410,7 @@ export default function ProductMgr({ t, lang }) {
             min_stock: Number(getVal(row, ['MinStock']) || 24),
             status: getVal(row, ['Status']) || 'active'
           };
-        });
+        }));
 
         // Pre-import validation
         const missingFields = mapped.filter(p => !p.brand || !p.name_en || !p.size);
@@ -442,6 +498,16 @@ export default function ProductMgr({ t, lang }) {
           
           <button type="button" className="btn btn-secondary" onClick={handleExportToExcel} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
             📤 {lang === 'ta' ? 'தற்போதைய தயாரிப்புகளைப் பதிவிறக்கு' : 'Download Products (Excel)'}
+          </button>
+
+          <button 
+            type="button" 
+            className="btn btn-secondary" 
+            onClick={handleAutoTranslateAll} 
+            disabled={translatingAll}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: 'var(--accent-cyan)', color: '#000', fontWeight: 'bold' }}
+          >
+            🌐 {translatingAll ? (lang === 'ta' ? 'மொழிபெயர்க்கப்படுகிறது...' : 'Translating...') : (lang === 'ta' ? 'தமிழ் பெயர்களை தானாக புதுப்பி' : 'Auto-Translate Tamil Names')}
           </button>
           
           <div style={{ position: 'relative', overflow: 'hidden', display: 'inline-block' }}>

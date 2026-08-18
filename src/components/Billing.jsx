@@ -341,11 +341,9 @@ export default function Billing({ orderId, t, lang, onBack }) {
                       <th style={{ padding: isCompact ? '4px 6px' : '6px 8px', fontWeight: '600', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
                         {lang === 'ta' ? 'பொருட்களின் விபரம்' : 'Product Name'}
                       </th>
-                      {!isCompact && (
-                        <th style={{ padding: '6px 8px', width: '70px', fontWeight: '600', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
-                          {lang === 'ta' ? 'அளவு' : 'Size'}
-                        </th>
-                      )}
+                      <th style={{ padding: isCompact ? '4px 6px' : '6px 8px', width: '70px', fontWeight: '600', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
+                        {lang === 'ta' ? 'அளவு' : 'Size'}
+                      </th>
                       <th style={{ padding: isCompact ? '4px 6px' : '6px 8px', width: '60px', textAlign: 'center', fontWeight: '600', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
                         {lang === 'ta' ? 'பெட்டி' : 'Cases'}
                       </th>
@@ -363,8 +361,9 @@ export default function Billing({ orderId, t, lang, onBack }) {
                   <tbody>
                     {orderItems.map((item, idx) => {
                       const prod = products.find(p => p.id === item.product_id);
-                      const pName = prod ? translateProductName(prod, lang) : 'Product';
-                      const pSize = prod ? prod.size : '';
+                      const rawName = prod ? translateProductName(prod, lang) : (item.product_name || 'Product');
+                      const pSize = prod ? prod.size : (item.size || '');
+                      const pName = pSize && !rawName.toLowerCase().includes(pSize.toLowerCase()) ? `${rawName} (${pSize})` : rawName;
 
                       return (
                         <tr key={item.id} style={{
@@ -373,7 +372,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
                         }}>
                           <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', color: '#0f172a', fontWeight: '800' }}>{idx + 1}</td>
                           <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', fontWeight: '800', color: '#0f172a' }}>{pName}</td>
-                          {!isCompact && <td style={{ padding: '6px 8px', color: '#0f172a', fontWeight: '800' }}>{pSize}</td>}
+                          <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', color: '#0f172a', fontWeight: '800' }}>{pSize || '-'}</td>
                           <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', textAlign: 'center', fontWeight: '800', color: '#0f172a' }}>{item.cases || 0}</td>
                           <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', textAlign: 'center', fontWeight: '800', color: '#0f172a' }}>{item.bottles || 0}</td>
                           <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', textAlign: 'right', color: '#0f172a', fontWeight: '800' }}>₹{item.rate}</td>

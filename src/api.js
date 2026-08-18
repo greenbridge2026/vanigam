@@ -211,6 +211,16 @@ export const api = {
     }
     return res.json();
   },
+  async autoTranslateProducts() {
+    const res = await apiFetch(`${API_BASE}/products/auto-translate-all`, {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to auto translate products');
+    }
+    return res.json();
+  },
   async importShops(routeId, shopsList) {
     const res = await apiFetch(`${API_BASE}/shops/import`, {
       method: 'POST',

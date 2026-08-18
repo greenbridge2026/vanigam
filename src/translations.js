@@ -804,17 +804,37 @@ export const translateRouteName = (route, lang) => {
   return nameEn;
 };
 
+export function sanitizeTamilBeverageTerms(text) {
+  if (!text) return '';
+  let result = text;
+  result = result.replace(/மாம்பழத்/g, "மேங்கோ ");
+  result = result.replace(/மாம்பழம்/g, "மேங்கோ");
+  result = result.replace(/மாம்பழ/g, "மேங்கோ");
+  result = result.replace(/பச்சை/g, "க்ரீன்");
+  result = result.replace(/புல்பி|கூழ்/gi, "பல்பி");
+  result = result.replace(/எலுமிச்சை/g, "லெமன்");
+  return result;
+}
+
 export const translateProductName = (prod, lang) => {
   if (!prod) return '';
   const nameEn = prod.name_en || prod.name || '';
-  const nameTa = prod.name_ta || '';
+  let nameTa = prod.name_ta || '';
   
   if (lang === 'ta') {
+    if (nameTa) {
+      nameTa = sanitizeTamilBeverageTerms(nameTa);
+    }
+    if (nameTa && nameTa.trim() !== nameEn.trim() && !/[a-zA-Z]/.test(nameTa)) {
+      return nameTa;
+    }
+
     const trimmedEn = nameEn.trim();
     const dictionary = {
       "Mountain Dew": "மவுண்டன் டியூ",
       "Coca-Cola": "கோகோ கோலா",
       "Coca Cola": "கோகோ கோலா",
+      "Coke": "கோகோ கோலா",
       "Frooti": "ஃப்ரூட்டி",
       "ஃப்ரூட்டி": "ஃப்ரூட்டி",
       "A. Apple": "ஏ. ஆப்பிள்",
@@ -831,13 +851,25 @@ export const translateProductName = (prod, lang) => {
       "Sprite": "ஸ்ப்ரைட்",
       "Thums Up": "தம்ஸ் அப்",
       "Fanta": "ஃபாண்டா",
-      "Limca": "லிம்கா"
+      "Limca": "லிம்கா",
+      "Bovonto": "போவோண்டோ",
+      "Torino": "டோரினோ",
+      "Jeera": "ஜீரக்",
+      "Bisleri": "பிஸ்லேரி",
+      "Mango": "மேங்கோ",
+      "Green": "க்ரீன்",
+      "Pulpy Orange": "பல்பி ஆரஞ்சு",
+      "Pulpi Orange": "பல்பி ஆரஞ்சு",
+      "Pulpy": "பல்பி",
+      "Pulpi": "பல்பி",
+      "Lemon": "லெமன்",
+      "Lime": "லைம்",
+      "Minute Maid": "மினிட் மேட்",
+      "Red Bull": "ரெட் புல்",
+      "Sting": "ஸ்டிங்"
     };
     if (dictionary[trimmedEn]) {
       return dictionary[trimmedEn];
-    }
-    if (nameTa && nameTa.trim() !== nameEn.trim()) {
-      return nameTa;
     }
     let translated = nameEn;
     Object.keys(dictionary)
@@ -845,9 +877,10 @@ export const translateProductName = (prod, lang) => {
       .forEach(key => {
         translated = translated.replace(new RegExp(key, 'gi'), dictionary[key]);
       });
+    translated = sanitizeTamilBeverageTerms(translated);
     if (translated !== nameEn) return translated;
     
-    return nameTa || nameEn;
+    return (nameTa && !/[a-zA-Z]/.test(nameTa)) ? nameTa : nameEn;
   }
   return nameEn;
 };

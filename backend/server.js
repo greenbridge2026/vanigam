@@ -380,6 +380,18 @@ function containsEnglish(str) {
   return /[a-zA-Z]/.test(str || '');
 }
 
+function sanitizeTamilBeverageTerms(text) {
+  if (!text) return '';
+  let result = text;
+  result = result.replace(/மாம்பழத்/g, "மேங்கோ ");
+  result = result.replace(/மாம்பழம்/g, "மேங்கோ");
+  result = result.replace(/மாம்பழ/g, "மேங்கோ");
+  result = result.replace(/பச்சை/g, "க்ரீன்");
+  result = result.replace(/புல்பி|கூழ்/gi, "பல்பி");
+  result = result.replace(/எலுமிச்சை/g, "லெமன்");
+  return result;
+}
+
 async function translateText(text, from = 'en', to = 'ta') {
   if (!text || !text.trim()) return '';
   try {
@@ -390,7 +402,11 @@ async function translateText(text, from = 'en', to = 'ta') {
     }
     const result = await response.json();
     if (result && result[0]) {
-      return result[0].map(item => item[0]).join('');
+      let translated = result[0].map(item => item[0]).join('');
+      if (to === 'ta') {
+        translated = sanitizeTamilBeverageTerms(translated);
+      }
+      return translated;
     }
     throw new Error('Unexpected translation response structure');
   } catch (err) {
@@ -916,10 +932,18 @@ app.post('/api/products', async (req, res) => {
   await acquireLock();
   try {
     const db = await readDB(req.tenantId);
+    let name_en = req.body.name_en || '';
+    let name_ta = req.body.name_ta || '';
+
+    if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+      const translated = await translateText(name_en, 'en', 'ta');
+      if (translated) name_ta = translated;
+    }
+
     const newProduct = {
       id: `p_${Date.now()}`,
-      name_en: req.body.name_en,
-      name_ta: req.body.name_ta,
+      name_en,
+      name_ta,
       brand: req.body.brand,
       category: req.body.category || '',
       size: req.body.size,
@@ -969,6 +993,14 @@ app.post('/api/products/import', async (req, res) => {
       const openingStock = Number(item.opening_stock || 0); // OpeningStock is in cases
       const initialStockBottles = openingStock * caseQty;
 
+      let name_en = item.name_en || '';
+      let name_ta = item.name_ta || '';
+
+      if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+        const translated = await translateText(name_en, 'en', 'ta');
+        if (translated) name_ta = translated;
+      }
+
       // Check if product already exists (by name_en, brand, and size)
       const existingIndex = db.products.findIndex(
         p => p.name_en?.toLowerCase().trim() === item.name_en?.toLowerCase().trim() &&
@@ -978,6 +1010,8 @@ app.post('/api/products/import', async (req, res) => {
 
       if (existingIndex !== -1) {
         const existing = db.products[existingIndex];
+        existing.name_en = name_en || existing.name_en;
+        existing.name_ta = name_ta || existing.name_ta;
         
         // Accumulate stock
         if (initialStockBottles > 0) {
@@ -1008,8 +1042,8 @@ app.post('/api/products/import', async (req, res) => {
         // Create new product
         const newProduct = {
           id: `p_${now}_import_${i}`,
-          name_en: item.name_en || '',
-          name_ta: item.name_ta || item.name_en || '', // Auto-translate/fallback to English name
+          name_en: name_en,
+          name_ta: name_ta || name_en,
           brand: item.brand || '',
           category: item.category || 'Soft Drinks',
           size: item.size || '',
@@ -1050,13 +1084,55 @@ app.post('/api/products/import', async (req, res) => {
   }
 });
 
+app.post('/api/products/auto-translate-all', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    let updatedCount = 0;
+    for (let i = 0; i < db.products.length; i++) {
+      const prod = db.products[i];
+      const needsTrans = !prod.name_ta || containsEnglish(prod.name_ta) || prod.name_ta.trim() === prod.name_en.trim() || /மாம்பழம்|பச்சை|கூழ்|எலுமிச்சை/.test(prod.name_ta);
+      if (prod.name_en && needsTrans) {
+        const translated = await translateText(prod.name_en, 'en', 'ta');
+        if (translated) {
+          prod.name_ta = translated;
+          updatedCount++;
+        } else if (prod.name_ta) {
+          prod.name_ta = sanitizeTamilBeverageTerms(prod.name_ta);
+          updatedCount++;
+        }
+      }
+    }
+    if (updatedCount > 0) {
+      await writeDB(req.tenantId, db);
+    }
+    res.json({ success: true, updatedCount, products: db.products });
+  } catch (err) {
+    console.error('Auto translate products error:', err);
+    res.status(500).json({ error: err.message || 'Auto translate failed' });
+  } finally {
+    releaseLock();
+  }
+});
+
 app.put('/api/products/:id', async (req, res) => {
   await acquireLock();
   try {
     const db = await readDB(req.tenantId);
     const index = db.products.findIndex(p => p.id === req.params.id);
     if (index !== -1) {
-      db.products[index] = { ...db.products[index], ...req.body };
+      const updatedFields = { ...req.body };
+      let name_en = updatedFields.name_en !== undefined ? updatedFields.name_en : db.products[index].name_en;
+      let name_ta = updatedFields.name_ta !== undefined ? updatedFields.name_ta : db.products[index].name_ta;
+
+      if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+        const translated = await translateText(name_en, 'en', 'ta');
+        if (translated) name_ta = translated;
+      }
+      updatedFields.name_en = name_en;
+      updatedFields.name_ta = name_ta;
+
+      db.products[index] = { ...db.products[index], ...updatedFields };
       await writeDB(req.tenantId, db);
       res.json(db.products[index]);
     } else {
