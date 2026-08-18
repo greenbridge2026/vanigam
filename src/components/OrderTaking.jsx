@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import { translateShopName, translateRouteName, translateProductName } from '../translations';
 
-export default function OrderTaking({ t, lang, onOrderCreated }) {
+export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onOrderUpdated, onCancelEdit }) {
   const [routes, setRoutes] = useState([]);
   const [shops, setShops] = useState([]);
   const [products, setProducts] = useState([]);
@@ -44,6 +44,33 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
     }
     loadData();
   }, []);
+
+  // Pre-fill fields when editing an order
+  useEffect(() => {
+    if (editingOrder) {
+      setSelectedRoute(editingOrder.route_id || '');
+      setSelectedShop(editingOrder.shop_id || '');
+      setDiscount(editingOrder.discount || 0);
+
+      async function loadEditingCart() {
+        try {
+          const oiData = await api.getOrderItems();
+          const existing = oiData.filter(oi => oi.order_id === editingOrder.id);
+          const initialCart = {};
+          existing.forEach(oi => {
+            initialCart[oi.product_id] = {
+              cases: oi.cases || 0,
+              bottles: oi.bottles || 0
+            };
+          });
+          setCart(initialCart);
+        } catch (err) {
+          console.error('Failed to load items for order editing:', err);
+        }
+      }
+      loadEditingCart();
+    }
+  }, [editingOrder]);
 
   // Filter shops by selected route and active status
   const routeShops = shops.filter(s => s.route_id === selectedRoute && s.status === 'active');
@@ -167,27 +194,39 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
     const items = Object.keys(cart)
       .map(id => ({
         product_id: id,
-        cases: cart[id].cases || 0,
-        bottles: cart[id].bottles || 0
+        cases: Number(cart[id].cases || 0),
+        bottles: Number(cart[id].bottles || 0)
       }))
       .filter(item => item.cases > 0 || item.bottles > 0);
 
     if (items.length === 0) return alert('Add at least one item to order / ஆர்டரில் ஏதேனும் பொருள் சேர்க்கவும்');
 
     setSubmitting(true);
-    const orderPayload = {
-      shop_id: selectedShop,
-      route_id: selectedRoute,
-      salesman_id: 'u2', // Hardcoded for demo/role session
-      items,
-      discount: Number(discount)
-    };
-
     try {
-      const result = await api.createOrder(orderPayload);
-      alert('Order Placed Successfully! / ஆர்டர் வெற்றிகரமாக சமர்ப்பிக்கப்பட்டது!');
-      if (onOrderCreated) {
-        onOrderCreated(result.order.id);
+      if (editingOrder) {
+        await api.updateOrder(editingOrder.id, {
+          shop_id: selectedShop,
+          route_id: selectedRoute,
+          items,
+          discount: Number(discount || 0)
+        });
+        alert(lang === 'ta' ? 'விலைப்பட்டியல் வெற்றிகரமாக மாற்றப்பட்டது!' : 'Invoice updated successfully!');
+        if (onOrderUpdated) {
+          onOrderUpdated();
+        }
+      } else {
+        const orderPayload = {
+          shop_id: selectedShop,
+          route_id: selectedRoute,
+          salesman_id: 'u2', // Hardcoded for demo/role session
+          items,
+          discount: Number(discount || 0)
+        };
+        const result = await api.createOrder(orderPayload);
+        alert('Order Placed Successfully! / ஆர்டர் வெற்றிகரமாக சமர்ப்பிக்கப்பட்டது!');
+        if (onOrderCreated) {
+          onOrderCreated(result.order.id);
+        }
       }
     } catch (err) {
       alert(err.message || 'Error processing order transaction');
@@ -222,9 +261,46 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
 
   return (
     <div>
+      {editingOrder && (
+        <div style={{
+          background: 'rgba(6, 182, 212, 0.12)',
+          border: '1px solid var(--accent-cyan)',
+          borderRadius: 'var(--radius)',
+          padding: '0.75rem 1.25rem',
+          marginBottom: '1rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span style={{ fontSize: '1.25rem' }}>✏️</span>
+            <div>
+              <strong style={{ color: 'var(--accent-cyan)', fontSize: '1rem' }}>
+                {lang === 'ta' ? 'விலைப்பட்டியல் திருத்துகிறது' : 'Editing Invoice'}: {editingOrder.invoice_number}
+              </strong>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                {lang === 'ta' ? 'கடை' : 'Shop'}: {translateShopName(shops.find(s => s.id === editingOrder.shop_id), lang)}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="language-btn"
+            onClick={onCancelEdit}
+            style={{ fontSize: '0.85rem', padding: '0.35rem 0.8rem' }}
+          >
+            ✕ {lang === 'ta' ? 'ரத்து செய்' : 'Cancel Edit'}
+          </button>
+        </div>
+      )}
+
       <div style={{ marginBottom: '0.75rem' }}>
-        <h1 style={{ fontSize: '1.75rem', marginBottom: '0.15rem' }}>🛒 {t('order_taking')}</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Quick Order entry with live-synced smart cart panel</p>
+        <h1 style={{ fontSize: '1.75rem', marginBottom: '0.15rem' }}>
+          {editingOrder ? `✏️ ${lang === 'ta' ? 'விலைப்பட்டியல் திருத்துக' : 'Edit Invoice'}` : `🛒 ${t('order_taking')}`}
+        </h1>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+          {editingOrder ? (lang === 'ta' ? 'விலைப்பட்டியலின் பொருள்களை திருத்தவும்' : 'Modify items, quantities or discount for this pending invoice') : 'Quick Order entry with live-synced smart cart panel'}
+        </p>
       </div>
 
       {/* Selectors Bar */}
@@ -513,7 +589,7 @@ export default function OrderTaking({ t, lang, onOrderCreated }) {
                   onClick={handlePlaceOrder}
                   disabled={submitting || netTotal === 0}
                 >
-                  {submitting ? '...' : t('place_order')}
+                  {submitting ? '...' : (editingOrder ? `💾 ${lang === 'ta' ? 'மாற்றங்களை சேமி' : 'Update Invoice'}` : `⚡ ${t('place_order')}`)}
                 </button>
               </div>
             </div>

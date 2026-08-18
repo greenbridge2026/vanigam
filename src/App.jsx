@@ -34,6 +34,7 @@ export default function App() {
     return localStorage.getItem('activeTab') || 'dashboard';
   });
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [editingOrder, setEditingOrder] = useState(null);
   const [bulkPrintOrderIds, setBulkPrintOrderIds] = useState(null);
   const [menuHidden, setMenuHidden] = useState(() => window.innerWidth <= 768);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -405,9 +406,36 @@ export default function App() {
       case 'stock':
         return <StockMgr t={t} lang={lang} />;
       case 'orders':
-        return <OrderTaking t={t} lang={lang} onOrderCreated={handleOrderCreated} />;
+        return (
+          <OrderTaking
+            t={t}
+            lang={lang}
+            editingOrder={editingOrder}
+            onOrderCreated={handleOrderCreated}
+            onOrderUpdated={() => {
+              setEditingOrder(null);
+              setActiveTab('deliveries');
+            }}
+            onCancelEdit={() => {
+              setEditingOrder(null);
+              setActiveTab('deliveries');
+            }}
+          />
+        );
       case 'deliveries':
-        return <DeliveryMgr t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} session={session} onBulkPrint={(ids) => setBulkPrintOrderIds(ids)} />;
+        return (
+          <DeliveryMgr
+            t={t}
+            lang={lang}
+            onBillSelected={handleViewBillFromDelivery}
+            session={session}
+            onBulkPrint={(ids) => setBulkPrintOrderIds(ids)}
+            onEditOrder={(order) => {
+              setEditingOrder(order);
+              setActiveTab('orders');
+            }}
+          />
+        );
       case 'vehicle_loading':
         return <VehicleLoading t={t} lang={lang} session={session} />;
       case 'reports':

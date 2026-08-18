@@ -3,7 +3,7 @@ import api from '../api';
 import ConfirmModal from './ConfirmModal';
 import { translateShopName, translateRouteName } from '../translations';
 
-export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPrint }) {
+export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPrint, onEditOrder }) {
   const [deliveries, setDeliveries] = useState([]);
   const [orders, setOrders] = useState([]);
   const [shops, setShops] = useState([]);
@@ -147,10 +147,10 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       {
         id: `oi_new_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         product_id: firstProd.id,
-        cases: 1,
-        bottles: 0,
+        cases: '',
+        bottles: '',
         rate: defaultRate,
-        amount: defaultRate
+        amount: 0
       }
     ]);
   };
@@ -173,7 +173,13 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     setSavingEdit(true);
     try {
       await api.updateOrder(orderToEdit.id, {
-        items: editItems,
+        items: editItems.map(item => ({
+          ...item,
+          cases: Number(item.cases || 0),
+          bottles: Number(item.bottles || 0),
+          rate: Number(item.rate || 0),
+          amount: Number(item.amount || 0)
+        })),
         discount: Number(editDiscount || 0)
       });
 
@@ -590,7 +596,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                 <button
                                   type="button"
                                   className="language-btn"
-                                  onClick={() => handleStartEditOrder(order)}
+                                  onClick={() => onEditOrder ? onEditOrder(order) : handleStartEditOrder(order)}
                                   style={{ padding: '0.4rem 0.6rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                                   title={lang === 'ta' ? 'பில் திருத்துக' : 'Edit Invoice'}
                                 >
@@ -1034,8 +1040,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                             type="number"
                             min="0"
                             className="form-input"
-                            value={item.cases}
-                            onChange={e => handleEditItemChange(idx, 'cases', Math.max(0, parseInt(e.target.value) || 0))}
+                            placeholder="0"
+                            value={item.cases === 0 ? '' : (item.cases ?? '')}
+                            onFocus={e => e.target.select()}
+                            onWheel={e => e.target.blur()}
+                            onChange={e => {
+                              const val = e.target.value;
+                              handleEditItemChange(idx, 'cases', val === '' ? '' : Math.max(0, parseInt(val, 10) || 0));
+                            }}
                             style={{ width: '70px', textAlign: 'center', padding: '0.35rem' }}
                           />
                         </td>
@@ -1044,8 +1056,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                             type="number"
                             min="0"
                             className="form-input"
-                            value={item.bottles}
-                            onChange={e => handleEditItemChange(idx, 'bottles', Math.max(0, parseInt(e.target.value) || 0))}
+                            placeholder="0"
+                            value={item.bottles === 0 ? '' : (item.bottles ?? '')}
+                            onFocus={e => e.target.select()}
+                            onWheel={e => e.target.blur()}
+                            onChange={e => {
+                              const val = e.target.value;
+                              handleEditItemChange(idx, 'bottles', val === '' ? '' : Math.max(0, parseInt(val, 10) || 0));
+                            }}
                             style={{ width: '70px', textAlign: 'center', padding: '0.35rem' }}
                           />
                         </td>
@@ -1055,8 +1073,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                             min="0"
                             step="0.01"
                             className="form-input"
-                            value={item.rate}
-                            onChange={e => handleEditItemChange(idx, 'rate', parseFloat(e.target.value) || 0)}
+                            placeholder="0"
+                            value={item.rate === 0 ? '' : (item.rate ?? '')}
+                            onFocus={e => e.target.select()}
+                            onWheel={e => e.target.blur()}
+                            onChange={e => {
+                              const val = e.target.value;
+                              handleEditItemChange(idx, 'rate', val === '' ? '' : Math.max(0, parseFloat(val) || 0));
+                            }}
                             style={{ width: '90px', textAlign: 'right', padding: '0.35rem' }}
                           />
                         </td>
@@ -1097,8 +1121,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   type="number"
                   min="0"
                   className="form-input"
-                  value={editDiscount}
-                  onChange={e => setEditDiscount(Math.max(0, parseFloat(e.target.value) || 0))}
+                  placeholder="0"
+                  value={editDiscount === 0 ? '' : (editDiscount ?? '')}
+                  onFocus={e => e.target.select()}
+                  onWheel={e => e.target.blur()}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setEditDiscount(val === '' ? '' : Math.max(0, parseFloat(val) || 0));
+                  }}
                   style={{ width: '100px', textAlign: 'right', padding: '0.35rem' }}
                 />
               </div>
