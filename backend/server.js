@@ -922,9 +922,38 @@ app.post('/api/shops/import', async (req, res) => {
   }
 });
 
+function sanitizeProductPackQty(prod) {
+  if (!prod) return;
+  const sz = (prod.size || '').toLowerCase() + (prod.name_en || '').toLowerCase();
+  if (sz.includes('2.25') && prod.case_qty_rule !== 9) {
+    prod.case_qty_rule = 9;
+  } else if (sz.includes('1.8') && prod.case_qty_rule !== 12) {
+    prod.case_qty_rule = 12;
+  }
+}
+
 // Products CRUD
 app.get('/api/products', async (req, res) => {
   const db = await readDB(req.tenantId);
+  let changed = false;
+  if (Array.isArray(db.products)) {
+    const initialCount = db.products.length;
+    db.products = db.products.filter(p => {
+      const name = ((p.name_en || '') + ' ' + (p.name_ta || '')).toLowerCase();
+      const size = (p.size || '').toLowerCase();
+      return !((name.includes('7up') || name.includes('7 up')) && (name.includes('2.25') || size.includes('2.25')));
+    });
+    if (db.products.length !== initialCount) changed = true;
+
+    db.products.forEach(p => {
+      const oldRule = p.case_qty_rule;
+      sanitizeProductPackQty(p);
+      if (p.case_qty_rule !== oldRule) changed = true;
+    });
+    if (changed) {
+      await writeDB(req.tenantId, db);
+    }
+  }
   res.json(db.products);
 });
 
@@ -988,8 +1017,17 @@ app.post('/api/products/import', async (req, res) => {
     const now = Date.now();
 
     for (let i = 0; i < importedProducts.length; i++) {
-      const item = importedProducts[i];
-      const caseQty = Number(item.case_qty_rule || 24);
+      const sizeStr = (item.size || '').toLowerCase() + (item.name_en || '').toLowerCase();
+      let caseQty = Number(item.case_qty_rule || 0);
+      if (!caseQty || (caseQty === 24 && sizeStr.includes('2.25'))) {
+        if (sizeStr.includes('2.25')) {
+          caseQty = 9;
+        } else if (sizeStr.includes('1.8')) {
+          caseQty = 12;
+        } else {
+          caseQty = 24;
+        }
+      }
       const openingStock = Number(item.opening_stock || 0); // OpeningStock is in cases
       const initialStockBottles = openingStock * caseQty;
 
@@ -1989,12 +2027,7 @@ app.delete('/api/products/:id', async (req, res) => {
   try {
     const db = await readDB(req.tenantId);
     const productId = req.params.id;
-    // Check if product has order items or purchases
-    const hasOrders = db.order_items.some(oi => oi.product_id === productId);
-    const hasPurchases = db.purchases.some(p => p.product_id === productId);
-    if (hasOrders || hasPurchases) {
-      return res.status(400).json({ error: 'Cannot delete product with sales or purchase history.' });
-    }
+    
     const product = db.products.find(p => p.id === productId);
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
@@ -2044,15 +2077,6 @@ app.post('/api/products/bulk-delete', async (req, res) => {
         continue;
       }
 
-      // Check if product has order items or purchases
-      const hasOrders = db.order_items.some(oi => oi.product_id === productId);
-      const hasPurchases = db.purchases.some(p => p.product_id === productId);
-      if (hasOrders || hasPurchases) {
-        skippedIds.push(productId);
-        errors.push(`${product.name_en || product.name_ta} has sales or purchase history.`);
-        continue;
-      }
-
       db.products = db.products.filter(p => p.id !== productId);
       const relatedLedger = db.stock_ledger.filter(sl => sl.product_id === productId);
       db.stock_ledger = db.stock_ledger.filter(sl => sl.product_id !== productId);
@@ -2069,10 +2093,7 @@ app.post('/api/products/bulk-delete', async (req, res) => {
       deletedIds.push(productId);
     }
 
-    if (deletedIds.length > 0) {
-      await writeDB(req.tenantId, db);
-    }
-
+    await writeDB(req.tenantId, db);
     res.json({
       success: true,
       deletedCount: deletedIds.length,

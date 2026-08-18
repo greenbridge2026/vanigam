@@ -113,13 +113,18 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
       // 2. Brand Tab filter
       if (selectedBrandTab === 'all') return true;
       const brand = (p.brand || '').toLowerCase();
+      const name = ((p.name_en || '') + ' ' + (p.name_ta || '')).toLowerCase();
+      const cat = (p.category || '').toLowerCase();
+
       if (selectedBrandTab === 'pepsi') return brand.includes('pepsi');
-      if (selectedBrandTab === 'coca-cola') return brand.includes('coca') || brand.includes('coke') || brand.includes('sprite') || brand.includes('thums') || brand.includes('fanta');
+      if (selectedBrandTab === 'coca-cola') return brand.includes('coca') || brand.includes('coke') || brand.includes('sprite') || brand.includes('thums') || brand.includes('fanta') || brand.includes('limca') || brand.includes('maaza');
       if (selectedBrandTab === 'bovonto') return brand.includes('bovonto');
-      if (selectedBrandTab === 'frooti') return brand.includes('frooti') || brand.includes('appy');
+      if (selectedBrandTab === 'frooti') return brand.includes('frooti') || brand.includes('appy') || brand.includes('parle');
+      if (selectedBrandTab === 'kc-brands') return brand.includes('k.c') || brand.includes('kc');
+      if (selectedBrandTab === 'daily-brands') return brand.includes('daily');
       if (selectedBrandTab === 'others') {
-        const isKnown = brand.includes('pepsi') || brand.includes('coca') || brand.includes('coke') || brand.includes('sprite') || brand.includes('thums') || brand.includes('fanta') || brand.includes('bovonto') || brand.includes('frooti') || brand.includes('appy');
-        return !isKnown;
+        const isWater = brand.includes('water') || brand.includes('bisleri') || brand.includes('aqua') || name.includes('water') || name.includes('bisleri') || name.includes('aqua') || cat.includes('water');
+        return isWater;
       }
       return true;
     });
@@ -256,7 +261,9 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
     { id: 'coca-cola', label: 'Coca-Cola' },
     { id: 'bovonto', label: 'Bovonto' },
     { id: 'frooti', label: 'Frooti' },
-    { id: 'others', label: lang === 'ta' ? 'இதர பிராண்டுகள்' : 'Others' }
+    { id: 'kc-brands', label: 'K.C Brands' },
+    { id: 'daily-brands', label: 'Daily Brands' },
+    { id: 'others', label: lang === 'ta' ? 'இதர (தண்ணீர் பாட்டில்கள்)' : 'Others (Water)' }
   ];
 
   return (

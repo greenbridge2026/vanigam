@@ -33,7 +33,12 @@ export default function ProductMgr({ t, lang }) {
     async function loadProducts() {
       try {
         const data = await api.getProducts();
-        setProducts(data);
+        const cleaned = (data || []).filter(p => {
+          const name = ((p.name_en || '') + ' ' + (p.name_ta || '')).toLowerCase();
+          const size = (p.size || '').toLowerCase();
+          return !((name.includes('7up') || name.includes('7 up')) && (name.includes('2.25') || size.includes('2.25')));
+        });
+        setProducts(cleaned);
       } catch (err) {
         console.error('Failed to load products list', err);
       } finally {
@@ -395,13 +400,25 @@ export default function ProductMgr({ t, lang }) {
             }
           }
 
+          const sizeVal = getVal(row, ['Size']) || '';
+          let caseQty = Number(getVal(row, ['PackQty', 'CaseQty', 'CaseQtyRule']) || 0);
+          if (!caseQty || (caseQty === 24 && (sizeVal.includes('2.25') || name_en.includes('2.25')))) {
+            if (sizeVal.includes('2.25') || name_en.includes('2.25')) {
+              caseQty = 9;
+            } else if (sizeVal.includes('1.8') || name_en.includes('1.8')) {
+              caseQty = 12;
+            } else {
+              caseQty = 24;
+            }
+          }
+
           return {
             brand,
             name_en,
             name_ta: name_ta || name_en,
-            size: getVal(row, ['Size']) || '',
+            size: sizeVal,
             mrp: Number(getVal(row, ['MRP']) || 0),
-            case_qty_rule: Number(getVal(row, ['PackQty', 'CaseQty', 'CaseQtyRule']) || 24),
+            case_qty_rule: caseQty,
             purchase_price: Number(getVal(row, ['PurchasePrice']) || 0),
             wholesale_price: Number(getVal(row, ['WholesalePrice']) || 0),
             retail_price: Number(getVal(row, ['RetailPrice']) || 0),
