@@ -156,7 +156,19 @@ export const api = {
       const err = await res.json();
       throw new Error(err.error || 'Failed to create shop');
     }
-    return res.json();
+    const added = await res.json();
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'default';
+        const shops = await this.getShops();
+        shops.push(added);
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
+        await setDoc(docRef, { data: shops }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing created shop to Firestore client failed:', e);
+      }
+    }
+    return added;
   },
   async updateShop(id, shopData) {
     const res = await apiFetch(`${API_BASE}/shops/${id}`, {
@@ -168,7 +180,24 @@ export const api = {
       const err = await res.json();
       throw new Error(err.error || 'Failed to update shop');
     }
-    return res.json();
+    const updated = await res.json();
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'default';
+        const shops = await this.getShops();
+        const idx = shops.findIndex(s => s.id === id);
+        if (idx !== -1) {
+          shops[idx] = updated;
+        } else {
+          shops.push(updated);
+        }
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
+        await setDoc(docRef, { data: shops }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing updated shop to Firestore client failed:', e);
+      }
+    }
+    return updated;
   },
 
   // Products
@@ -413,7 +442,19 @@ export const api = {
       const err = await res.json();
       throw new Error(err.error || 'Failed to delete shop');
     }
-    return res.json();
+    const result = await res.json();
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'default';
+        const shops = await this.getShops();
+        const updatedShops = shops.filter(s => s.id !== id);
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
+        await setDoc(docRef, { data: updatedShops }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing deleted shop to Firestore client failed:', e);
+      }
+    }
+    return result;
   },
   async deleteProduct(id) {
     const res = await apiFetch(`${API_BASE}/products/${id}`, {

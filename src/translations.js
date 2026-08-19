@@ -807,6 +807,9 @@ export const translateRouteName = (route, lang) => {
 export function sanitizeTamilBeverageTerms(text) {
   if (!text) return '';
   let result = text;
+  result = result.replace(/7\s*வரை/gi, "7 அப்");
+  result = result.replace(/7\s*up/gi, "7 அப்");
+  result = result.replace(/7up/gi, "7 அப்");
   result = result.replace(/மாம்பழத்/g, "மேங்கோ ");
   result = result.replace(/மாம்பழம்/g, "மேங்கோ");
   result = result.replace(/மாம்பழ/g, "மேங்கோ");

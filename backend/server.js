@@ -438,6 +438,9 @@ function containsEnglish(str) {
 function sanitizeTamilBeverageTerms(text) {
   if (!text) return '';
   let result = text;
+  result = result.replace(/7\s*வரை/gi, "7 அப்");
+  result = result.replace(/7\s*up/gi, "7 அப்");
+  result = result.replace(/7up/gi, "7 அப்");
   result = result.replace(/மாம்பழத்/g, "மேங்கோ ");
   result = result.replace(/மாம்பழம்/g, "மேங்கோ");
   result = result.replace(/மாம்பழ/g, "மேங்கோ");
@@ -879,7 +882,7 @@ app.put('/api/shops/:id', async (req, res) => {
           shop_id: updatedShop.id,
           change_amount: updatedShop.outstanding_amount - prevOutstanding,
           balance_amount: updatedShop.outstanding_amount,
-          description: 'Manual adjustment by Admin',
+          description: updatedFields.adjustment_reason || 'Manual adjustment by Admin',
           date: new Date().toISOString()
         });
       }
@@ -1491,6 +1494,8 @@ app.post('/api/orders', async (req, res) => {
     }
     const invoiceNum = `INV-${candidate}`;
 
+    const prevOutstanding = Number(shop.outstanding_amount || 0);
+
     const newOrder = {
       id: `ord_${Date.now()}`,
       invoice_number: invoiceNum,
@@ -1501,6 +1506,7 @@ app.post('/api/orders', async (req, res) => {
       total_amount: totalAmount,
       discount: discountAmt,
       net_amount: netAmount,
+      previous_outstanding: prevOutstanding,
       status: 'pending',
       delivery_man_id: db.routes.find(r => r.id === route_id)?.delivery_man_id || ''
     };

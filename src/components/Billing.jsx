@@ -192,8 +192,10 @@ export default function Billing({ orderId, t, lang, onBack }) {
   };
 
   const totalCollected = payments.reduce((sum, p) => sum + p.collected_amount, 0);
-  const outstandingBeforeOrder = shop ? shop.outstanding_amount + totalCollected - order.net_amount : 0;
-  const remainingOutstanding = shop ? shop.outstanding_amount : 0;
+  const outstandingBeforeOrder = (order.previous_outstanding !== undefined && order.previous_outstanding !== null)
+    ? Number(order.previous_outstanding)
+    : Math.max(0, shop ? (shop.outstanding_amount + totalCollected - order.net_amount) : 0);
+  const remainingOutstanding = order.net_amount + outstandingBeforeOrder - totalCollected;
   const isCompact = orderItems.length <= 5;
 
   return (
@@ -389,7 +391,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
                     }}>
                       <td style={{ padding: isCompact ? '4px 6px' : '6px 8px' }}></td>
                       <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', color: '#0f172a', fontWeight: '800' }}>{lang === 'ta' ? 'மொத்தம்' : 'Total'}</td>
-                      {!isCompact && <td style={{ padding: '6px 8px' }}></td>}
+                      <td style={{ padding: isCompact ? '4px 6px' : '6px 8px' }}></td>
                       <td style={{ padding: isCompact ? '4px 6px' : '6px 8px', textAlign: 'center', color: '#0f172a', fontWeight: '800' }}>
                         {orderItems.reduce((sum, item) => sum + (Number(item.cases) || 0), 0)}
                       </td>

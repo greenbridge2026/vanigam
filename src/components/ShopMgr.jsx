@@ -18,6 +18,12 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
   const [importing, setImporting] = useState(false);
   const [importRouteId, setImportRouteId] = useState('');
 
+  // Outstanding Adjustment Modal State
+  const [adjustingShop, setAdjustingShop] = useState(null);
+  const [newOutstanding, setNewOutstanding] = useState('');
+  const [adjustmentReason, setAdjustmentReason] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
+
   // Form Fields
   const [nameEn, setNameEn] = useState('');
   const [nameTa, setNameTa] = useState('');
@@ -157,6 +163,36 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
     setRouteId(shop.route_id);
     setStatus(shop.status);
     setOutstanding(shop.outstanding_amount || 0);
+  };
+
+  const handleOpenAdjustModal = (shop) => {
+    setAdjustingShop(shop);
+    setNewOutstanding(shop.outstanding_amount || 0);
+    setAdjustmentReason('');
+  };
+
+  const handleSaveOutstandingAdjustment = async (e) => {
+    e.preventDefault();
+    if (!adjustingShop) return;
+    const val = Number(newOutstanding);
+    if (isNaN(val) || val < 0) {
+      alert(lang === 'ta' ? 'செல்லுபடியாகும் தொகையை உள்ளிடவும்' : 'Please enter a valid non-negative amount');
+      return;
+    }
+    setAdjusting(true);
+    try {
+      const updated = await api.updateShop(adjustingShop.id, {
+        outstanding_amount: val,
+        adjustment_reason: adjustmentReason.trim() || (lang === 'ta' ? 'நிர்வாகியால் நேரடியாக மாற்றப்பட்டது' : 'Manual adjustment by Admin')
+      });
+      setShops(shops.map(s => s.id === adjustingShop.id ? updated : s));
+      alert(lang === 'ta' ? 'நிலுவைத் தொகை வெற்றிகரமாக புதுப்பிக்கப்பட்டது!' : 'Outstanding amount updated successfully!');
+      setAdjustingShop(null);
+    } catch (err) {
+      alert(err.message || 'Failed to update outstanding amount');
+    } finally {
+      setAdjusting(false);
+    }
   };
 
   const toggleStatus = async (shop) => {
@@ -704,7 +740,25 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                       </span>
                     </td>
                     <td style={{ fontWeight: '700', color: s.outstanding_amount > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                      ₹{s.outstanding_amount || 0}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span>₹{s.outstanding_amount || 0}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAdjustModal(s)}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.08)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '4px',
+                            color: 'var(--accent-cyan)',
+                            padding: '2px 6px',
+                            fontSize: '0.75rem',
+                            cursor: 'pointer'
+                          }}
+                          title={lang === 'ta' ? 'நிலுவையை மாற்று' : 'Edit Outstanding'}
+                        >
+                          ✏️
+                        </button>
+                      </div>
                     </td>
                     <td>
                       <span
@@ -723,7 +777,10 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                       </span>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: '0.5rem' }}>
+                      <div style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        <button className="language-btn" onClick={() => handleOpenAdjustModal(s)} style={{ borderColor: 'var(--warning)', color: 'var(--warning)', background: 'rgba(245, 158, 11, 0.08)' }} title={lang === 'ta' ? 'நிலுவை மாற்றியமைத்தல்' : 'Adjust Outstanding'}>
+                          💰 {lang === 'ta' ? 'நிலுவை மாற்று' : 'Adjust Bal'}
+                        </button>
                         <button className="language-btn" onClick={() => setSelectedShopForBills(s)} style={{ borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)', background: 'rgba(6, 182, 212, 0.05)' }} title={lang === 'ta' ? 'விலைப்பட்டியல் வரலாறு' : 'Bill History'}>
                           📄 {lang === 'ta' ? 'பில்கள்' : 'Bills'}
                         </button>
@@ -962,6 +1019,70 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                 {lang === 'ta' ? 'மூடுக' : 'Close'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Outstanding Adjustment Modal */}
+      {adjustingShop && (
+        <div className="modal-overlay">
+          <div className="glass-card modal-card" style={{ maxWidth: '480px', width: '90%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: '700', margin: 0, color: 'var(--accent-cyan)' }}>
+                💰 {lang === 'ta' ? 'நிலுவைத் தொகையை மாற்று' : 'Adjust Outstanding Amount'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setAdjustingShop(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveOutstandingAdjustment}>
+              <div style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid var(--border-color)' }}>
+                <div style={{ fontWeight: '700', fontSize: '1rem' }}>{translateShopName(adjustingShop, lang)}</div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                  {lang === 'ta' ? 'தற்போதைய நிலுவை:' : 'Current Outstanding:'} <strong style={{ color: 'var(--warning)' }}>₹{adjustingShop.outstanding_amount || 0}</strong>
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '1rem' }}>
+                <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'புதிய நிலுவைத் தொகை (₹)' : 'New Outstanding Amount (₹)'}</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  className="form-input"
+                  value={newOutstanding}
+                  onChange={e => setNewOutstanding(e.target.value)}
+                  required
+                  style={{ fontSize: '1.2rem', fontWeight: '700' }}
+                  placeholder="0"
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'காரணம் / குறிப்பு' : 'Reason / Note (Optional)'}</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={adjustmentReason}
+                  onChange={e => setAdjustmentReason(e.target.value)}
+                  placeholder={lang === 'ta' ? 'எ.கா. முந்தைய நிலுவை திருத்தம்' : 'e.g. Opening balance adjustment / correction'}
+                />
+              </div>
+
+              <div className="btn-group" style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setAdjustingShop(null)}>
+                  {t('cancel')}
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={adjusting}>
+                  💾 {adjusting ? (lang === 'ta' ? 'சேமிக்கப்படுகிறது...' : 'Saving...') : t('save')}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

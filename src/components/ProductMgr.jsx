@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
 import * as XLSX from 'xlsx';
-import { translateProductName } from '../translations';
+import { translateProductName, sanitizeTamilBeverageTerms } from '../translations';
 
 export default function ProductMgr({ t, lang }) {
   const [products, setProducts] = useState([]);
@@ -58,7 +58,7 @@ export default function ProductMgr({ t, lang }) {
     const delayDebounceFn = setTimeout(async () => {
       try {
         const translated = await api.translate(nameEn, 'en', 'ta');
-        if (translated) setNameTa(translated);
+        if (translated) setNameTa(sanitizeTamilBeverageTerms(translated));
       } catch (err) {
         console.error('Auto-translation to Tamil failed:', err);
       }
@@ -110,6 +110,10 @@ export default function ProductMgr({ t, lang }) {
       } catch (err) {
         console.warn('Failed to translate to English on submit', err);
       }
+    }
+
+    if (finalTa) {
+      finalTa = sanitizeTamilBeverageTerms(finalTa);
     }
 
     const caseRuleNum = Number(caseQtyRule) || 24;
