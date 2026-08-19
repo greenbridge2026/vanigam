@@ -279,13 +279,9 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
                       <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'முந்தைய நிலுவை:' : 'Prev Outstanding:'}</span>
                       <span style={{ fontWeight: '800', color: '#0f172a' }}>₹{outstandingBeforeOrder}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '3px 6px' : '5px 8px', borderBottom: '1px solid #cbd5e1' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '3px 6px' : '5px 8px' }}>
                       <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'வசூலிக்கப்பட்ட தொகை:' : 'Amount Collected:'}</span>
                       <span style={{ fontWeight: '800', color: '#10b981' }}>₹{totalCollected}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '3px 6px' : '5px 8px', borderBottom: '1px solid #cbd5e1' }}>
-                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'நிகர நிலுவை:' : 'Net Outstanding:'}</span>
-                      <span style={{ fontWeight: '800', color: '#ef4444' }}>₹{remainingOutstanding}</span>
                     </div>
                     <div style={{
                       display: 'flex',
@@ -298,7 +294,7 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
                         {lang === 'ta' ? 'மொத்த தொகை:' : 'GRAND TOTAL:'}
                       </span>
                       <strong style={{ color: '#0f172a', fontWeight: '800', fontSize: isCompact ? '11px' : '12px' }}>
-                        ₹{order.net_amount}
+                        ₹{remainingOutstanding}
                       </strong>
                     </div>
                   </div>

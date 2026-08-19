@@ -484,10 +484,10 @@ export default function OutstandingCollection({ t, lang }) {
               💰 {t('payment_collection')}
             </label>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
               {/* Cash Option */}
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', display: 'block', fontWeight: 600, color: 'var(--success)' }}>
+                <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: 'var(--success)', marginBottom: '0.4rem' }}>
                   💵 {t('cash')} (₹)
                 </label>
                 <input
@@ -495,7 +495,7 @@ export default function OutstandingCollection({ t, lang }) {
                   inputMode="numeric"
                   pattern="[0-9]*"
                   className="form-input"
-                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600 }}
+                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
                   value={cashAmount === '' || cashAmount === 0 ? (cashAmount === '' ? '' : '0') : cashAmount}
                   onChange={e => {
                     const val = e.target.value.replace(/\D/g, '');
@@ -507,7 +507,7 @@ export default function OutstandingCollection({ t, lang }) {
 
               {/* GPay Option */}
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', display: 'block', fontWeight: 600, color: '#34a853' }}>
+                <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: '#34a853', marginBottom: '0.4rem' }}>
                   📱 {t('gpay')} (₹)
                 </label>
                 <input
@@ -515,7 +515,7 @@ export default function OutstandingCollection({ t, lang }) {
                   inputMode="numeric"
                   pattern="[0-9]*"
                   className="form-input"
-                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600 }}
+                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
                   value={gpayAmount === '' || gpayAmount === 0 ? (gpayAmount === '' ? '' : '0') : gpayAmount}
                   onChange={e => {
                     const val = e.target.value.replace(/\D/g, '');
@@ -527,7 +527,7 @@ export default function OutstandingCollection({ t, lang }) {
 
               {/* Cheque Option */}
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', display: 'block', fontWeight: 600, color: 'var(--accent-cyan)' }}>
+                <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: '0.4rem' }}>
                   🏦 {t('cheque')} (₹)
                 </label>
                 <input
@@ -535,7 +535,7 @@ export default function OutstandingCollection({ t, lang }) {
                   inputMode="numeric"
                   pattern="[0-9]*"
                   className="form-input"
-                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 600 }}
+                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
                   value={chequeAmount === '' || chequeAmount === 0 ? (chequeAmount === '' ? '' : '0') : chequeAmount}
                   onChange={e => {
                     const val = e.target.value.replace(/\D/g, '');
