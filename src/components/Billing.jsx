@@ -10,6 +10,8 @@ export default function Billing({ orderId, t, lang, onBack }) {
   const [shop, setShop] = useState(null);
   const [route, setRoute] = useState(null);
   const [payments, setPayments] = useState([]);
+  const [allOrders, setAllOrders] = useState([]);
+  const [allPayments, setAllPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [modalPaymentRows, setModalPaymentRows] = useState([
@@ -53,6 +55,9 @@ export default function Billing({ orderId, t, lang, onBack }) {
           api.getPayments()
         ]);
 
+        setAllOrders(ordData || []);
+        setAllPayments(payData || []);
+
         const currentOrder = ordData.find(o => o.id === orderId);
         if (currentOrder) {
           setOrder(currentOrder);
@@ -82,12 +87,15 @@ export default function Billing({ orderId, t, lang, onBack }) {
 
   const reloadInvoicePayments = async () => {
     try {
-      const [shopData, payData] = await Promise.all([
+      const [shopData, payData, ordData] = await Promise.all([
         api.getShops(),
-        api.getPayments()
+        api.getPayments(),
+        api.getOrders()
       ]);
       const currentShop = shopData.find(s => s.id === order.shop_id);
       setShop(currentShop);
+      setAllOrders(ordData || []);
+      setAllPayments(payData || []);
       
       const paymentList = payData.filter(p => p.order_id === orderId);
       setPayments(paymentList);
@@ -192,10 +200,47 @@ export default function Billing({ orderId, t, lang, onBack }) {
   };
 
   const totalCollected = payments.reduce((sum, p) => sum + p.collected_amount, 0);
-  const outstandingBeforeOrder = (order.previous_outstanding !== undefined && order.previous_outstanding !== null)
-    ? Number(order.previous_outstanding)
-    : Math.max(0, shop ? (shop.outstanding_amount + totalCollected - order.net_amount) : 0);
-  const remainingOutstanding = order.net_amount + outstandingBeforeOrder - totalCollected;
+
+  // Filter orders and payments for current shop
+  const shopOrders = (allOrders || []).filter(o => o.shop_id === order.shop_id && o.status !== 'cancelled');
+  const shopPayments = (allPayments || []).filter(p => p.shop_id === order.shop_id);
+
+  const currentOrderDate = new Date(order.order_date).getTime();
+
+  // Future orders created strictly AFTER current order
+  const futureOrders = shopOrders.filter(o => {
+    if (o.id === order.id) return false;
+    const oDate = new Date(o.order_date).getTime();
+    if (oDate > currentOrderDate) return true;
+    if (oDate === currentOrderDate) {
+      const numA = parseInt((String(o.invoice_number).match(/\d+/) || [0])[0], 10);
+      const numB = parseInt((String(order.invoice_number).match(/\d+/) || [0])[0], 10);
+      return numA > numB;
+    }
+    return false;
+  });
+
+  // Calculate unpaid net amount of FUTURE orders
+  const futureUnpaidNet = futureOrders.reduce((sum, futOrd) => {
+    const futPayments = shopPayments.filter(p => p.order_id === futOrd.id);
+    const futPaid = futPayments.reduce((pSum, p) => pSum + (Number(p.collected_amount) || 0), 0);
+    return sum + Math.max(0, (Number(futOrd.net_amount) || 0) - futPaid);
+  }, 0);
+
+  // Shop total outstanding balance today
+  const shopCurrentBal = shop ? Number(shop.outstanding_amount || 0) : 0;
+
+  // Balance of shop AT THE TIME of current order (excluding future orders)
+  const shopBalAtOrderTime = Math.max(0, shopCurrentBal - futureUnpaidNet);
+
+  // Current order unpaid remaining balance
+  const currentInvoiceUnpaid = Math.max(0, order.net_amount - totalCollected);
+
+  // Previous Outstanding BEFORE current order = shop balance at order time minus current invoice unpaid
+  const outstandingBeforeOrder = Math.max(0, shopBalAtOrderTime - currentInvoiceUnpaid);
+
+  // Total AMOUNT DUE for this invoice view
+  const remainingOutstanding = currentInvoiceUnpaid + outstandingBeforeOrder;
   const isCompact = orderItems.length <= 5;
 
   return (

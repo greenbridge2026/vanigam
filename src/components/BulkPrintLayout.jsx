@@ -81,10 +81,45 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
           const currentPayments = payments.filter(p => p.order_id === orderId);
 
           const totalCollected = currentPayments.reduce((sum, p) => sum + p.collected_amount, 0);
-          const outstandingBeforeOrder = (order.previous_outstanding !== undefined && order.previous_outstanding !== null)
-            ? Number(order.previous_outstanding)
-            : Math.max(0, shop ? (shop.outstanding_amount + totalCollected - order.net_amount) : 0);
-          const remainingOutstanding = order.net_amount + outstandingBeforeOrder - totalCollected;
+
+          const shopOrders = (orders || []).filter(o => o.shop_id === order.shop_id);
+          const shopPayments = (payments || []).filter(p => p.shop_id === order.shop_id);
+          const currentOrderDate = new Date(order.order_date).getTime();
+
+          // Future orders created strictly AFTER current order
+          const futureOrders = shopOrders.filter(o => {
+            if (o.id === order.id) return false;
+            const oDate = new Date(o.order_date).getTime();
+            if (oDate > currentOrderDate) return true;
+            if (oDate === currentOrderDate) {
+              const numA = parseInt((String(o.invoice_number).match(/\d+/) || [0])[0], 10);
+              const numB = parseInt((String(order.invoice_number).match(/\d+/) || [0])[0], 10);
+              return numA > numB;
+            }
+            return false;
+          });
+
+          // Calculate unpaid net amount of FUTURE orders
+          const futureUnpaidNet = futureOrders.reduce((sum, futOrd) => {
+            const futPayments = shopPayments.filter(p => p.order_id === futOrd.id);
+            const futPaid = futPayments.reduce((pSum, p) => pSum + (Number(p.collected_amount) || 0), 0);
+            return sum + Math.max(0, (Number(futOrd.net_amount) || 0) - futPaid);
+          }, 0);
+
+          // Shop total outstanding balance today
+          const shopCurrentBal = shop ? Number(shop.outstanding_amount || 0) : 0;
+
+          // Balance of shop AT THE TIME of current order (excluding future orders)
+          const shopBalAtOrderTime = Math.max(0, shopCurrentBal - futureUnpaidNet);
+
+          // Current order unpaid remaining balance
+          const currentInvoiceUnpaid = Math.max(0, order.net_amount - totalCollected);
+
+          // Previous Outstanding BEFORE current order = shop balance at order time minus current invoice unpaid
+          const outstandingBeforeOrder = Math.max(0, shopBalAtOrderTime - currentInvoiceUnpaid);
+
+          // Total AMOUNT DUE for this invoice view
+          const remainingOutstanding = currentInvoiceUnpaid + outstandingBeforeOrder;
           const isCompact = currentItems.length <= 5;
 
           return (

@@ -74,6 +74,24 @@ function sanitizeAndReindexOrders(dbData) {
   return changed;
 }
 
+function cleanSyntheticOpeningOrders(dbData) {
+  if (!dbData || !Array.isArray(dbData.orders)) return false;
+  const obOrderIds = new Set(
+    dbData.orders
+      .filter(o => o.is_opening_balance || o.id?.startsWith('ord_ob_') || o.id?.startsWith('ord_adj_'))
+      .map(o => o.id)
+  );
+
+  if (obOrderIds.size > 0) {
+    dbData.orders = dbData.orders.filter(o => !obOrderIds.has(o.id));
+    if (Array.isArray(dbData.order_items)) {
+      dbData.order_items = dbData.order_items.filter(oi => !obOrderIds.has(oi.order_id));
+    }
+    return true;
+  }
+  return false;
+}
+
 async function readDB(tenantId) {
   let dbData = null;
 
@@ -141,12 +159,12 @@ async function readDB(tenantId) {
     }
   }
 
-  // Ensure ALL orders for tenant are strictly reindexed starting from INV-1001, INV-1002, INV-1003...
-  if (dbData && dbData.orders && dbData.orders.length > 0) {
-    const hasReindexed = sanitizeAndReindexOrders(dbData);
-    if (hasReindexed) {
+  if (dbData) {
+    const cleaned = cleanSyntheticOpeningOrders(dbData);
+    const reindexedChanged = (dbData.orders && dbData.orders.length > 0) ? sanitizeAndReindexOrders(dbData) : false;
+    if (cleaned || reindexedChanged) {
       cachedDBs[tenantId] = dbData;
-      writeDB(tenantId, dbData).catch(err => console.error(`Error auto-persisting reindexed orders for ${tenantId}:`, err));
+      writeDB(tenantId, dbData).catch(err => console.error(`Error auto-persisting database cleanup/reindexing for ${tenantId}:`, err));
     }
   }
 
@@ -877,10 +895,11 @@ app.put('/api/shops/:id', async (req, res) => {
 
       // Track outstanding adjustment if modified manually
       if (updatedShop.outstanding_amount !== prevOutstanding) {
+        const diff = updatedShop.outstanding_amount - prevOutstanding;
         db.outstanding_history.push({
           id: `oh_${Date.now()}`,
           shop_id: updatedShop.id,
-          change_amount: updatedShop.outstanding_amount - prevOutstanding,
+          change_amount: diff,
           balance_amount: updatedShop.outstanding_amount,
           description: updatedFields.adjustment_reason || 'Manual adjustment by Admin',
           date: new Date().toISOString()

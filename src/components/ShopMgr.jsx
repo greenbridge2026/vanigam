@@ -139,12 +139,13 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
 
     try {
       if (editingShop) {
-        const updated = await api.updateShop(editingShop.id, payload);
-        setShops(shops.map(s => s.id === editingShop.id ? updated : s));
+        await api.updateShop(editingShop.id, payload);
       } else {
-        const added = await api.createShop(payload);
-        setShops([...shops, added]);
+        await api.createShop(payload);
       }
+      const [sData, oData] = await Promise.all([api.getShops(), api.getOrders()]);
+      setShops(sData);
+      setOrders(oData);
       resetForm();
     } catch (err) {
       alert(err.message || 'Error saving shop details');
@@ -181,11 +182,13 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
     }
     setAdjusting(true);
     try {
-      const updated = await api.updateShop(adjustingShop.id, {
+      await api.updateShop(adjustingShop.id, {
         outstanding_amount: val,
         adjustment_reason: adjustmentReason.trim() || (lang === 'ta' ? 'நிர்வாகியால் நேரடியாக மாற்றப்பட்டது' : 'Manual adjustment by Admin')
       });
-      setShops(shops.map(s => s.id === adjustingShop.id ? updated : s));
+      const [sData, oData] = await Promise.all([api.getShops(), api.getOrders()]);
+      setShops(sData);
+      setOrders(oData);
       alert(lang === 'ta' ? 'நிலுவைத் தொகை வெற்றிகரமாக புதுப்பிக்கப்பட்டது!' : 'Outstanding amount updated successfully!');
       setAdjustingShop(null);
     } catch (err) {
@@ -781,7 +784,13 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                         <button className="language-btn" onClick={() => handleOpenAdjustModal(s)} style={{ borderColor: 'var(--warning)', color: 'var(--warning)', background: 'rgba(245, 158, 11, 0.08)', padding: '0.25rem 0.5rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }} title={lang === 'ta' ? 'நிலுவை மாற்றியமைத்தல்' : 'Adjust Outstanding'}>
                           💰 {lang === 'ta' ? 'நிலுவை மாற்று' : 'Adjust Bal'}
                         </button>
-                        <button className="language-btn" onClick={() => setSelectedShopForBills(s)} style={{ borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)', background: 'rgba(6, 182, 212, 0.05)', padding: '0.25rem 0.5rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }} title={lang === 'ta' ? 'விலைப்பட்டியல் வரலாறு' : 'Bill History'}>
+                        <button className="language-btn" onClick={async () => {
+                          try {
+                            const oData = await api.getOrders();
+                            setOrders(oData);
+                          } catch (e) {}
+                          setSelectedShopForBills(s);
+                        }} style={{ borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)', background: 'rgba(6, 182, 212, 0.05)', padding: '0.25rem 0.5rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }} title={lang === 'ta' ? 'விலைப்பட்டியல் வரலாறு' : 'Bill History'}>
                           📄 {lang === 'ta' ? 'பில்கள்' : 'Bills'}
                         </button>
                         <button className="language-btn" onClick={() => handleEdit(s)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
