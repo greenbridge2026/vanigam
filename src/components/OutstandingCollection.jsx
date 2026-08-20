@@ -50,7 +50,7 @@ export default function OutstandingCollection({ t, lang }) {
 
   // Helper to calculate full outstanding breakdown for a shop (ledger balance + unpaid invoices)
   const getShopOutstandingInfo = (shop) => {
-    const baseOutstanding = Number(shop.outstanding_amount || 0);
+    const rawShopBal = Number(shop.outstanding_amount || 0);
 
     const invoices = orders
       .filter(o => o.shop_id === shop.id && o.status !== 'cancelled')
@@ -67,7 +67,10 @@ export default function OutstandingCollection({ t, lang }) {
       .filter(o => o.remaining_outstanding > 0);
 
     const invoicesSum = invoices.reduce((sum, inv) => sum + inv.remaining_outstanding, 0);
-    const totalOutstanding = baseOutstanding + invoicesSum;
+
+    // General / Ledger Outstanding is shop balance exceeding sales invoices
+    const baseOutstanding = Math.max(0, rawShopBal - invoicesSum);
+    const totalOutstanding = Math.max(rawShopBal, baseOutstanding + invoicesSum);
 
     return {
       baseOutstanding,
