@@ -70,18 +70,26 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
   const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem('activeTab') || 'dashboard';
+    return localStorage.getItem('activeTab') || (session?.role === 'delivery' ? 'deliveries' : 'dashboard');
   });
-  const [selectedOrderId, setSelectedOrderId] = useState(null);
-  const [editingOrder, setEditingOrder] = useState(null);
-  const [bulkPrintOrderIds, setBulkPrintOrderIds] = useState(null);
+  const [selectedOrderId, setSelectedOrderId] = useState(() => {
+    return localStorage.getItem('selectedOrderId') || null;
+  });
+  const [editingOrder, setEditingOrder] = useState(() => {
+    const saved = localStorage.getItem('editingOrder');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [bulkPrintOrderIds, setBulkPrintOrderIds] = useState(() => {
+    const saved = localStorage.getItem('bulkPrintOrderIds');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [menuHidden, setMenuHidden] = useState(() => window.innerWidth <= 768);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settings, setSettings] = useState({
     company_name: "GSK Agency",
     company_address: "Cooldrinks Shop - Tindivanam",
     company_gst: "33CWRPK4071L1Z2",
-    upi_mobile: "9345463415"
+    upi_mobile: "gskumar9345@okicici"
   });
 
   useEffect(() => {
@@ -114,8 +122,32 @@ export default function App() {
   }, [session]);
 
   useEffect(() => {
-    localStorage.setItem('activeTab', activeTab);
+    if (activeTab) localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (selectedOrderId) {
+      localStorage.setItem('selectedOrderId', selectedOrderId);
+    } else {
+      localStorage.removeItem('selectedOrderId');
+    }
+  }, [selectedOrderId]);
+
+  useEffect(() => {
+    if (editingOrder) {
+      localStorage.setItem('editingOrder', JSON.stringify(editingOrder));
+    } else {
+      localStorage.removeItem('editingOrder');
+    }
+  }, [editingOrder]);
+
+  useEffect(() => {
+    if (bulkPrintOrderIds) {
+      localStorage.setItem('bulkPrintOrderIds', JSON.stringify(bulkPrintOrderIds));
+    } else {
+      localStorage.removeItem('bulkPrintOrderIds');
+    }
+  }, [bulkPrintOrderIds]);
 
   // Theme state defaulting to light theme
   const [theme, setTheme] = useState(() => {
@@ -677,6 +709,14 @@ export default function App() {
 
       {/* Main Area */}
       <div className="workspace">
+        {/* Mobile Backdrop Overlay */}
+        {!menuHidden && (
+          <div 
+            className="sidebar-backdrop-mobile no-print" 
+            onClick={() => setMenuHidden(true)}
+          />
+        )}
+
         {/* Sidebar */}
         <aside className={`sidebar no-print ${menuHidden ? 'hidden' : ''}`}>
           {getSidebarLinks().map(link => (
@@ -685,6 +725,8 @@ export default function App() {
               onClick={() => {
                 setActiveTab(link.id);
                 setSelectedOrderId(null);
+                setEditingOrder(null);
+                setBulkPrintOrderIds(null);
                 if (window.innerWidth <= 768) {
                   setMenuHidden(true);
                 }

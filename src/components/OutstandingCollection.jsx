@@ -12,7 +12,6 @@ export default function OutstandingCollection({ t, lang }) {
   // Form states
   const [selectedRouteId, setSelectedRouteId] = useState('all');
   const [selectedShopId, setSelectedShopId] = useState('');
-  const [targetInvoiceId, setTargetInvoiceId] = useState(''); // Empty means General Outstanding
   const [searchQuery, setSearchQuery] = useState('');
   const [onlyOutstanding, setOnlyOutstanding] = useState(true);
 
@@ -23,6 +22,7 @@ export default function OutstandingCollection({ t, lang }) {
   const [chequeNo, setChequeNo] = useState('');
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [submitting, setSubmitting] = useState(false);
+  const [showMobileModal, setShowMobileModal] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -48,26 +48,45 @@ export default function OutstandingCollection({ t, lang }) {
 
   const selectedShop = shops.find(s => s.id === selectedShopId);
 
-  // Get all unpaid or partially paid invoices for the selected shop
-  const shopInvoices = orders
-    .filter(o => o.shop_id === selectedShopId && (o.status === 'delivered' || o.status === 'pending'))
-    .map(order => {
-      const orderPayments = payments.filter(p => p.order_id === order.id);
-      const totalCollected = orderPayments.reduce((sum, p) => sum + p.collected_amount, 0);
-      const remaining = order.net_amount - totalCollected;
-      return {
-        ...order,
-        total_collected: totalCollected,
-        remaining_outstanding: remaining
-      };
-    })
-    .filter(o => o.remaining_outstanding > 0);
+  // Helper to calculate full outstanding breakdown for a shop (ledger balance + unpaid invoices)
+  const getShopOutstandingInfo = (shop) => {
+    const baseOutstanding = Number(shop.outstanding_amount || 0);
+
+    const invoices = orders
+      .filter(o => o.shop_id === shop.id && o.status !== 'cancelled')
+      .map(order => {
+        const orderPayments = payments.filter(p => p.order_id === order.id);
+        const totalCollected = orderPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+        const remaining = (Number(order.net_amount) || 0) - totalCollected;
+        return {
+          ...order,
+          total_collected: totalCollected,
+          remaining_outstanding: remaining
+        };
+      })
+      .filter(o => o.remaining_outstanding > 0);
+
+    const invoicesSum = invoices.reduce((sum, inv) => sum + inv.remaining_outstanding, 0);
+    const totalOutstanding = baseOutstanding + invoicesSum;
+
+    return {
+      baseOutstanding,
+      invoices,
+      invoicesSum,
+      totalOutstanding
+    };
+  };
+
+  const selectedShopInfo = selectedShop ? getShopOutstandingInfo(selectedShop) : null;
+  const shopInvoices = selectedShopInfo ? selectedShopInfo.invoices : [];
 
   // Filter shops for shopwise outstanding list
-  const filteredShopsList = shops.filter(s => {
-    if (s.status !== 'active') return false;
+  const filteredShopsList = shops.map(s => ({
+    ...s,
+    outstandingInfo: getShopOutstandingInfo(s)
+  })).filter(s => {
     if (selectedRouteId !== 'all' && s.route_id !== selectedRouteId) return false;
-    if (onlyOutstanding && (!s.outstanding_amount || s.outstanding_amount <= 0)) return false;
+    if (onlyOutstanding && s.outstandingInfo.totalOutstanding <= 0) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       const nameTa = (s.name_ta || '').toLowerCase();
@@ -76,59 +95,37 @@ export default function OutstandingCollection({ t, lang }) {
       if (!nameTa.includes(q) && !nameEn.includes(q) && !mob.includes(q)) return false;
     }
     return true;
-  }).sort((a, b) => (b.outstanding_amount || 0) - (a.outstanding_amount || 0));
+  }).sort((a, b) => (b.outstandingInfo.totalOutstanding || 0) - (a.outstandingInfo.totalOutstanding || 0));
 
-  const totalOutstandingSum = filteredShopsList.reduce((sum, s) => sum + (Number(s.outstanding_amount) || 0), 0);
-
-  const handleAddRow = () => {
-    setPaymentRows([
-      ...paymentRows,
-      {
-        payment_mode: 'cash',
-        collected_amount: 0,
-        transaction_number: '',
-        reference_number: '',
-        payment_date: new Date().toISOString().split('T')[0]
-      }
-    ]);
-  };
-
-  const handleRemoveRow = (index) => {
-    if (paymentRows.length === 1) return;
-    setPaymentRows(paymentRows.filter((_, idx) => idx !== index));
-  };
-
-  const handleRowChange = (index, field, value) => {
-    const updated = [...paymentRows];
-    updated[index][field] = value;
-    setPaymentRows(updated);
-  };
+  const totalOutstandingSum = filteredShopsList.reduce((sum, s) => sum + (Number(s.outstandingInfo.totalOutstanding) || 0), 0);
 
   const totalCollected = Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0);
 
-  // Total outstanding to resolve (either shop outstanding or specific invoice remaining)
-  const outstandingToResolve = targetInvoiceId 
-    ? (shopInvoices.find(inv => inv.id === targetInvoiceId)?.remaining_outstanding || 0)
-    : (selectedShop ? selectedShop.outstanding_amount : 0);
-
+  // Total shop outstanding to resolve (Ledger balance + Unpaid invoices sum)
+  const outstandingToResolve = selectedShopInfo ? selectedShopInfo.totalOutstanding : 0;
   const balanceOutstanding = outstandingToResolve - totalCollected;
 
   const handleSelectShop = (shopId) => {
     setSelectedShopId(shopId);
-    setTargetInvoiceId('');
     const targetShop = shops.find(s => s.id === shopId);
-    if (targetShop && targetShop.outstanding_amount > 0) {
-      setCashAmount(targetShop.outstanding_amount);
-      setGpayAmount(0);
-      setGpayTxn('');
-      setChequeAmount(0);
-      setChequeNo('');
-    } else {
-      setCashAmount(0);
-      setGpayAmount(0);
-      setGpayTxn('');
-      setChequeAmount(0);
-      setChequeNo('');
+    if (targetShop) {
+      const info = getShopOutstandingInfo(targetShop);
+      if (info.totalOutstanding > 0) {
+        setCashAmount(info.totalOutstanding);
+        setGpayAmount(0);
+        setGpayTxn('');
+        setChequeAmount(0);
+        setChequeNo('');
+      } else {
+        setCashAmount(0);
+        setGpayAmount(0);
+        setGpayTxn('');
+        setChequeAmount(0);
+        setChequeNo('');
+      }
+    }
+    if (window.innerWidth <= 768) {
+      setShowMobileModal(true);
     }
   };
 
@@ -149,7 +146,7 @@ export default function OutstandingCollection({ t, lang }) {
       if (Number(cashAmount) > 0) {
         paymentsToSubmit.push({
           shop_id: selectedShopId,
-          order_id: targetInvoiceId || '',
+          order_id: '',
           collected_amount: Number(cashAmount),
           payment_mode: 'cash',
           transaction_number: '',
@@ -160,7 +157,7 @@ export default function OutstandingCollection({ t, lang }) {
       if (Number(gpayAmount) > 0) {
         paymentsToSubmit.push({
           shop_id: selectedShopId,
-          order_id: targetInvoiceId || '',
+          order_id: '',
           collected_amount: Number(gpayAmount),
           payment_mode: 'gpay',
           transaction_number: gpayTxn || `TXN-${Date.now()}`,
@@ -171,7 +168,7 @@ export default function OutstandingCollection({ t, lang }) {
       if (Number(chequeAmount) > 0) {
         paymentsToSubmit.push({
           shop_id: selectedShopId,
-          order_id: targetInvoiceId || '',
+          order_id: '',
           collected_amount: Number(chequeAmount),
           payment_mode: 'cheque',
           transaction_number: '',
@@ -189,17 +186,19 @@ export default function OutstandingCollection({ t, lang }) {
       setGpayTxn('');
       setChequeAmount(0);
       setChequeNo('');
-      setTargetInvoiceId('');
 
       // Reload dataset
-      const [sData, oData, pData] = await Promise.all([
+      const [rData, sData, oData, pData] = await Promise.all([
+        api.getRoutes(),
         api.getShops(),
         api.getOrders(),
         api.getPayments()
       ]);
+      setRoutes(rData);
       setShops(sData);
       setOrders(oData);
       setPayments(pData);
+      setShowMobileModal(false);
     } catch (err) {
       alert('Error saving payments: ' + err.message);
     } finally {
@@ -207,19 +206,204 @@ export default function OutstandingCollection({ t, lang }) {
     }
   };
 
-  const handleInvoiceSelect = (invoiceId) => {
-    setTargetInvoiceId(invoiceId);
-    if (invoiceId) {
-      const selectedInvoice = shopInvoices.find(inv => inv.id === invoiceId);
-      if (selectedInvoice) {
-        setCashAmount(selectedInvoice.remaining_outstanding);
-        setGpayAmount(0);
-        setGpayTxn('');
-        setChequeAmount(0);
-        setChequeNo('');
-      }
-    }
-  };
+  const renderPaymentForm = (isMobileModal = false) => (
+    <form onSubmit={handleSubmit} className={isMobileModal ? "" : "glass-card"} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {!isMobileModal && (
+        <h2 style={{ fontSize: '1.25rem', color: 'var(--accent-cyan)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>💰 {lang === 'ta' ? 'கட்டண பதிவு' : 'Collect Payment'}</span>
+        </h2>
+      )}
+
+      {/* Selected Shop Banner */}
+      {selectedShop && selectedShopInfo ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div style={{ padding: '0.75rem 1rem', background: 'rgba(6, 182, 212, 0.1)', border: '1px solid var(--accent-cyan)', borderRadius: 'var(--radius)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', fontWeight: '600', display: 'block' }}>SELECTED SHOP</span>
+              <strong style={{ fontSize: '1.1rem' }}>{translateShopName(selectedShop, lang)}</strong>
+              {selectedShop.mobile && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>📞 {selectedShop.mobile}</span>}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Total Shop Outstanding</span>
+              <strong style={{ fontSize: '1.35rem', color: 'var(--warning)' }}>₹{selectedShopInfo.totalOutstanding.toLocaleString()}</strong>
+            </div>
+          </div>
+
+          {/* Invoices + Ledger summary snippet in payment panel */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', padding: '0.5rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem' }}>
+            <span style={{ color: 'var(--text-muted)', fontWeight: '600', display: 'block', marginBottom: '0.25rem' }}>
+              📑 Outstanding Breakdown:
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {selectedShopInfo.baseOutstanding > 0 && (
+                <span style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)', padding: '2px 6px', borderRadius: '4px', fontWeight: '600' }}>
+                  Ledger: ₹{selectedShopInfo.baseOutstanding.toLocaleString()}
+                </span>
+              )}
+              {shopInvoices.map(inv => (
+                <span key={inv.id} style={{ background: 'rgba(6,182,212,0.1)', color: 'var(--accent-cyan)', padding: '2px 6px', borderRadius: '4px', fontWeight: '600' }}>
+                  {inv.invoice_number}: ₹{inv.remaining_outstanding.toLocaleString()}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ padding: '1rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px dashed var(--warning)', borderRadius: 'var(--radius)', textAlign: 'center', color: 'var(--warning)' }}>
+          👈 {lang === 'ta' ? 'பட்டியலிலிருந்து கடையைத் தேர்ந்தெடுக்கவும்' : 'Please select a shop from the list on the left to start collecting.'}
+        </div>
+      )}
+
+      {/* Payment Collection Options (Cash, GPay, Cheque) */}
+      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+        <label style={{ fontWeight: '700', fontSize: '0.9rem', display: 'block', marginBottom: '0.75rem' }}>
+          💰 {t('payment_collection')}
+        </label>
+
+        <div className="collection-payment-modes-grid" style={{ display: 'grid', gap: '0.75rem', marginBottom: '0.75rem' }}>
+          {/* Cash Option */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: 'var(--success)', marginBottom: '0.4rem' }}>
+              💵 {t('cash')} (₹)
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              className="form-input"
+              style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
+              value={cashAmount === '' || cashAmount === 0 ? (cashAmount === '' ? '' : '0') : cashAmount}
+              onChange={e => {
+                const val = e.target.value.replace(/\D/g, '');
+                setCashAmount(val === '' ? '' : parseInt(val, 10));
+              }}
+              placeholder="0"
+            />
+          </div>
+
+          {/* GPay Option */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: '#34a853', marginBottom: '0.4rem' }}>
+              📱 {t('gpay')} (₹)
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              className="form-input"
+              style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
+              value={gpayAmount === '' || gpayAmount === 0 ? (gpayAmount === '' ? '' : '0') : gpayAmount}
+              onChange={e => {
+                const val = e.target.value.replace(/\D/g, '');
+                setGpayAmount(val === '' ? '' : parseInt(val, 10));
+              }}
+              placeholder="0"
+            />
+          </div>
+
+          {/* Cheque Option */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: '0.4rem' }}>
+              🏦 {t('cheque')} (₹)
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              className="form-input"
+              style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
+              value={chequeAmount === '' || chequeAmount === 0 ? (chequeAmount === '' ? '' : '0') : chequeAmount}
+              onChange={e => {
+                const val = e.target.value.replace(/\D/g, '');
+                setChequeAmount(val === '' ? '' : parseInt(val, 10));
+              }}
+              placeholder="0"
+            />
+          </div>
+        </div>
+
+        {/* Optional reference numbers & date */}
+        <div style={{ display: 'grid', gridTemplateColumns: Number(gpayAmount) > 0 && Number(chequeAmount) > 0 ? '1fr 1fr 1fr' : (Number(gpayAmount) > 0 || Number(chequeAmount) > 0 ? '1.5fr 1fr' : '1fr'), gap: '0.5rem', marginBottom: '0.75rem' }}>
+          {Number(gpayAmount) > 0 && (
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label style={{ fontSize: '0.7rem' }}>{t('transaction_id')}</label>
+              <input
+                type="text"
+                className="form-input"
+                style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
+                value={gpayTxn}
+                onChange={e => setGpayTxn(e.target.value)}
+                placeholder="GPay / UPI Txn No (optional)"
+              />
+            </div>
+          )}
+          {Number(chequeAmount) > 0 && (
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label style={{ fontSize: '0.7rem' }}>{t('ref_number')}</label>
+              <input
+                type="text"
+                className="form-input"
+                style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
+                value={chequeNo}
+                onChange={e => setChequeNo(e.target.value)}
+                placeholder="Cheque No / Bank Ref (optional)"
+              />
+            </div>
+          )}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ fontSize: '0.7rem' }}>{t('payment_date')}</label>
+            <input
+              type="date"
+              className="form-input"
+              style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
+              value={paymentDate}
+              onChange={e => setPaymentDate(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Summary / Calculations */}
+      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+          <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'மொத்த நிலுவை தொகை:' : 'Total Outstanding Amount:'}</span>
+          <strong style={{ color: 'var(--warning)' }}>₹{outstandingToResolve.toLocaleString()}</strong>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+          <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'வசூலிக்கப்பட்ட மொத்த தொகை:' : 'Total Collected:'}</span>
+          <strong style={{ color: 'var(--success)' }}>₹{totalCollected.toLocaleString()}</strong>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.5rem' }}>
+          <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'இருப்பு நிலுவை தொகை:' : 'Balance Outstanding:'}</span>
+          <strong style={{ color: balanceOutstanding > 0 ? 'var(--danger)' : 'var(--success)' }}>
+            ₹{balanceOutstanding.toLocaleString()}
+          </strong>
+        </div>
+      </div>
+
+      {/* Form Actions */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+        {isMobileModal && (
+          <button 
+            type="button" 
+            className="btn btn-secondary" 
+            style={{ width: '30%', padding: '0.75rem' }}
+            onClick={() => setShowMobileModal(false)}
+          >
+            ✕ {lang === 'ta' ? 'மூடு' : 'Close'}
+          </button>
+        )}
+        <button 
+          type="submit" 
+          className="btn btn-primary" 
+          style={{ width: isMobileModal ? '70%' : '100%', padding: '0.75rem', fontWeight: '700' }}
+          disabled={submitting || !selectedShopId}
+        >
+          ✔ {submitting ? '...' : (lang === 'ta' ? 'வசூலைப் பதிவு செய்' : 'Record Collection')}
+        </button>
+      </div>
+    </form>
+  );
 
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '3rem' }}>Loading Outstanding Collection...</div>;
 
@@ -228,13 +412,13 @@ export default function OutstandingCollection({ t, lang }) {
       <div style={{ marginBottom: '1.5rem' }}>
         <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>💵 {t('outstanding_collection')}</h1>
         <p style={{ color: 'var(--text-muted)' }}>
-          {lang === 'ta' ? 'கடைகளின் நிலுவைத் தொகையை நேரடியாகப் பார்த்து விரைவாக வசூல் தொகையைப் பதிவு செய்யவும்.' : 'View shopwise outstanding balances and quickly record partial or full payment collections.'}
+          {lang === 'ta' ? 'கடைகளின் மொத்த நிலுவை (முந்தைய நிலுவை + பில் நிலுவை) மற்றும் பில் விவரங்களைப் பார்த்து விரைவாக வசூல் பதிவு செய்யவும்.' : 'View total shopwise outstanding (ledger balance + unpaid invoice amounts) and quickly record payment collections.'}
         </p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1.65fr', gap: '1.5rem', alignItems: 'flex-start' }} className="collection-grid">
         
-        {/* Left side - Interactive Shopwise Outstanding List */}
+        {/* Left side - Interactive Shopwise Outstanding List & Invoice Details */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           
           <div className="glass-card">
@@ -249,7 +433,7 @@ export default function OutstandingCollection({ t, lang }) {
 
             {/* Filter and Search controls */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div className="collection-filter-grid" style={{ display: 'grid', gap: '0.75rem' }}>
                 <div className="form-group">
                   <label style={{ fontSize: '0.75rem' }}>{lang === 'ta' ? 'வழித்தடம்' : 'Filter Route'}</label>
                   <select 
@@ -302,11 +486,13 @@ export default function OutstandingCollection({ t, lang }) {
                 {lang === 'ta' ? 'கடைகள் எதுவும் கிடைக்கவில்லை.' : 'No shops found matching filter criteria.'}
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '420px', overflowY: 'auto', paddingRight: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
                 {filteredShopsList.map(s => {
                   const isSelected = selectedShopId === s.id;
                   const routeObj = routes.find(r => r.id === s.route_id);
                   const routeName = routeObj ? (lang === 'ta' ? routeObj.name_ta : routeObj.name_en) : 'Unassigned';
+                  
+                  const { baseOutstanding, invoices, invoicesSum, totalOutstanding } = s.outstandingInfo;
 
                   return (
                     <div 
@@ -339,11 +525,25 @@ export default function OutstandingCollection({ t, lang }) {
                             </span>
                           )}
                         </div>
+
+                        {/* Breakdown pill info */}
+                        <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.3rem', fontSize: '0.68rem' }}>
+                          {baseOutstanding > 0 && (
+                            <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning)', padding: '1px 5px', borderRadius: '3px' }}>
+                              Ledger: ₹{baseOutstanding.toLocaleString()}
+                            </span>
+                          )}
+                          {invoicesSum > 0 && (
+                            <span style={{ background: 'rgba(6, 182, 212, 0.12)', color: 'var(--accent-cyan)', padding: '1px 5px', borderRadius: '3px' }}>
+                              {invoices.length} Inv: ₹{invoicesSum.toLocaleString()}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
-                        <div style={{ fontSize: '1.05rem', fontWeight: '800', color: s.outstanding_amount > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                          ₹{(s.outstanding_amount || 0).toLocaleString()}
+                        <div style={{ fontSize: '1.05rem', fontWeight: '800', color: totalOutstanding > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                          ₹{totalOutstanding.toLocaleString()}
                         </div>
                         <button
                           type="button"
@@ -368,256 +568,95 @@ export default function OutstandingCollection({ t, lang }) {
             )}
           </div>
 
-          {/* Unpaid Invoices card for selected shop */}
-          {selectedShopId && (
+          {/* Detailed Outstanding breakdown card for selected shop */}
+          {selectedShop && selectedShopInfo && (
             <div className="glass-card">
-              <h2 style={{ fontSize: '1.1rem', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-                📄 {lang === 'ta' ? 'நிலுவை பில்கள்' : 'Unpaid Invoices'} ({shopInvoices.length})
+              <h2 style={{ fontSize: '1.05rem', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>📄 {lang === 'ta' ? 'நிலுவை தொகையின் முழு விவரம்' : 'Outstanding Breakdown'}</span>
+                <span style={{ fontSize: '0.75rem', background: 'rgba(245, 158, 11, 0.2)', color: 'var(--warning)', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                  Total: ₹{selectedShopInfo.totalOutstanding.toLocaleString()}
+                </span>
               </h2>
-              {shopInvoices.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', margin: '0.75rem 0' }}>
-                  {lang === 'ta' ? 'நிலுவை பில்கள் எதுவும் இல்லை.' : 'No specific unpaid invoices found for this shop.'}
-                </p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '200px', overflowY: 'auto' }}>
-                  {shopInvoices.map(inv => (
-                    <div 
-                      key={inv.id} 
-                      onClick={() => handleInvoiceSelect(inv.id)}
-                      style={{
-                        padding: '0.6rem 0.8rem',
-                        background: targetInvoiceId === inv.id ? 'rgba(6, 182, 212, 0.1)' : 'rgba(255,255,255,0.02)',
-                        border: targetInvoiceId === inv.id ? '1px solid var(--accent-cyan)' : '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius)',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: '700', fontSize: '0.85rem' }}>Invoice: {inv.invoice_number}</div>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                          {new Date(inv.order_date).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--danger)' }}>₹{inv.remaining_outstanding}</div>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Total: ₹{inv.net_amount}</span>
-                      </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {/* Ledger balance item if present */}
+                {selectedShopInfo.baseOutstanding > 0 && (
+                  <div style={{ padding: '0.6rem 0.8rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px dashed var(--warning)', borderRadius: 'var(--radius)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong style={{ fontSize: '0.85rem', color: 'var(--warning)' }}>💼 {lang === 'ta' ? 'முந்தைய / பொது கணக்கு நிலுவை' : 'General / Ledger Outstanding'}</strong>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Shop Ledger Account</span>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--warning)' }}>
+                      ₹{selectedShopInfo.baseOutstanding.toLocaleString()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Unpaid Invoices */}
+                {shopInvoices.map(inv => (
+                  <div 
+                    key={inv.id} 
+                    style={{
+                      padding: '0.6rem 0.8rem',
+                      background: 'rgba(255,255,255,0.02)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 'var(--radius)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                        Invoice: {inv.invoice_number}
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        📅 {new Date(inv.order_date).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--danger)' }}>
+                        ₹{inv.remaining_outstanding.toLocaleString()} <span style={{ fontSize: '0.7rem', fontWeight: 'normal' }}>Due</span>
+                      </div>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                        Bill Amount: ₹{(inv.net_amount || 0).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
         </div>
 
-        {/* Right side - Payment Entry Form */}
-        <form onSubmit={handleSubmit} className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <h2 style={{ fontSize: '1.25rem', color: 'var(--accent-cyan)', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>💰 {lang === 'ta' ? 'கட்டண பதிவு' : 'Collect Payment'}</span>
-            {targetInvoiceId ? (
-              <span style={{ fontSize: '0.75rem', background: 'rgba(6, 182, 212, 0.2)', color: 'var(--accent-cyan)', padding: '2px 8px', borderRadius: '4px' }}>
-                Invoice Specific
-              </span>
-            ) : (
-              <span style={{ fontSize: '0.75rem', background: 'rgba(245, 158, 11, 0.2)', color: 'var(--warning)', padding: '2px 8px', borderRadius: '4px' }}>
-                General Account Pay
-              </span>
-            )}
-          </h2>
+        {/* Right side - Payment Entry Form (Desktop View) */}
+        <div className="collection-payment-panel-desktop">
+          {renderPaymentForm(false)}
+        </div>
 
-          {/* Selected Shop Banner */}
-          {selectedShop ? (
-            <div style={{ padding: '0.75rem 1rem', background: 'rgba(6, 182, 212, 0.1)', border: '1px solid var(--accent-cyan)', borderRadius: 'var(--radius)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', fontWeight: '600', display: 'block' }}>SELECTED SHOP</span>
-                <strong style={{ fontSize: '1.1rem' }}>{translateShopName(selectedShop, lang)}</strong>
-                {selectedShop.mobile && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>📞 {selectedShop.mobile}</span>}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Shop Outstanding</span>
-                <strong style={{ fontSize: '1.25rem', color: 'var(--warning)' }}>₹{selectedShop.outstanding_amount}</strong>
-              </div>
-            </div>
-          ) : (
-            <div style={{ padding: '1rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px dashed var(--warning)', borderRadius: 'var(--radius)', textAlign: 'center', color: 'var(--warning)' }}>
-              👈 {lang === 'ta' ? 'பட்டியலிலிருந்து கடையைத் தேர்ந்தெடுக்கவும்' : 'Please select a shop from the list on the left to start collecting.'}
-            </div>
-          )}
-
-          {/* Target application toggle */}
-          {selectedShopId && (
-            <div>
-              <label style={{ fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '0.4rem' }}>
-                {lang === 'ta' ? 'வசூல் வகை' : 'Apply Collection To'}
-              </label>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button
-                  type="button"
-                  className={`language-btn ${!targetInvoiceId ? 'active' : ''}`}
-                  style={{ flex: 1, padding: '0.5rem', background: !targetInvoiceId ? 'var(--accent-cyan)' : '', color: !targetInvoiceId ? '#0f172a' : '' }}
-                  onClick={() => setTargetInvoiceId('')}
-                >
-                  💼 {lang === 'ta' ? 'பொது கணக்கு வசூல்' : 'General Account Outstanding'}
-                </button>
-                {shopInvoices.length > 0 && (
-                  <button
-                    type="button"
-                    className={`language-btn ${targetInvoiceId ? 'active' : ''}`}
-                    style={{ flex: 1, padding: '0.5rem', background: targetInvoiceId ? 'var(--accent-cyan)' : '', color: targetInvoiceId ? '#0f172a' : '' }}
-                    onClick={() => handleInvoiceSelect(shopInvoices[0].id)}
-                  >
-                    📄 {lang === 'ta' ? 'குறிப்பிட்ட பில்' : 'Specific Invoice'}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Payment Collection Options (Cash, GPay, Cheque) */}
-          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
-            <label style={{ fontWeight: '700', fontSize: '0.9rem', display: 'block', marginBottom: '0.75rem' }}>
-              💰 {t('payment_collection')}
-            </label>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-              {/* Cash Option */}
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: 'var(--success)', marginBottom: '0.4rem' }}>
-                  💵 {t('cash')} (₹)
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  className="form-input"
-                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
-                  value={cashAmount === '' || cashAmount === 0 ? (cashAmount === '' ? '' : '0') : cashAmount}
-                  onChange={e => {
-                    const val = e.target.value.replace(/\D/g, '');
-                    setCashAmount(val === '' ? '' : parseInt(val, 10));
-                  }}
-                  placeholder="0"
-                />
-              </div>
-
-              {/* GPay Option */}
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: '#34a853', marginBottom: '0.4rem' }}>
-                  📱 {t('gpay')} (₹)
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  className="form-input"
-                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
-                  value={gpayAmount === '' || gpayAmount === 0 ? (gpayAmount === '' ? '' : '0') : gpayAmount}
-                  onChange={e => {
-                    const val = e.target.value.replace(/\D/g, '');
-                    setGpayAmount(val === '' ? '' : parseInt(val, 10));
-                  }}
-                  placeholder="0"
-                />
-              </div>
-
-              {/* Cheque Option */}
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: '0.4rem' }}>
-                  🏦 {t('cheque')} (₹)
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  className="form-input"
-                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
-                  value={chequeAmount === '' || chequeAmount === 0 ? (chequeAmount === '' ? '' : '0') : chequeAmount}
-                  onChange={e => {
-                    const val = e.target.value.replace(/\D/g, '');
-                    setChequeAmount(val === '' ? '' : parseInt(val, 10));
-                  }}
-                  placeholder="0"
-                />
-              </div>
-            </div>
-
-            {/* Optional reference numbers & date */}
-            <div style={{ display: 'grid', gridTemplateColumns: Number(gpayAmount) > 0 && Number(chequeAmount) > 0 ? '1fr 1fr 1fr' : (Number(gpayAmount) > 0 || Number(chequeAmount) > 0 ? '1.5fr 1fr' : '1fr'), gap: '0.5rem', marginBottom: '0.75rem' }}>
-              {Number(gpayAmount) > 0 && (
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label style={{ fontSize: '0.7rem' }}>{t('transaction_id')}</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
-                    value={gpayTxn}
-                    onChange={e => setGpayTxn(e.target.value)}
-                    placeholder="GPay / UPI Txn No (optional)"
-                  />
-                </div>
-              )}
-              {Number(chequeAmount) > 0 && (
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label style={{ fontSize: '0.7rem' }}>{t('ref_number')}</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
-                    value={chequeNo}
-                    onChange={e => setChequeNo(e.target.value)}
-                    placeholder="Cheque No / Bank Ref (optional)"
-                  />
-                </div>
-              )}
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.7rem' }}>{t('payment_date')}</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
-                  value={paymentDate}
-                  onChange={e => setPaymentDate(e.target.value)}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Summary / Calculations */}
-          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
-              <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'நிலுவை தொகை:' : 'Outstanding to Resolve:'}</span>
-              <strong style={{ color: 'var(--warning)' }}>₹{outstandingToResolve}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
-              <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'வசூலிக்கப்பட்ட மொத்த தொகை:' : 'Total Collected:'}</span>
-              <strong style={{ color: 'var(--success)' }}>₹{totalCollected}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.5rem' }}>
-              <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'இருப்பு நிலுவை தொகை:' : 'Balance Outstanding:'}</span>
-              <strong style={{ color: balanceOutstanding > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                ₹{balanceOutstanding}
-              </strong>
-            </div>
-          </div>
-
-          {/* Form Actions */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
-            <button 
-              type="submit" 
-              className="btn btn-primary" 
-              style={{ width: '100%', padding: '0.75rem', fontWeight: '700' }}
-              disabled={submitting || !selectedShopId}
-            >
-              ✔ {submitting ? '...' : (lang === 'ta' ? 'வசூலைப் பதிவு செய்' : 'Record Collection')}
-            </button>
-          </div>
-        </form>
       </div>
+
+      {/* Mobile Popup Modal for Payment Entry */}
+      {showMobileModal && (
+        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div className="glass-card modal-card" style={{ maxWidth: '500px', width: '95%', margin: 'auto', maxHeight: '90vh', overflowY: 'auto', padding: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+              <h2 style={{ fontSize: '1.2rem', margin: 0, color: 'var(--accent-cyan)' }}>
+                💰 {lang === 'ta' ? 'கட்டண பதிவு' : 'Collect Payment'}
+              </h2>
+              <button 
+                type="button" 
+                onClick={() => setShowMobileModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+            {renderPaymentForm(true)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

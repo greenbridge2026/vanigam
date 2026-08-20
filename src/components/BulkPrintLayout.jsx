@@ -14,7 +14,7 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
     company_name: "GSK Agency",
     company_address: "Cooldrinks Shop - Tindivanam",
     company_gst: "33CWRPK4071L1Z2",
-    upi_mobile: "9345463415"
+    upi_mobile: "gskumar9345@okicici"
   });
 
   useEffect(() => {
@@ -256,16 +256,84 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
                 </table>
               </div>
 
-              {/* Bottom Summary Section */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: isCompact ? '10px' : '15px', marginTop: '2px' }}>
-                <div style={{ border: '1.5px solid #1e293b', borderRadius: '4px', padding: isCompact ? '6px 10px' : '10px 12px', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '4px', justifyContent: 'center' }}>
-                  <strong style={{ fontSize: isCompact ? '10px' : '11px', color: '#1e293b', fontWeight: '800', textTransform: 'uppercase', borderBottom: '1px solid #cbd5e1', paddingBottom: '3px', marginBottom: '2px' }}>
-                    {lang === 'ta' ? 'கட்டண விவரங்கள்' : 'Payment Information'}
-                  </strong>
-                  <span style={{ fontSize: isCompact ? '8.5px' : '9.5px', color: '#475569', fontWeight: '500' }}>
-                    {lang === 'ta' ? 'கட்டணங்கள் ரொக்கம் அல்லது காசோலை மூலம் பெறப்படும்.' : 'Accepted Payments: Cash or Cheque.'}
-                  </span>
-                </div>
+              {/* Bottom Summary Section & UPI QR Section */}
+              {(() => {
+                const upiVpa = (settings?.upi_mobile && settings.upi_mobile.includes('@')) 
+                  ? settings.upi_mobile 
+                  : 'gskumar9345@okicici';
+                const upiName = 'Kumar .k';
+                const billAmount = remainingOutstanding > 0 ? remainingOutstanding : (order.net_amount || 0);
+                const formattedAmount = Number(billAmount > 0 ? billAmount : 0).toFixed(2);
+                const upiUri = `upi://pay?pa=${upiVpa}&pn=${encodeURIComponent(upiName)}&am=${formattedAmount}&mam=1.00&cu=INR&tn=${encodeURIComponent(order.invoice_number || 'Bill')}`;
+                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiUri)}`;
+                const currentPayments = payments.filter(p => p.order_id === order.id);
+
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: isCompact ? '10px' : '15px', marginTop: '2px' }}>
+                    <div style={{ border: '1.5px solid #1e293b', borderRadius: '4px', padding: isCompact ? '4px 8px' : '6px 10px', background: '#f8fafc', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                      
+                      {/* Payment Information / Breakup */}
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '3px', justifyContent: 'center' }}>
+                        <strong style={{ fontSize: isCompact ? '10px' : '11px', color: '#1e293b', fontWeight: '800', textTransform: 'uppercase', borderBottom: '1px solid #cbd5e1', paddingBottom: '3px', marginBottom: '2px' }}>
+                          {lang === 'ta' ? 'கட்டண விவரங்கள்' : 'PAYMENT BREAKUP'}
+                        </strong>
+                        {currentPayments.length === 0 ? (
+                          <span style={{ fontSize: isCompact ? '9px' : '10px', color: '#ef4444', fontWeight: '800' }}>
+                            {lang === 'ta' ? 'நிலுவை (No payments collected)' : 'UNPAID / ON CREDIT'}
+                          </span>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxHeight: '75px', overflowY: 'auto' }}>
+                            {currentPayments.map(p => (
+                              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: isCompact ? '8.5px' : '9.5px', color: '#0f172a' }}>
+                                <span>
+                                  <strong style={{ textTransform: 'uppercase', fontWeight: '800' }}>{p.payment_mode}</strong>
+                                  {p.transaction_number ? ` (${p.transaction_number})` : ''}
+                                </span>
+                                <strong style={{ color: '#0f172a', fontWeight: '800' }}>₹{p.collected_amount}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* GPay / UPI QR Code Box matching user screenshot */}
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: '6px',
+                        borderLeft: '1.5px dashed #cbd5e1',
+                        paddingLeft: '8px'
+                      }}>
+                        <img 
+                          src={qrUrl} 
+                          alt="GPay QR Code" 
+                          style={{ 
+                            width: isCompact ? '55px' : '65px', 
+                            height: isCompact ? '55px' : '65px', 
+                            border: '1px solid #0f172a', 
+                            padding: '1px', 
+                            borderRadius: '4px',
+                            background: '#ffffff'
+                          }} 
+                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                          <span style={{ fontSize: isCompact ? '9px' : '10px', fontWeight: '900', color: '#0f172a' }}>
+                            📱 {upiName}
+                          </span>
+                          <span style={{ fontSize: isCompact ? '7.5px' : '8.5px', fontWeight: '800', color: '#0284c7', wordBreak: 'break-all' }}>
+                            {upiVpa}
+                          </span>
+                          <span style={{ fontSize: isCompact ? '8px' : '9px', fontWeight: '900', color: '#16a34a', marginTop: '1px' }}>
+                            {lang === 'ta' ? `தொகை: ₹${billAmount}` : `Bill Due: ₹${billAmount}`}
+                          </span>
+                          <span style={{ fontSize: isCompact ? '6.5px' : '7.5px', color: '#475569', marginTop: '1px', lineHeight: '1.1', maxWidth: '95px' }}>
+                            {lang === 'ta' ? 'தொகையை உள்ளிட்டு செலுத்தலாம்' : 'Scan & enter amount in GPay'}
+                          </span>
+                        </div>
+                      </div>
+
+                    </div>
 
                 <div style={{ border: '1.5px solid #1e293b', borderRadius: '4px', overflow: 'hidden', fontSize: isCompact ? '10px' : '11px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                   <div>
@@ -293,7 +361,7 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
                       borderTop: '1.5px solid #1e293b'
                     }}>
                       <span style={{ color: '#0f172a', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: isCompact ? '10px' : '11px' }}>
-                        {lang === 'ta' ? 'மொத்த தொகை:' : 'GRAND TOTAL:'}
+                        {lang === 'ta' ? 'செலுத்த வேண்டிய தொகை:' : 'AMOUNT DUE:'}
                       </span>
                       <strong style={{ color: '#0f172a', fontWeight: '800', fontSize: isCompact ? '11px' : '12px' }}>
                         ₹{remainingOutstanding}
@@ -302,6 +370,8 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
                   </div>
                 </div>
               </div>
+            );
+          })()}
 
               {/* Signatures */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: isCompact ? '20px' : '35px', padding: '0 12px' }}>

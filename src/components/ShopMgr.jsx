@@ -776,18 +776,18 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                         {s.status === 'active' ? t('active') : t('inactive')}
                       </span>
                     </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        <button className="language-btn" onClick={() => handleOpenAdjustModal(s)} style={{ borderColor: 'var(--warning)', color: 'var(--warning)', background: 'rgba(245, 158, 11, 0.08)' }} title={lang === 'ta' ? 'நிலுவை மாற்றியமைத்தல்' : 'Adjust Outstanding'}>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                        <button className="language-btn" onClick={() => handleOpenAdjustModal(s)} style={{ borderColor: 'var(--warning)', color: 'var(--warning)', background: 'rgba(245, 158, 11, 0.08)', padding: '0.25rem 0.5rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }} title={lang === 'ta' ? 'நிலுவை மாற்றியமைத்தல்' : 'Adjust Outstanding'}>
                           💰 {lang === 'ta' ? 'நிலுவை மாற்று' : 'Adjust Bal'}
                         </button>
-                        <button className="language-btn" onClick={() => setSelectedShopForBills(s)} style={{ borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)', background: 'rgba(6, 182, 212, 0.05)' }} title={lang === 'ta' ? 'விலைப்பட்டியல் வரலாறு' : 'Bill History'}>
+                        <button className="language-btn" onClick={() => setSelectedShopForBills(s)} style={{ borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)', background: 'rgba(6, 182, 212, 0.05)', padding: '0.25rem 0.5rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }} title={lang === 'ta' ? 'விலைப்பட்டியல் வரலாறு' : 'Bill History'}>
                           📄 {lang === 'ta' ? 'பில்கள்' : 'Bills'}
                         </button>
-                        <button className="language-btn" onClick={() => handleEdit(s)}>
+                        <button className="language-btn" onClick={() => handleEdit(s)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
                           ✏️ Edit
                         </button>
-                        <button className="btn btn-danger" onClick={() => handleDeleteTrigger(s.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}>
+                        <button className="btn btn-danger" onClick={() => handleDeleteTrigger(s.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
                           🗑️
                         </button>
                       </div>

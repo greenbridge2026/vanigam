@@ -124,7 +124,7 @@ async function readDB(tenantId) {
                 company_name: "GSK Agency",
                 company_address: "Cooldrinks Shop - Tindivanam",
                 company_gst: "33CWRPK4071L1Z2",
-                upi_mobile: "9345463415"
+                upi_mobile: "gskumar9345@okicici"
               };
             }
           } else {
@@ -305,7 +305,7 @@ async function seedDB(tenantId, adminUsername = 'admin', adminPassword = '123') 
       company_name: "GSK Agency",
       company_address: "Cooldrinks Shop - Tindivanam",
       company_gst: "33CWRPK4071L1Z2",
-      upi_mobile: "9345463415"
+      upi_mobile: "gskumar9345@okicici"
     }
   };
 
@@ -1869,7 +1869,7 @@ app.get('/api/settings', async (req, res) => {
     company_name: "GSK Agency",
     company_address: "Cooldrinks Shop - Tindivanam",
     company_gst: "33CWRPK4071L1Z2",
-    upi_mobile: "9345463415"
+    upi_mobile: "gskumar9345@okicici"
   });
 });
 

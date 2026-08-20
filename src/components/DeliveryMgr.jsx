@@ -407,6 +407,20 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     }
 
     return true;
+  }).sort((a, b) => {
+    const orderA = orders.find(o => o.id === a.order_id);
+    const orderB = orders.find(o => o.id === b.order_id);
+
+    const invNumA = orderA?.invoice_number ? (parseInt(orderA.invoice_number.replace(/\D/g, ''), 10) || 0) : 0;
+    const invNumB = orderB?.invoice_number ? (parseInt(orderB.invoice_number.replace(/\D/g, ''), 10) || 0) : 0;
+
+    if (invNumA !== invNumB) {
+      return invNumB - invNumA;
+    }
+
+    const dateA = orderA?.order_date ? new Date(orderA.order_date).getTime() : 0;
+    const dateB = orderB?.order_date ? new Date(orderB.order_date).getTime() : 0;
+    return dateB - dateA;
   });
 
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading Delivery Logistics...</div>;
