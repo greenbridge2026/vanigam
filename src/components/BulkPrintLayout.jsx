@@ -14,6 +14,7 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
     company_name: "GSK Agency",
     company_address: "Cooldrinks Shop - Tindivanam",
     company_gst: "33CWRPK4071L1Z2",
+    company_phone: "9345463415",
     upi_mobile: "gskumar9345@okicici"
   });
 
@@ -167,7 +168,7 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
                       📍 {settings.company_address}
                     </p>
                     <div style={{ display: 'flex', gap: '10px', fontSize: isCompact ? '9.5px' : '11px', color: '#0f172a', fontWeight: '700' }}>
-                      <span>📞 Mob: {settings.upi_mobile}</span>
+                      <span>📞 Mob: {settings.company_phone || settings.company_mobile || "9345463415"}</span>
                       <span>|</span>
                       <span>GSTIN: <strong style={{ color: '#0f172a', fontWeight: '900' }}>{settings.company_gst}</strong></span>
                     </div>

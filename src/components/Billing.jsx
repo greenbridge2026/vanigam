@@ -27,6 +27,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
     company_name: "GSK Agency",
     company_address: "Cooldrinks Shop - Tindivanam",
     company_gst: "33CWRPK4071L1Z2",
+    company_phone: "9345463415",
     upi_mobile: "gskumar9345@okicici"
   });
 
@@ -306,7 +307,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
                       📍 {settings.company_address}
                     </p>
                     <div style={{ display: 'flex', gap: '10px', fontSize: isCompact ? '9px' : '10px', color: '#475569', fontWeight: '600' }}>
-                      <span>📞 Mob: {settings.upi_mobile}</span>
+                      <span>📞 Mob: {settings.company_phone || settings.company_mobile || "9345463415"}</span>
                       <span>|</span>
                       <span>GSTIN: <strong style={{ color: '#0f172a', fontWeight: '800' }}>{settings.company_gst}</strong></span>
                     </div>

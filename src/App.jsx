@@ -89,6 +89,7 @@ export default function App() {
     company_name: "GSK Agency",
     company_address: "Cooldrinks Shop - Tindivanam",
     company_gst: "33CWRPK4071L1Z2",
+    company_phone: "9345463415",
     upi_mobile: "gskumar9345@okicici"
   });
 
@@ -800,13 +801,25 @@ export default function App() {
               </div>
 
               <div className="form-group">
-                <label style={{ fontWeight: '600', fontSize: '0.85rem' }}>UPI Mobile No / யூபிஐ மொபைல் எண்</label>
+                <label style={{ fontWeight: '600', fontSize: '0.85rem' }}>Company Mobile No / நிறுவன மொபைல் எண்</label>
                 <input 
                   type="text" 
                   className="form-input" 
-                  value={settings.upi_mobile} 
-                  onChange={e => setSettings({ ...settings, upi_mobile: e.target.value })} 
+                  value={settings.company_phone || ''} 
+                  onChange={e => setSettings({ ...settings, company_phone: e.target.value })} 
                   placeholder="e.g. 9345463415"
+                  style={{ width: '100%', marginTop: '0.25rem' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label style={{ fontWeight: '600', fontSize: '0.85rem' }}>UPI ID / VPA / யூபிஐ ஐடி</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  value={settings.upi_mobile || ''} 
+                  onChange={e => setSettings({ ...settings, upi_mobile: e.target.value })} 
+                  placeholder="e.g. gskumar9345@okicici"
                   style={{ width: '100%', marginTop: '0.25rem' }}
                 />
               </div>
