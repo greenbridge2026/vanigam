@@ -22,6 +22,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   });
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handleToggleSelect = (id) => {
     setSelectedDeliveryIds(prev =>
@@ -406,6 +407,28 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       if (startDate || endDate) return false;
     }
 
+    // Search Query Filtering
+    if (searchQuery && searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const invNum = (order.invoice_number || '').toLowerCase();
+      const shop = shops.find(s => s.id === order.shop_id);
+      const route = routes.find(r => r.id === order.route_id);
+      const shopEn = shop ? (shop.name_en || shop.name || '').toLowerCase() : '';
+      const shopTa = shop ? (shop.name_ta || '').toLowerCase() : '';
+      const routeEn = route ? (route.name_en || route.name || '').toLowerCase() : '';
+      const routeTa = route ? (route.name_ta || '').toLowerCase() : '';
+      const delPerson = (d.delivery_man || '').toLowerCase();
+
+      const matches = invNum.includes(q) ||
+        shopEn.includes(q) ||
+        shopTa.includes(q) ||
+        routeEn.includes(q) ||
+        routeTa.includes(q) ||
+        delPerson.includes(q);
+
+      if (!matches) return false;
+    }
+
     return true;
   }).sort((a, b) => {
     const orderA = orders.find(o => o.id === a.order_id);
@@ -437,8 +460,18 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         {/* Deliveries list */}
         <div className="glass-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0, fontSize: '1.25rem' }}>{t('assigned_orders')}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', flex: 1 }}>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', whiteSpace: 'nowrap' }}>{t('assigned_orders')}</h2>
+              
+              <input
+                type="text"
+                className="form-control"
+                placeholder={lang === 'ta' ? '🔍 இன்வாய்ஸ், கடை, வழி தேடுக...' : '🔍 Search Invoice, Shop, Route...'}
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{ width: '220px', padding: '0.4rem 0.75rem', fontSize: '0.9rem', margin: 0 }}
+              />
+
               <select
                 className="form-select"
                 value={statusFilter}
@@ -788,10 +821,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.2rem 0' }}>Contact No: {activeDelivery.shop.mobile}</p>
               </div>
 
-              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '0.35rem' }}>
-                  <span>Shop Outstanding:</span>
-                  <strong style={{ color: 'var(--warning)' }}>₹{activeDelivery.shop.outstanding_amount}</strong>
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                  <span>Total Outstanding:</span>
+                  <strong style={{ color: 'var(--warning)' }}>₹{Number(activeDelivery.shop.outstanding_amount || 0)}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                  <span>Previous Outstanding:</span>
+                  <strong style={{ color: 'var(--text-muted)' }}>₹{Math.max(0, Number(activeDelivery.shop.outstanding_amount || 0) - Number(activeDelivery.order.net_amount || 0))}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
                   <span>Current Order Amount:</span>

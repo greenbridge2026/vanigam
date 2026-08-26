@@ -26,7 +26,11 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   const [ledgerTransactions, setLedgerTransactions] = useState([]);
 
   // Daily Collection states
-  const [collectionDateFrom, setCollectionDateFrom] = useState(new Date().toISOString().split('T')[0]);
+  const [collectionDateFrom, setCollectionDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
   const [collectionDateTo, setCollectionDateTo] = useState(new Date().toISOString().split('T')[0]);
   const [collectionSalesmanFilter, setCollectionSalesmanFilter] = useState('');
   const [dailyCollections, setDailyCollections] = useState([]);
@@ -387,7 +391,12 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       grouped[groupKey].total += p.collected_amount;
     });
 
-    setDailyCollections(Object.values(grouped));
+    const sortedCollections = Object.values(grouped).sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateB - dateA;
+    });
+    setDailyCollections(sortedCollections);
   }, [collectionDateFrom, collectionDateTo, payments, shops, orders, routes, users, lang]);
 
   // Daily Collection Totals (filtered by salesman)
@@ -1257,7 +1266,17 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       }
 
       case 'collection_report': {
-        const filtered = payments.filter(p => matchesSearch(p, 'payment'));
+        const uniquePaymentsMap = new Map();
+        payments.forEach(p => {
+          const key = p.id ? p.id : `${p.shop_id}_${p.order_id}_${p.collected_amount}_${p.payment_date}`;
+          if (!uniquePaymentsMap.has(key)) {
+            uniquePaymentsMap.set(key, p);
+          }
+        });
+
+        const filtered = Array.from(uniquePaymentsMap.values())
+          .filter(p => matchesSearch(p, 'payment'))
+          .sort((a, b) => new Date(b.payment_date || 0) - new Date(a.payment_date || 0));
         const totalCollect = filtered.reduce((sum, p) => sum + p.collected_amount, 0);
 
         const handleExportExcel = () => {
