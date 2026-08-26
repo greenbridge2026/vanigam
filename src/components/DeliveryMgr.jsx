@@ -54,11 +54,10 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [remarks, setRemarks] = useState('');
   
   // Outstanding Collection states
-  const [cashAmount, setCashAmount] = useState(0);
-  const [gpayAmount, setGpayAmount] = useState(0);
+  const [paymentMode, setPaymentMode] = useState('cash'); // 'cash' | 'gpay' | 'split'
+  const [orderPaymentAmount, setOrderPaymentAmount] = useState(0);
+  const [prevOutstandingAmount, setPrevOutstandingAmount] = useState(0);
   const [gpayTxn, setGpayTxn] = useState('');
-  const [chequeAmount, setChequeAmount] = useState(0);
-  const [chequeNo, setChequeNo] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   // Order Deletion states
@@ -235,11 +234,10 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
             const matchedShop = matchedOrder ? sData.find(s => s.id === matchedOrder.shop_id) : null;
             setActiveDelivery({ del: matchedDelivery, order: matchedOrder, shop: matchedShop });
             setRemarks('');
-            setCashAmount(matchedOrder ? matchedOrder.net_amount : 0);
-            setGpayAmount(0);
+            setPaymentMode('cash');
+            setOrderPaymentAmount(matchedOrder ? matchedOrder.net_amount : 0);
+            setPrevOutstandingAmount(0);
             setGpayTxn('');
-            setChequeAmount(0);
-            setChequeNo('');
             setFulfillmentType('delivered');
             setReason('');
           }
@@ -255,11 +253,10 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     
     setActiveDelivery({ del, order, shop });
     setRemarks('');
-    setCashAmount(order ? order.net_amount : 0);
-    setGpayAmount(0);
+    setPaymentMode('cash');
+    setOrderPaymentAmount(order ? order.net_amount : 0);
+    setPrevOutstandingAmount(0);
     setGpayTxn('');
-    setChequeAmount(0);
-    setChequeNo('');
     setFulfillmentType('delivered');
     setReason('');
   };
@@ -268,10 +265,6 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     if (!activeDelivery) return;
 
     const finalRemarks = customRemarks !== undefined ? customRemarks : remarks;
-    if (status === 'delivered' && (!finalRemarks || !finalRemarks.trim())) {
-      alert(lang === 'ta' ? 'கருத்துரைகள் (Remarks) நிரப்புவது கட்டாயமாகும்!' : 'Remarks is mandatory to fill before marking delivery as delivered!');
-      return;
-    }
 
     setSubmitting(true);
     try {
@@ -279,39 +272,29 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       
       // 1. Process Collection Payment if status is delivered and collected amount is entered
       if (status === 'delivered') {
-        const totalAmt = Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0);
-        if (totalAmt > 0) {
+        const ordAmt = Number(orderPaymentAmount || 0);
+        const prevAmt = Number(prevOutstandingAmount || 0);
+        if (ordAmt > 0 || prevAmt > 0) {
           const paymentsToSubmit = [];
-          if (Number(cashAmount) > 0) {
+          if (ordAmt > 0) {
             paymentsToSubmit.push({
               shop_id: shop.id,
               order_id: order.id,
-              collected_amount: Number(cashAmount),
-              payment_mode: 'cash',
-              transaction_number: '',
+              collected_amount: ordAmt,
+              payment_mode: paymentMode === 'split' ? 'cash' : paymentMode,
+              transaction_number: (paymentMode === 'gpay' || paymentMode === 'split') ? (gpayTxn || `TXN-${Date.now()}`) : '',
               reference_number: '',
               payment_date: new Date().toISOString()
             });
           }
-          if (Number(gpayAmount) > 0) {
+          if (prevAmt > 0) {
             paymentsToSubmit.push({
               shop_id: shop.id,
-              order_id: order.id,
-              collected_amount: Number(gpayAmount),
-              payment_mode: 'gpay',
-              transaction_number: gpayTxn || `TXN-${Date.now()}`,
+              order_id: '',
+              collected_amount: prevAmt,
+              payment_mode: paymentMode === 'split' ? 'gpay' : paymentMode,
+              transaction_number: (paymentMode === 'gpay' || paymentMode === 'split') ? (gpayTxn || `TXN-${Date.now()}`) : '',
               reference_number: '',
-              payment_date: new Date().toISOString()
-            });
-          }
-          if (Number(chequeAmount) > 0) {
-            paymentsToSubmit.push({
-              shop_id: shop.id,
-              order_id: order.id,
-              collected_amount: Number(chequeAmount),
-              payment_mode: 'cheque',
-              transaction_number: '',
-              reference_number: chequeNo || `CHQ-${Date.now()}`,
               payment_date: new Date().toISOString()
             });
           }
@@ -348,6 +331,52 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       setNonDeliveryModalOpen(false);
     } catch (err) {
       alert('Error updating delivery logistics: ' + (err.message || err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRecordCollectionOnly = async () => {
+    if (!activeDelivery) return;
+    const prevAmt = Number(prevOutstandingAmount || 0);
+    if (prevAmt <= 0) {
+      alert(lang === 'ta' ? 'முந்தைய நிலுவைத் தொகையை உள்ளிடவும்!' : 'Please enter a valid previous outstanding payment amount!');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { shop } = activeDelivery;
+      await api.createPayment({
+        payments: [{
+          shop_id: shop.id,
+          order_id: '', // General shop outstanding collection
+          collected_amount: prevAmt,
+          payment_mode: paymentMode === 'split' ? 'gpay' : paymentMode,
+          transaction_number: (paymentMode === 'gpay' || paymentMode === 'split') ? (gpayTxn || `TXN-${Date.now()}`) : '',
+          reference_number: '',
+          payment_date: new Date().toISOString()
+        }]
+      });
+
+      alert(lang === 'ta' 
+        ? `ரூ. ${prevAmt} நிலுவை வசூல் பதிவு செய்யப்பட்டது! விலைப்பட்டியல் நிலுவையில் (Pending) உள்ளது.` 
+        : `Outstanding collection of ₹${prevAmt} recorded successfully! Invoice remains open.`
+      );
+
+      // Reload dataset
+      const [dData, oData, sData] = await Promise.all([
+        api.getDeliveries(),
+        api.getOrders(),
+        api.getShops()
+      ]);
+      setDeliveries(dData);
+      setOrders(oData);
+      setShops(sData);
+      
+      setActiveDelivery(null);
+    } catch (err) {
+      alert('Error recording collection: ' + (err.message || err));
     } finally {
       setSubmitting(false);
     }
@@ -589,6 +618,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   <th>Shop & Route</th>
                   <th>Delivery Person</th>
                   <th>Amount Due</th>
+                  <th>{lang === 'ta' ? 'செலுத்த வேண்டிய நிலுவை தொகை' : 'Outstanding Amount to Pay'}</th>
                   <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -647,6 +677,11 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                       </td>
                       <td>{t('delivery_man')}</td>
                       <td>₹{order.net_amount}</td>
+                      <td>
+                        <strong style={{ color: 'var(--warning)' }}>
+                          ₹{shop ? Number(shop.outstanding_amount || 0) : 0}
+                        </strong>
+                      </td>
                       <td>
                         <span style={{
                           fontSize: '0.75rem',
@@ -842,162 +877,218 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
                     <h3 style={{ fontSize: '0.95rem', marginBottom: '0.75rem' }}>💰 {t('payment_collection')}</h3>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                      {/* Cash Option */}
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: 'var(--success)', marginBottom: '0.4rem' }}>
-                          💵 {t('cash')} (₹)
-                        </label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          className="form-input"
-                          style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
-                          value={cashAmount === '' || cashAmount === 0 ? (cashAmount === '' ? '' : '0') : cashAmount}
-                          onChange={e => {
-                            const val = e.target.value.replace(/\D/g, '');
-                            setCashAmount(val === '' ? '' : parseInt(val, 10));
-                          }}
-                          placeholder="0"
-                        />
-                      </div>
+                    {/* Quick Presets */}
+                    {(() => {
+                      const totalShopBal = Number(activeDelivery.shop.outstanding_amount || 0);
+                      const currentOrderNet = Number(activeDelivery.order.net_amount || 0);
+                      const prevShopBal = Math.max(0, totalShopBal - currentOrderNet);
 
-                      {/* GPay Option */}
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: '#34a853', marginBottom: '0.4rem' }}>
-                          📱 {t('gpay')} (₹)
-                        </label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          className="form-input"
-                          style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
-                          value={gpayAmount === '' || gpayAmount === 0 ? (gpayAmount === '' ? '' : '0') : gpayAmount}
-                          onChange={e => {
-                            const val = e.target.value.replace(/\D/g, '');
-                            setGpayAmount(val === '' ? '' : parseInt(val, 10));
-                          }}
-                          placeholder="0"
-                        />
-                      </div>
+                      return (
+                        <>
+                          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.85rem' }}>
+                            <button
+                              type="button"
+                              className="language-btn"
+                              style={{
+                                flex: 1,
+                                padding: '0.45rem 0.5rem',
+                                fontSize: '0.8rem',
+                                fontWeight: '600',
+                                borderColor: prevOutstandingAmount === 0 ? 'var(--success)' : 'var(--border-color)',
+                                background: prevOutstandingAmount === 0 ? 'rgba(16, 185, 129, 0.12)' : 'none',
+                                color: prevOutstandingAmount === 0 ? 'var(--success)' : 'var(--text-muted)'
+                              }}
+                              onClick={() => {
+                                setOrderPaymentAmount(currentOrderNet);
+                                setPrevOutstandingAmount(0);
+                              }}
+                            >
+                              🟢 {lang === 'ta' ? 'இந்த பில் மட்டும் (₹' : 'Current Order Only (₹'}{currentOrderNet})
+                            </button>
+                            {prevShopBal > 0 && (
+                              <button
+                                type="button"
+                                className="language-btn"
+                                style={{
+                                  flex: 1,
+                                  padding: '0.45rem 0.5rem',
+                                  fontSize: '0.8rem',
+                                  fontWeight: '600',
+                                  borderColor: prevOutstandingAmount > 0 ? 'var(--warning)' : 'var(--border-color)',
+                                  background: prevOutstandingAmount > 0 ? 'rgba(245, 158, 11, 0.12)' : 'none',
+                                  color: prevOutstandingAmount > 0 ? 'var(--warning)' : 'var(--text-muted)'
+                                }}
+                                onClick={() => {
+                                  setOrderPaymentAmount(currentOrderNet);
+                                  setPrevOutstandingAmount(prevShopBal);
+                                }}
+                              >
+                                🟠 {lang === 'ta' ? 'மொத்த நிலுவையும் (₹' : 'Full Outstanding (₹'}{totalShopBal})
+                              </button>
+                            )}
+                          </div>
 
-                      {/* Cheque Option */}
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label style={{ fontSize: '0.95rem', display: 'block', fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: '0.4rem' }}>
-                          🏦 {t('cheque')} (₹)
-                        </label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          className="form-input"
-                          style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.25rem', padding: '0.6rem 0.75rem' }}
-                          value={chequeAmount === '' || chequeAmount === 0 ? (chequeAmount === '' ? '' : '0') : chequeAmount}
-                          onChange={e => {
-                            const val = e.target.value.replace(/\D/g, '');
-                            setChequeAmount(val === '' ? '' : parseInt(val, 10));
-                          }}
-                          placeholder="0"
-                        />
-                      </div>
-                    </div>
+                          {/* Payment Mode Select Dropdown */}
+                          <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                            <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 600, marginBottom: '0.3rem' }}>
+                              💳 {lang === 'ta' ? 'செலுத்தும் முறை (Payment Mode)' : 'Payment Mode'}
+                            </label>
+                            <select
+                              className="form-select"
+                              style={{ width: '100%', padding: '0.5rem 0.75rem', fontWeight: 600, fontSize: '0.95rem' }}
+                              value={paymentMode}
+                              onChange={e => setPaymentMode(e.target.value)}
+                            >
+                              <option value="cash">💵 {lang === 'ta' ? 'ரொக்கம் (Cash)' : 'Cash'}</option>
+                              <option value="gpay">📱 {lang === 'ta' ? 'ஜிபே (GPay / UPI)' : 'GPay'}</option>
+                              <option value="split">🔀 {lang === 'ta' ? 'ரொக்கம் + ஜிபே (Split)' : 'Cash + GPay (Split)'}</option>
+                            </select>
+                          </div>
 
-                    {/* Optional reference numbers */}
-                    {(Number(gpayAmount) > 0 || Number(chequeAmount) > 0) && (
-                      <div style={{ display: 'grid', gridTemplateColumns: Number(gpayAmount) > 0 && Number(chequeAmount) > 0 ? '1fr 1fr' : '1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                        {Number(gpayAmount) > 0 && (
-                          <input
-                            type="text"
-                            className="form-input"
-                            style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
-                            value={gpayTxn}
-                            onChange={e => setGpayTxn(e.target.value)}
-                            placeholder="GPay / UPI Txn No (optional)"
-                          />
-                        )}
-                        {Number(chequeAmount) > 0 && (
-                          <input
-                            type="text"
-                            className="form-input"
-                            style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.8rem' }}
-                            value={chequeNo}
-                            onChange={e => setChequeNo(e.target.value)}
-                            placeholder="Cheque No / Bank Ref (optional)"
-                          />
-                        )}
-                      </div>
-                    )}
+                          {/* Separate Payment Options */}
+                          <div style={{ display: 'grid', gridTemplateColumns: prevShopBal > 0 ? '1fr 1fr' : '1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                            {/* 1. Current Order Payment */}
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: '0.3rem' }}>
+                                📄 {lang === 'ta' ? 'தற்போதைய பில் கட்டணம் (₹)' : 'Current Invoice Payment (₹)'}
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                className="form-input"
+                                style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.2rem', padding: '0.5rem 0.75rem' }}
+                                value={orderPaymentAmount === '' || orderPaymentAmount === 0 ? (orderPaymentAmount === '' ? '' : '0') : orderPaymentAmount}
+                                onChange={e => {
+                                  const val = e.target.value.replace(/\D/g, '');
+                                  setOrderPaymentAmount(val === '' ? '' : parseInt(val, 10));
+                                }}
+                                placeholder="0"
+                              />
+                            </div>
 
-                    {/* Live calculation for collection */}
-                    <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius)', fontSize: '0.85rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                        <span>Invoice Total:</span>
-                        <strong style={{ color: 'var(--accent-cyan)' }}>₹{activeDelivery.order.net_amount}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                        <span>Total Collected:</span>
-                        <strong style={{ color: 'var(--success)' }}>
-                          ₹{Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0)}
-                        </strong>
-                      </div>
+                            {/* 2. Previous Outstanding Payment */}
+                            {prevShopBal > 0 && (
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--warning)', marginBottom: '0.3rem' }}>
+                                  💼 {lang === 'ta' ? 'முந்தைய நிலுவைத் தொகை (₹)' : 'Pay Previous Outstanding (₹)'}
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  className="form-input"
+                                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.2rem', padding: '0.5rem 0.75rem' }}
+                                  value={prevOutstandingAmount === '' || prevOutstandingAmount === 0 ? (prevOutstandingAmount === '' ? '' : '0') : prevOutstandingAmount}
+                                  onChange={e => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    setPrevOutstandingAmount(val === '' ? '' : parseInt(val, 10));
+                                  }}
+                                  placeholder="0"
+                                />
+                              </div>
+                            )}
+                          </div>
 
-                      {(Number(cashAmount) > 0 || Number(gpayAmount) > 0 || Number(chequeAmount) > 0) && (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right', marginBottom: '0.25rem' }}>
-                          ({[
-                            Number(cashAmount) > 0 ? `Cash: ₹${cashAmount}` : null,
-                            Number(gpayAmount) > 0 ? `GPay: ₹${gpayAmount}` : null,
-                            Number(chequeAmount) > 0 ? `Cheque: ₹${chequeAmount}` : null
-                          ].filter(Boolean).join(' + ')})
-                        </div>
-                      )}
+                          {/* GPay Transaction Number */}
+                          {(paymentMode === 'gpay' || paymentMode === 'split') && (
+                            <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                              <input
+                                type="text"
+                                className="form-input"
+                                style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.85rem' }}
+                                value={gpayTxn}
+                                onChange={e => setGpayTxn(e.target.value)}
+                                placeholder="GPay / UPI Txn No (optional)"
+                              />
+                            </div>
+                          )}
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '0.3rem', marginTop: '0.25rem' }}>
-                        <span>Remaining Balance:</span>
-                        <strong style={{ color: (activeDelivery.order.net_amount - (Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0))) > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                          ₹{activeDelivery.order.net_amount - (Number(cashAmount || 0) + Number(gpayAmount || 0) + Number(chequeAmount || 0))}
-                        </strong>
-                      </div>
-                    </div>
+                          {/* Live calculation for collection */}
+                          {(() => {
+                            const totalCollected = Number(orderPaymentAmount || 0) + Number(prevOutstandingAmount || 0);
+                            const remainingInvoice = Math.max(0, currentOrderNet - Number(orderPaymentAmount || 0));
+                            const remainingTotalOutstanding = Math.max(0, totalShopBal - totalCollected);
+
+                            return (
+                              <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius)', fontSize: '0.85rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                                  <span>Invoice Total:</span>
+                                  <strong style={{ color: 'var(--accent-cyan)' }}>₹{currentOrderNet}</strong>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                                  <span>Total Collected:</span>
+                                  <strong style={{ color: 'var(--success)' }}>₹{totalCollected}</strong>
+                                </div>
+
+                                {totalCollected > 0 && (
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right', marginBottom: '0.25rem' }}>
+                                    ({[
+                                      Number(orderPaymentAmount) > 0 ? `Invoice: ₹${orderPaymentAmount}` : null,
+                                      Number(prevOutstandingAmount) > 0 ? `Prev Outstanding: ₹${prevOutstandingAmount}` : null
+                                    ].filter(Boolean).join(' + ')})
+                                  </div>
+                                )}
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '0.3rem', marginTop: '0.25rem' }}>
+                                  <span>{lang === 'ta' ? 'மீதமுள்ள பில் தொகை:' : 'Remaining Invoice Balance:'}</span>
+                                  <strong style={{ color: remainingInvoice > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                                    ₹{remainingInvoice}
+                                  </strong>
+                                </div>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '0.3rem', marginTop: '0.25rem' }}>
+                                  <span>{lang === 'ta' ? 'செலுத்த வேண்டிய நிலுவை தொகை:' : 'Outstanding Amount to Pay:'}</span>
+                                  <strong style={{ color: remainingTotalOutstanding > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                                    ₹{remainingTotalOutstanding}
+                                  </strong>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      );
+                    })()}
                   </div>
 
                   <div className="form-group" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
                     <label style={{ fontWeight: 600 }}>
-                      {t('remarks')} <span style={{ color: 'var(--danger)' }}>* ({lang === 'ta' ? 'கட்டாயமானது' : 'Mandatory'})</span>
+                      {t('remarks')}
                     </label>
                     <input
                       type="text"
                       className="form-input"
-                      style={{
-                        borderColor: !remarks.trim() ? 'var(--danger)' : undefined,
-                        boxShadow: !remarks.trim() ? '0 0 0 1px var(--danger)' : undefined
-                      }}
                       value={remarks}
                       onChange={e => setRemarks(e.target.value)}
-                      placeholder={lang === 'ta' ? 'கருத்துரையை உள்ளிடவும் (கட்டாயமானது)...' : 'Enter remarks (e.g. Received intact, signature verified)'}
-                      required
+                      placeholder={lang === 'ta' ? 'கருத்துரையை உள்ளிடவும் (தேவைப்பட்டால்)...' : 'Enter remarks (optional)...'}
                     />
-                    {!remarks.trim() && (
-                      <p style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.35rem', marginBottom: 0 }}>
-                        ⚠️ {lang === 'ta' ? 'டெலிவரியை உறுதிப்படுத்த கருத்துரைகளை உள்ளிடவும்.' : 'Please enter remarks to enable the Mark as Delivered button.'}
-                      </p>
-                    )}
                   </div>
 
-                  <div className="btn-group" style={{ marginTop: '1rem' }}>
+                  <div className="btn-group" style={{ marginTop: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                     <button type="button" className="btn btn-secondary" onClick={() => setActiveDelivery(null)}>
                       {t('cancel')}
                     </button>
+                    {Number(prevOutstandingAmount || 0) > 0 && (
+                      <button
+                        type="button"
+                        className="btn"
+                        style={{
+                          background: 'rgba(245, 158, 11, 0.15)',
+                          color: 'var(--warning)',
+                          border: '1px solid var(--warning)',
+                          fontSize: '0.85rem'
+                        }}
+                        onClick={handleRecordCollectionOnly}
+                        disabled={submitting}
+                      >
+                        💼 {submitting ? '...' : (lang === 'ta' ? 'நிலுவை வசூல் மட்டும் (பில் திறந்திருக்கும்)' : 'Collect Outstanding Only (Keep Invoice Open)')}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="btn btn-primary"
                       onClick={() => handleFulfillOrder('delivered', '', remarks)}
-                      disabled={submitting || !remarks.trim()}
-                      style={{
-                        opacity: !remarks.trim() ? 0.5 : 1,
-                        cursor: !remarks.trim() ? 'not-allowed' : 'pointer'
-                      }}
+                      disabled={submitting}
                     >
                       ✔ {submitting ? '...' : t('mark_delivered')}
                     </button>

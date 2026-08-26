@@ -5,10 +5,8 @@ const API_BASE = '/api';
 
 function apiFetch(url, options = {}, targetTenantId = null) {
   const headers = { ...options.headers };
-  const tenantId = targetTenantId || localStorage.getItem('tenantId');
-  if (tenantId) {
-    headers['x-tenant-id'] = tenantId;
-  }
+  const tenantId = targetTenantId || localStorage.getItem('tenantId') || 'default';
+  headers['x-tenant-id'] = tenantId;
   
   const sessionStr = localStorage.getItem('session');
   if (sessionStr) {

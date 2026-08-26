@@ -53,7 +53,7 @@ export default function OutstandingCollection({ t, lang }) {
     const rawShopBal = Number(shop.outstanding_amount || 0);
 
     const invoices = orders
-      .filter(o => o.shop_id === shop.id && o.status !== 'cancelled')
+      .filter(o => o.shop_id === shop.id && o.status === 'pending')
       .map(order => {
         const orderPayments = payments.filter(p => p.order_id === order.id);
         const totalCollected = orderPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);

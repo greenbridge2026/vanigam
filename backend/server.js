@@ -1582,6 +1582,9 @@ app.post('/api/orders', async (req, res) => {
 
 app.get('/api/orders', async (req, res) => {
   const db = await readDB(req.tenantId);
+  if (db.shops) {
+    db.shops.forEach(s => autoAllocatePaymentsAndFulfillOrders(db, s.id));
+  }
   res.json(db.orders);
 });
 
@@ -1754,6 +1757,9 @@ app.put('/api/orders/:id', async (req, res) => {
 // Deliveries Management
 app.get('/api/deliveries', async (req, res) => {
   const db = await readDB(req.tenantId);
+  if (db.shops) {
+    db.shops.forEach(s => autoAllocatePaymentsAndFulfillOrders(db, s.id));
+  }
   res.json(db.deliveries);
 });
 
@@ -1911,6 +1917,175 @@ app.put('/api/settings', async (req, res) => {
 });
 
 
+// Auto-Allocation & Sync for Outstanding Collection and Open Deliveries
+function fulfillOrderInDb(db, order, shop) {
+  order.status = 'delivered';
+
+  const delivery = (db.deliveries || []).find(d => d.order_id === order.id);
+  if (delivery) {
+    delivery.status = 'delivered';
+    delivery.delivery_time = delivery.delivery_time || new Date().toISOString();
+    delivery.remarks = 'Paid from Outstanding Collection';
+  }
+
+  // Create bill record if missing
+  if (!db.bills) db.bills = [];
+  if (!db.bills.some(b => b.order_id === order.id)) {
+    db.bills.push({
+      id: `bill_${Date.now()}_${order.id}`,
+      order_id: order.id,
+      invoice_number: order.invoice_number,
+      pdf_path: `/invoices/${order.invoice_number}.pdf`,
+      shared_status: 'none',
+      date: new Date().toISOString()
+    });
+  }
+
+  // Create audit trail entry if missing
+  if (!db.delivery_audit_trail) db.delivery_audit_trail = [];
+  const routeObj = (db.routes || []).find(r => r.id === order.route_id);
+  if (!db.delivery_audit_trail.some(dat => dat.order_number === order.invoice_number && dat.status === 'delivered')) {
+    db.delivery_audit_trail.push({
+      id: `dat_auto_${Date.now()}_${order.id}`,
+      order_number: order.invoice_number,
+      route_name: routeObj ? routeObj.name_en : '',
+      shop_name: shop ? shop.name_en : '',
+      delivery_person: 'System (Outstanding Collection)',
+      status: 'delivered',
+      reason: 'Auto-fulfilled via Outstanding Collection',
+      remarks: 'Paid from Outstanding Collection',
+      timestamp: new Date().toISOString(),
+      returned_quantity: 0
+    });
+  }
+}
+
+function autoAllocatePaymentsAndFulfillOrders(db, shopId) {
+  if (!db.orders || !db.deliveries || !db.payments || !db.shops) return;
+
+  const shop = db.shops.find(s => s.id === shopId);
+  if (!shop) return;
+
+  // 1. Get all non-cancelled orders for this shop, sorted chronologically (oldest invoice first)
+  const allShopOrders = db.orders
+    .filter(o => o.shop_id === shopId && o.status !== 'cancelled')
+    .sort((a, b) => new Date(a.order_date).getTime() - new Date(b.order_date).getTime());
+
+  // 2. Check all orders that are ALREADY fully paid from direct payments, and fulfill them
+  for (const order of allShopOrders) {
+    const directPayments = db.payments.filter(p => p.order_id === order.id);
+    const directPaid = directPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+    if (directPaid >= Number(order.net_amount || 0)) {
+      if (order.status === 'pending') {
+        fulfillOrderInDb(db, order, shop);
+      }
+    }
+  }
+
+  // 3. Get pending/unpaid orders remaining
+  const pendingOrders = allShopOrders.filter(o => o.status === 'pending');
+  if (pendingOrders.length === 0) return;
+
+  // 4. Find all unassigned payments for this shop (order_id === '')
+  const unassignedPayments = db.payments
+    .filter(p => p.shop_id === shopId && (!p.order_id || p.order_id === ''))
+    .sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
+
+  if (unassignedPayments.length === 0) return;
+
+  // Calculate total unassigned collection pool available to allocate
+  let availablePool = unassignedPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+  if (availablePool <= 0) return;
+
+  // 5. Calculate Previous Shop Outstanding (opening outstanding / old balance prior to unpaid orders)
+  const unpaidInvoicesNetSum = pendingOrders.reduce((sum, order) => {
+    const directPaid = db.payments.filter(p => p.order_id === order.id).reduce((s, p) => s + (Number(p.collected_amount) || 0), 0);
+    return sum + Math.max(0, Number(order.net_amount || 0) - directPaid);
+  }, 0);
+
+  const previousOutstandingLedger = Math.max(0, Number(shop.outstanding_amount || 0) - unpaidInvoicesNetSum);
+
+  // Priority 1: Clear Previous Shop Outstanding FIRST!
+  const amtForPrevOutstanding = Math.min(availablePool, previousOutstandingLedger);
+  let remainingPaymentForFIFO = availablePool - amtForPrevOutstanding;
+
+  if (remainingPaymentForFIFO <= 0) {
+    return;
+  }
+
+  // Priority 2: Apply remaining payment to oldest unpaid invoice (FIFO)
+  for (const order of pendingOrders) {
+    if (remainingPaymentForFIFO <= 0) break;
+
+    const directPaid = db.payments.filter(p => p.order_id === order.id).reduce((s, p) => s + (Number(p.collected_amount) || 0), 0);
+    const invoiceNeeded = Math.max(0, Number(order.net_amount || 0) - directPaid);
+
+    if (invoiceNeeded <= 0) {
+      if (order.status === 'pending') fulfillOrderInDb(db, order, shop);
+      continue;
+    }
+
+    const allocateAmt = Math.min(remainingPaymentForFIFO, invoiceNeeded);
+    let neededToTakeFromPool = allocateAmt;
+    let poolProcessed = 0;
+
+    for (const uPay of unassignedPayments) {
+      if (neededToTakeFromPool <= 0) break;
+      const uAmt = Number(uPay.collected_amount || 0);
+      if (uAmt <= 0) continue;
+
+      if (poolProcessed < amtForPrevOutstanding) {
+        const amountInPrevOut = Math.min(uAmt, amtForPrevOutstanding - poolProcessed);
+        poolProcessed += amountInPrevOut;
+        const remainingInUPay = uAmt - amountInPrevOut;
+        if (remainingInUPay <= 0) continue;
+
+        const takeFromUPay = Math.min(neededToTakeFromPool, remainingInUPay);
+        uPay.collected_amount = uAmt - takeFromUPay;
+
+        const payForOrder = {
+          ...uPay,
+          id: `pay_${Date.now()}_alloc_${Math.random().toString(36).substr(2, 4)}`,
+          order_id: order.id,
+          collected_amount: takeFromUPay
+        };
+        db.payments.push(payForOrder);
+        neededToTakeFromPool -= takeFromUPay;
+        remainingPaymentForFIFO -= takeFromUPay;
+      } else {
+        if (uAmt <= neededToTakeFromPool) {
+          uPay.order_id = order.id;
+          neededToTakeFromPool -= uAmt;
+          remainingPaymentForFIFO -= uAmt;
+          poolProcessed += uAmt;
+        } else {
+          const payForOrder = {
+            ...uPay,
+            id: `pay_${Date.now()}_alloc_${Math.random().toString(36).substr(2, 4)}`,
+            order_id: order.id,
+            collected_amount: neededToTakeFromPool
+          };
+          uPay.collected_amount = uAmt - neededToTakeFromPool;
+          db.payments.push(payForOrder);
+          remainingPaymentForFIFO -= neededToTakeFromPool;
+          poolProcessed += neededToTakeFromPool;
+          neededToTakeFromPool = 0;
+        }
+      }
+    }
+
+    // Check if invoice is now FULLY paid (Remaining Balance = ₹0)
+    const newDirectPaid = db.payments.filter(p => p.order_id === order.id).reduce((s, p) => s + (Number(p.collected_amount) || 0), 0);
+    if (newDirectPaid >= Number(order.net_amount || 0)) {
+      fulfillOrderInDb(db, order, shop);
+    } else {
+      order.status = 'pending';
+      const del = (db.deliveries || []).find(d => d.order_id === order.id);
+      if (del) del.status = 'pending';
+    }
+  }
+}
+
 // Payments & Outstanding Collection
 app.get('/api/payments', async (req, res) => {
   const db = await readDB(req.tenantId);
@@ -1970,6 +2145,10 @@ app.post('/api/payments', async (req, res) => {
         date: new Date().toISOString()
       });
 
+      // Auto-allocate payments and fulfill pending deliveries for all shops in batch
+      const affectedShopIds = new Set(paymentDataList.map(p => p.shop_id));
+      affectedShopIds.forEach(sId => autoAllocatePaymentsAndFulfillOrders(db, sId));
+
       await writeDB(req.tenantId, db);
       return res.status(201).json({ payments: savedPayments, outstanding_amount: shop.outstanding_amount });
     }
@@ -2007,6 +2186,9 @@ app.post('/api/payments', async (req, res) => {
       description: `Payment received via ${payment_mode.toUpperCase()}`,
       date: new Date().toISOString()
     });
+
+    // Auto-allocate payment and fulfill pending delivery if order is fully paid
+    autoAllocatePaymentsAndFulfillOrders(db, shop_id);
 
     await writeDB(req.tenantId, db);
     res.status(201).json({ payment: newPayment, outstanding_amount: shop.outstanding_amount });

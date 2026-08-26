@@ -399,10 +399,15 @@ export default function Reports({ t, lang, onBillSelected, session }) {
     setDailyCollections(sortedCollections);
   }, [collectionDateFrom, collectionDateTo, payments, shops, orders, routes, users, lang]);
 
-  // Daily Collection Totals (filtered by salesman)
+  // Daily Collection Totals (filtered by salesman & search)
   const filteredCollections = dailyCollections.filter(c => {
-    if (!collectionSalesmanFilter) return true;
-    return c.salesman_name === collectionSalesmanFilter;
+    if (collectionSalesmanFilter && c.salesman_name !== collectionSalesmanFilter) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase().trim();
+      const str = `${c.shop_name} ${c.salesman_name} ${c.gpay_txn} ${c.cheque_no} ${c.total}`.toLowerCase();
+      if (!str.includes(q)) return false;
+    }
+    return true;
   });
 
   const cashSum = filteredCollections.reduce((sum, c) => sum + c.cash, 0);
@@ -769,58 +774,148 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
       // 2. Route-wise Sales
       case 'route_sales': {
+        const filteredRoutes = routes.filter(r => {
+          if (!searchQuery) return true;
+          const q = searchQuery.toLowerCase().trim();
+          const rName = `${r.name_en} ${r.name_ta}`.toLowerCase();
+          return rName.includes(q);
+        });
+
         return (
-          <div className="table-container">
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Route Name</th>
-                  <th>Assigned Sales Rep</th>
-                  <th>Total Orders Placed</th>
-                  <th>Gross Value Sold</th>
-                </tr>
-              </thead>
-              <tbody>
-                {routes.map(r => {
-                  const routeOrders = orders.filter(o => o.route_id === r.id);
-                  const total = routeOrders.reduce((sum, o) => sum + o.net_amount, 0);
-                  return (
-                    <tr key={r.id}>
-                      <td><strong>{lang === 'ta' ? r.name_ta : r.name_en}</strong></td>
-                      <td>👤 {t('salesman')}</td>
-                      <td>{routeOrders.length} Orders</td>
-                      <td style={{ color: 'var(--success)', fontWeight: '700' }}>₹{total}</td>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{
+              display: 'flex',
+              justify: 'space-between',
+              alignItems: 'center',
+              padding: '0.85rem 1rem',
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--radius)',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ fontSize: '0.88rem', padding: '0.35rem 0.65rem', minWidth: '260px' }}
+                  placeholder="🔍 Search Route..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Showing {filteredRoutes.length} of {routes.length} Routes
+              </span>
+            </div>
+
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Route Name</th>
+                    <th>Assigned Sales Rep</th>
+                    <th>Total Orders Placed</th>
+                    <th>Gross Value Sold</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRoutes.map(r => {
+                    const routeOrders = orders.filter(o => o.route_id === r.id);
+                    const total = routeOrders.reduce((sum, o) => sum + o.net_amount, 0);
+                    return (
+                      <tr key={r.id}>
+                        <td><strong>{lang === 'ta' ? r.name_ta : r.name_en}</strong></td>
+                        <td>👤 {t('salesman')}</td>
+                        <td>{routeOrders.length} Orders</td>
+                        <td style={{ color: 'var(--success)', fontWeight: '700' }}>₹{total}</td>
+                      </tr>
+                    );
+                  })}
+                  {filteredRoutes.length === 0 && (
+                    <tr>
+                      <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                        No routes matching "{searchQuery}"
+                      </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         );
       }
 
       // 3. Salesman-wise Sales
       case 'salesman_sales': {
+        const salesmanUsers = users.filter(u => u.role === 'salesman' || u.role === 'admin');
+        const listToDisplay = salesmanUsers.length > 0 ? salesmanUsers : [{ id: 'default', name: 'Salesman Karthik', role: 'salesman' }];
+        const filteredSalesmen = listToDisplay.filter(u => {
+          if (!searchQuery) return true;
+          const q = searchQuery.toLowerCase().trim();
+          return u.name.toLowerCase().includes(q) || (u.role || '').toLowerCase().includes(q);
+        });
+
         return (
-          <div className="table-container">
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Salesperson Name</th>
-                  <th>Role</th>
-                  <th>Total Orders Registered</th>
-                  <th>Net Booking Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>👤 <strong>Salesman Karthik</strong></td>
-                  <td>Field Sales Rep</td>
-                  <td>{orders.length} Orders</td>
-                  <td style={{ color: 'var(--accent-cyan)', fontWeight: '700' }}>₹{orders.reduce((sum, o) => sum + o.net_amount, 0)}</td>
-                </tr>
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{
+              display: 'flex',
+              justify: 'space-between',
+              alignItems: 'center',
+              padding: '0.85rem 1rem',
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--radius)',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ fontSize: '0.88rem', padding: '0.35rem 0.65rem', minWidth: '260px' }}
+                  placeholder="🔍 Search Salesperson..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Showing {filteredSalesmen.length} Sales Representatives
+              </span>
+            </div>
+
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Salesperson Name</th>
+                    <th>Role</th>
+                    <th>Total Orders Registered</th>
+                    <th>Net Booking Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSalesmen.map(u => {
+                    const totalVal = orders.reduce((sum, o) => sum + Number(o.net_amount || 0), 0);
+                    return (
+                      <tr key={u.id}>
+                        <td>👤 <strong>{u.name}</strong></td>
+                        <td>{u.role === 'admin' ? 'Administrator' : 'Field Sales Rep'}</td>
+                        <td>{orders.length} Orders</td>
+                        <td style={{ color: 'var(--accent-cyan)', fontWeight: '700' }}>₹{totalVal}</td>
+                      </tr>
+                    );
+                  })}
+                  {filteredSalesmen.length === 0 && (
+                    <tr>
+                      <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                        No salesperson matching "{searchQuery}"
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         );
       }
@@ -901,6 +996,11 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
         // Apply filters
         const filteredLogs = unifiedLogs.filter(log => {
+          if (searchQuery) {
+            const q = searchQuery.toLowerCase().trim();
+            const str = `${log.order_number} ${log.route_name} ${log.shop_name} ${log.delivery_person} ${log.reason} ${log.remarks} ${log.products}`.toLowerCase();
+            if (!str.includes(q)) return false;
+          }
           if (delFilterDateFrom && new Date(log.date).getTime() < new Date(delFilterDateFrom + 'T00:00:00').getTime()) return false;
           if (delFilterDateTo && new Date(log.date).getTime() > new Date(delFilterDateTo + 'T23:59:59').getTime()) return false;
           if (delFilterRoute && log.route_id !== delFilterRoute && log.route_name !== delFilterRoute) return false;
@@ -1018,6 +1118,16 @@ export default function Reports({ t, lang, onBillSelected, session }) {
             <div className="glass-card" style={{ padding: '1.25rem' }}>
               <h3 style={{ fontSize: '1rem', marginBottom: '1rem', fontWeight: '700' }}>🔍 Filter Delivery logs / விநியோகப் பதிவுகளை வடிகட்டவும்</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.85rem' }}>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: '600' }}>Search Delivery Logs</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder="🔍 Search Order No, Shop, Route, Delivery Rep..."
+                  />
+                </div>
                 <div className="form-group">
                   <label style={{ fontSize: '0.8rem' }}>Date From</label>
                   <input type="date" className="form-input" value={delFilterDateFrom} onChange={e => setDelFilterDateFrom(e.target.value)} />
@@ -1317,11 +1427,23 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
         return (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }} className="no-print">
-              <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', flex: 1, marginRight: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }} className="no-print">
+              <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', minWidth: '220px' }}>
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Total Amount Collected:</span>
                 <h3 style={{ fontSize: '1.5rem', color: 'var(--success)', fontWeight: '800', margin: 0 }}>₹{totalCollect}</h3>
               </div>
+
+              <div style={{ position: 'relative', flex: 1, minWidth: '240px', maxWidth: '380px' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ fontSize: '0.88rem', padding: '0.45rem 0.75rem', width: '100%' }}
+                  placeholder="🔍 Search Collection Report (Shop, Txn ID, Mode)..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
                 <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
@@ -1431,11 +1553,23 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
         return (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }} className="no-print">
-              <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', flex: 1, marginRight: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }} className="no-print">
+              <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', minWidth: '220px' }}>
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Cumulative Outstandings:</span>
                 <h3 style={{ fontSize: '1.5rem', color: 'var(--warning)', fontWeight: '800', margin: 0 }}>₹{sumOutstanding}</h3>
               </div>
+
+              <div style={{ position: 'relative', flex: 1, minWidth: '240px', maxWidth: '380px' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ fontSize: '0.88rem', padding: '0.45rem 0.75rem', width: '100%' }}
+                  placeholder="🔍 Search Outstanding Shop, Mobile, Contact..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
                 <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
@@ -1541,49 +1675,84 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       case 'stock_report': {
         const filtered = products.filter(p => matchesSearch(p, 'product'));
         return (
-          <div className="table-container">
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Brand / Size</th>
-                  <th>Case Ratio</th>
-                  <th>Available Stock (Bottles)</th>
-                  <th>Min Limit Alert</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(p => {
-                  const isOut = p.current_stock_bottles === 0;
-                  const isLow = p.current_stock_bottles <= p.min_stock;
-                  return (
-                    <tr key={p.id}>
-                      <td><strong>{lang === 'ta' ? p.name_ta : p.name_en}</strong></td>
-                      <td>{p.brand} | {p.size}</td>
-                      <td>{p.case_qty_rule} Bottles/Case</td>
-                      <td style={{ fontWeight: '700' }}>{p.current_stock_bottles} bottles</td>
-                      <td>{p.min_stock} bottles</td>
-                      <td>
-                        {isOut ? (
-                          <span style={{ fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--danger)' }}>
-                            OUT
-                          </span>
-                        ) : isLow ? (
-                          <span style={{ fontSize: '0.75rem', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--warning)' }}>
-                            LOW
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--success)' }}>
-                            OK
-                          </span>
-                        )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{
+              display: 'flex',
+              justify: 'space-between',
+              alignItems: 'center',
+              padding: '0.85rem 1rem',
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--radius)',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ fontSize: '0.88rem', padding: '0.35rem 0.65rem', minWidth: '260px' }}
+                  placeholder="🔍 Search Product, Brand, Size..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Showing {filtered.length} of {products.length} Products
+              </span>
+            </div>
+
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Brand / Size</th>
+                    <th>Case Ratio</th>
+                    <th>Available Stock (Bottles)</th>
+                    <th>Min Limit Alert</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(p => {
+                    const isOut = p.current_stock_bottles === 0;
+                    const isLow = p.current_stock_bottles <= p.min_stock;
+                    return (
+                      <tr key={p.id}>
+                        <td><strong>{lang === 'ta' ? p.name_ta : p.name_en}</strong></td>
+                        <td>{p.brand} | {p.size}</td>
+                        <td>{p.case_qty_rule} Bottles/Case</td>
+                        <td style={{ fontWeight: '700' }}>{p.current_stock_bottles} bottles</td>
+                        <td>{p.min_stock} bottles</td>
+                        <td>
+                          {isOut ? (
+                            <span style={{ fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--danger)' }}>
+                              OUT
+                            </span>
+                          ) : isLow ? (
+                            <span style={{ fontSize: '0.75rem', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--warning)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--warning)' }}>
+                              LOW
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--success)' }}>
+                              OK
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                        No products matching "{searchQuery}"
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         );
       }
@@ -1592,38 +1761,75 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       case 'purchase_report': {
         const filtered = purchases.filter(p => matchesSearch(p, 'purchase'));
         return (
-          <div className="table-container">
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Supplier</th>
-                  <th>Product</th>
-                  <th>Cases Purchased</th>
-                  <th>Rate/Case</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(p => {
-                  const prod = products.find(pr => pr.id === p.product_id);
-                  return (
-                    <tr key={p.id}>
-                      <td>{new Date(p.purchase_date).toLocaleDateString()}</td>
-                      <td><strong>{p.supplier}</strong></td>
-                      <td>{prod ? (lang === 'ta' ? prod.name_ta : prod.name_en) : ''}</td>
-                      <td>{p.cases} Cases, {p.bottles} Bottles</td>
-                      <td>₹{p.purchase_price}</td>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{
+              display: 'flex',
+              justify: 'space-between',
+              alignItems: 'center',
+              padding: '0.85rem 1rem',
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--radius)',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ fontSize: '0.88rem', padding: '0.35rem 0.65rem', minWidth: '260px' }}
+                  placeholder="🔍 Search Supplier, Product Name..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Showing {filtered.length} of {purchases.length} Purchase Records
+              </span>
+            </div>
+
+            <div className="table-container">
+              <table className="custom-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Supplier</th>
+                    <th>Product</th>
+                    <th>Cases Purchased</th>
+                    <th>Rate/Case</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(p => {
+                    const prod = products.find(pr => pr.id === p.product_id);
+                    return (
+                      <tr key={p.id}>
+                        <td>{new Date(p.purchase_date).toLocaleDateString()}</td>
+                        <td><strong>{p.supplier}</strong></td>
+                        <td>{prod ? (lang === 'ta' ? prod.name_ta : prod.name_en) : ''}</td>
+                        <td>{p.cases} Cases, {p.bottles} Bottles</td>
+                        <td>₹{p.purchase_price}</td>
+                      </tr>
+                    );
+                  })}
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                        No purchases matching "{searchQuery}"
+                      </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         );
       }
 
       // 9. Profit Report
       case 'profit_report': {
+        const filteredProducts = products.filter(p => matchesSearch(p, 'product'));
+
         // Calculate Profit: Revenue - Purchase Cost of all sold quantities
         let totalCost = 0;
         let totalRevenue = 0;
@@ -1642,7 +1848,32 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         const marginPct = totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100).toFixed(1) : 0;
 
         return (
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div style={{
+              display: 'flex',
+              justify: 'space-between',
+              alignItems: 'center',
+              padding: '0.85rem 1rem',
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 'var(--radius)',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ fontSize: '0.88rem', padding: '0.35rem 0.65rem', minWidth: '260px' }}
+                  placeholder="🔍 Search Profit by Product, Brand..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Showing {filteredProducts.length} of {products.length} Products
+              </span>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
               <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Net Sales Revenue:</span>
@@ -1670,7 +1901,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {products.map(p => {
+                  {filteredProducts.map(p => {
                     const soldQty = orderItems
                       .filter(oi => oi.product_id === p.id)
                       .reduce((sum, oi) => sum + (oi.cases * p.case_qty_rule + oi.bottles), 0);
@@ -1740,22 +1971,42 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         };
 
         const ledgerShop = shops.find(s => s.id === ledgerShopId);
+        const filteredLedger = ledgerTransactions.filter(t => {
+          if (!searchQuery) return true;
+          const q = searchQuery.toLowerCase().trim();
+          const str = `${t.reference || ''} ${t.type || ''} ${t.details || ''} ${t.debit || ''} ${t.credit || ''}`.toLowerCase();
+          return str.includes(q);
+        });
 
         return (
           <div>
             <div className="glass-card no-print" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              <div className="form-group" style={{ margin: 0, minWidth: '250px' }}>
-                <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'வாடிக்கையாளரைத் தேர்ந்தெடுக்கவும்' : 'Select Customer'}</label>
-                <select
-                  className="form-select"
-                  value={ledgerShopId}
-                  onChange={e => setLedgerShopId(e.target.value)}
-                >
-                  <option value="">-- {lang === 'ta' ? 'கடையைத் தேர்ந்தெடுக்கவும்' : 'Choose Customer'} --</option>
-                  {shops.map(s => (
-                    <option key={s.id} value={s.id}>{translateShopName(s, lang)}</option>
-                  ))}
-                </select>
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ margin: 0, minWidth: '250px' }}>
+                  <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'வாடிக்கையாளரைத் தேர்ந்தெடுக்கவும்' : 'Select Customer'}</label>
+                  <select
+                    className="form-select"
+                    value={ledgerShopId}
+                    onChange={e => setLedgerShopId(e.target.value)}
+                  >
+                    <option value="">-- {lang === 'ta' ? 'கடையைத் தேர்ந்தெடுக்கவும்' : 'Choose Customer'} --</option>
+                    {shops.map(s => (
+                      <option key={s.id} value={s.id}>{translateShopName(s, lang)}</option>
+                    ))}
+                  </select>
+                </div>
+                {ledgerShopId && (
+                  <div className="form-group" style={{ margin: 0, minWidth: '220px' }}>
+                    <label style={{ fontWeight: '600' }}>Search Statement</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="🔍 Search Ledger Ref, Details..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+                )}
               </div>
 
               {ledgerShopId && (
@@ -1803,7 +2054,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {ledgerTransactions.map(t => (
+                      {filteredLedger.map(t => (
                         <tr key={t.id}>
                           <td>{new Date(t.date).toLocaleDateString()}</td>
                           <td>
@@ -1936,6 +2187,16 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                     ))}
                     <option value="N/A">N/A (Unassigned)</option>
                   </select>
+                </div>
+                <div className="form-group" style={{ margin: 0, minWidth: '220px' }}>
+                  <label style={{ fontWeight: '600' }}>Search Collections</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="🔍 Search Shop, Salesman, Txn..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
                 </div>
               </div>
 
