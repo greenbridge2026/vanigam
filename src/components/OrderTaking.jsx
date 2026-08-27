@@ -222,19 +222,19 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
       } else {
         const orderPayload = {
           shop_id: selectedShop,
-          route_id: selectedRoute,
-          salesman_id: 'u2', // Hardcoded for demo/role session
+          route_id: selectedRoute || (shopObj ? shopObj.route_id : ''),
+          salesman_id: 'u2',
           items,
           discount: Number(discount || 0)
         };
         const result = await api.createOrder(orderPayload);
-        alert('Order Placed Successfully! / ஆர்டர் வெற்றிகரமாக சமர்ப்பிக்கப்பட்டது!');
-        if (onOrderCreated) {
+        alert(lang === 'ta' ? 'ஆர்டர் வெற்றிகரமாக சமர்ப்பிக்கப்பட்டது!' : 'Order Placed Successfully!');
+        if (onOrderCreated && result && result.order) {
           onOrderCreated(result.order.id);
         }
       }
     } catch (err) {
-      alert(err.message || 'Error processing order transaction');
+      alert(err.message || (lang === 'ta' ? 'ஆர்டர் சமர்ப்பிப்பதில் பிழை' : 'Error processing order transaction'));
     } finally {
       setSubmitting(false);
     }

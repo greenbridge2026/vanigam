@@ -671,7 +671,7 @@ export default function Billing({ orderId, t, lang, onBack }) {
                   type="button"
                   className="btn btn-secondary"
                   style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem' }}
-                  onClick={() => setModalPaymentRows([...modalPaymentRows, { payment_mode: 'cash', collected_amount: 0, transaction_number: '', reference_number: '', payment_date: new Date().toISOString().split('T')[0] }])}
+                  onClick={() => setModalPaymentRows([...modalPaymentRows, { payment_mode: 'gpay', collected_amount: 0, transaction_number: '', reference_number: '', payment_date: new Date().toISOString().split('T')[0] }])}
                 >
                   ➕ Add Mode
                 </button>
@@ -704,8 +704,9 @@ export default function Billing({ orderId, t, lang, onBack }) {
                             setModalPaymentRows(updated);
                           }}
                         >
-                          <option value="cash">{t('cash')}</option>
-                          <option value="cheque">{t('cheque')}</option>
+                          <option value="cash">💵 {t('cash') || 'Cash'}</option>
+                          <option value="gpay">📱 {t('gpay') || 'GPay / UPI'}</option>
+                          <option value="cheque">🏦 {t('cheque') || 'Cheque'}</option>
                         </select>
                       </div>
 

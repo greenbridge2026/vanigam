@@ -173,8 +173,9 @@ async function readDB(tenantId) {
 }
 
 async function writeDB(tenantId, data) {
+  const cleanData = JSON.parse(JSON.stringify(data));
   if (isFirebaseMock) {
-    await fs.writeFile(getDbPath(tenantId), JSON.stringify(data, null, 2), 'utf8');
+    await fs.writeFile(getDbPath(tenantId), JSON.stringify(cleanData, null, 2), 'utf8');
     return;
   }
 
@@ -192,11 +193,11 @@ async function writeDB(tenantId, data) {
 
     for (const key of tableKeys) {
       const oldDataStr = cachedDBs[tenantId] ? JSON.stringify(cachedDBs[tenantId][key] || []) : '';
-      const newDataStr = JSON.stringify(data[key] || []);
+      const newDataStr = JSON.stringify(cleanData[key] || []);
 
       if (oldDataStr !== newDataStr) {
         const docRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(key);
-        batch.set(docRef, { data: data[key] || [] });
+        batch.set(docRef, { data: cleanData[key] || [] });
         hasChanges = true;
       }
     }
@@ -209,11 +210,12 @@ async function writeDB(tenantId, data) {
       await batch.commit();
       
       // Update cache
-      cachedDBs[tenantId] = JSON.parse(JSON.stringify(data));
+      cachedDBs[tenantId] = cleanData;
       cachedTimestamps[tenantId] = timestamp;
     }
   } catch (err) {
     console.error('Error writing to Firestore:', err);
+    throw err;
   }
 }
 
@@ -1406,8 +1408,23 @@ app.post('/api/orders', async (req, res) => {
   await acquireLock();
   try {
     const db = await readDB(req.tenantId);
+
+    if (!db.orders) db.orders = [];
+    if (!db.order_items) db.order_items = [];
+    if (!db.stock_ledger) db.stock_ledger = [];
+    if (!db.notifications) db.notifications = [];
+    if (!db.deliveries) db.deliveries = [];
+    if (!db.outstanding_history) db.outstanding_history = [];
+    if (!db.shops) db.shops = [];
+    if (!db.products) db.products = [];
+    if (!db.routes) db.routes = [];
+
     const { shop_id, route_id, salesman_id, items, discount } = req.body;
     
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Order must contain at least one product item' });
+    }
+
     const shop = db.shops.find(s => s.id === shop_id);
     if (!shop) {
       return res.status(404).json({ error: 'Shop not found' });
@@ -1529,7 +1546,7 @@ app.post('/api/orders', async (req, res) => {
       net_amount: netAmount,
       previous_outstanding: prevOutstanding,
       status: 'pending',
-      delivery_man_id: db.routes.find(r => r.id === route_id)?.delivery_man_id || ''
+      delivery_man_id: (db.routes || []).find(r => r.id === route_id)?.delivery_man_id || ''
     };
 
     // Store Order and Items
@@ -1541,6 +1558,7 @@ app.post('/api/orders', async (req, res) => {
     });
 
     // Create delivery entry
+    if (!db.deliveries) db.deliveries = [];
     db.deliveries.push({
       id: `del_${Date.now()}`,
       order_id: newOrder.id,
@@ -1553,7 +1571,8 @@ app.post('/api/orders', async (req, res) => {
     // Outstanding Alert for Delivery Man (updates only when items are delivered, or starts tracking outstanding now)
     // The business logic: Outstanding is generated. We update the shop's outstanding after delivery completion or when placing?
     // Let's increase the outstanding on order placement, and then collect it.
-    shop.outstanding_amount += netAmount;
+    shop.outstanding_amount = Number(shop.outstanding_amount || 0) + netAmount;
+    if (!db.outstanding_history) db.outstanding_history = [];
     db.outstanding_history.push({
       id: `oh_${Date.now()}`,
       shop_id: shop_id,
@@ -1564,17 +1583,21 @@ app.post('/api/orders', async (req, res) => {
     });
 
     // Create notifications for deliveries
+    if (!db.notifications) db.notifications = [];
     db.notifications.push({
       id: `n_del_${Date.now()}`,
       type: 'pending_delivery',
-      message_en: `New pending delivery for ${shop.name_en}. Invoice: ${invoiceNum}`,
-      message_ta: `${shop.name_ta} கடைக்கு புதிய டெலிவரி. விலைப்பட்டியல்: ${invoiceNum}`,
+      message_en: `New pending delivery for ${shop.name_en || shop.name || ''}. Invoice: ${invoiceNum}`,
+      message_ta: `${shop.name_ta || shop.name || ''} கடைக்கு புதிய டெலிவரி. விலைப்பட்டியல்: ${invoiceNum}`,
       status: 'unread',
       created_at: new Date().toISOString()
     });
 
     await writeDB(req.tenantId, db);
     res.status(201).json({ order: newOrder, items: orderItemsToCreate });
+  } catch (err) {
+    console.error('Error placing order:', err);
+    res.status(500).json({ error: err && err.message ? `Error placing order: ${err.message}` : 'Failed to place order' });
   } finally {
     releaseLock();
   }
@@ -1773,31 +1796,44 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
     }
     
     const delivery = db.deliveries[deliveryIndex];
-    const status = req.body.status || 'delivered'; // 'delivered' | 'not_delivered' | 'returned'
+    const requestedStatus = req.body.status || 'delivered'; // 'delivered' | 'not_delivered' | 'returned'
     const reason = req.body.reason || '';
     const remarks = req.body.remarks || '';
 
-    delivery.status = status;
+    const order = db.orders.find(o => o.id === delivery.order_id);
+    const shop = order ? db.shops.find(s => s.id === order.shop_id) : null;
+
+    let finalStatus = requestedStatus;
+    if (order && requestedStatus === 'delivered') {
+      const orderPayments = (db.payments || []).filter(p => p.order_id === order.id);
+      const totalPaid = orderPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+      if (totalPaid < Number(order.net_amount || 0)) {
+        finalStatus = 'pending'; // Invoice is partially paid or unpaid - keep Open in Deliveries!
+      }
+    }
+
+    delivery.status = finalStatus;
     delivery.delivery_time = new Date().toISOString();
-    delivery.remarks = remarks || (status === 'delivered' ? 'Delivered successfully' : `${status} due to ${reason}`);
+    delivery.remarks = remarks || (finalStatus === 'delivered' ? 'Delivered successfully' : finalStatus === 'pending' ? 'Partially Paid - Invoice Open' : `${finalStatus} due to ${reason}`);
     delivery.reason = reason;
 
-    const order = db.orders.find(o => o.id === delivery.order_id);
     if (order) {
-      order.status = status;
-      const shop = db.shops.find(s => s.id === order.shop_id);
+      order.status = finalStatus;
 
-      if (status === 'delivered') {
+      if (finalStatus === 'delivered') {
         // Auto-create bill log
-        db.bills.push({
-          id: `bill_${Date.now()}`,
-          order_id: order.id,
-          invoice_number: order.invoice_number,
-          pdf_path: `/invoices/${order.invoice_number}.pdf`,
-          shared_status: 'none',
-          date: new Date().toISOString()
-        });
-      } else if (status === 'not_delivered' || status === 'returned') {
+        if (!db.bills) db.bills = [];
+        if (!db.bills.some(b => b.order_id === order.id)) {
+          db.bills.push({
+            id: `bill_${Date.now()}`,
+            order_id: order.id,
+            invoice_number: order.invoice_number,
+            pdf_path: `/invoices/${order.invoice_number}.pdf`,
+            shared_status: 'none',
+            date: new Date().toISOString()
+          });
+        }
+      } else if (finalStatus === 'not_delivered' || finalStatus === 'returned') {
         // Reverse stock and outstanding for non-deliveries or returns
         const oItems = db.order_items.filter(oi => oi.order_id === order.id);
         
@@ -1816,7 +1852,7 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
               bottles_change: item.bottles,
               running_stock_bottles: product.current_stock_bottles,
               timestamp: new Date().toISOString(),
-              reason: reason || (status === 'returned' ? 'Returned' : 'Not Delivered'),
+              reason: reason || (finalStatus === 'returned' ? 'Returned' : 'Not Delivered'),
               reference: `Order No ${order.invoice_number}`
             });
 
@@ -1839,7 +1875,7 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
             shop_id: shop.id,
             change_amount: -order.net_amount,
             balance_amount: shop.outstanding_amount,
-            description: `Outstanding reverted for ${status === 'returned' ? 'Returned' : 'Not Delivered'} Order ${order.invoice_number}`,
+            description: `Outstanding reverted for ${finalStatus === 'returned' ? 'Returned' : 'Not Delivered'} Order ${order.invoice_number}`,
             date: new Date().toISOString()
           });
         }
@@ -1852,7 +1888,7 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
       
       // Calculate total returned quantity (bottles)
       let returnedQty = 0;
-      if (status === 'not_delivered' || status === 'returned') {
+      if (finalStatus === 'not_delivered' || finalStatus === 'returned') {
         returnedQty = db.order_items
           .filter(oi => oi.order_id === order.id)
           .reduce((sum, item) => {
@@ -1966,122 +2002,59 @@ function autoAllocatePaymentsAndFulfillOrders(db, shopId) {
   const shop = db.shops.find(s => s.id === shopId);
   if (!shop) return;
 
-  // 1. Get all non-cancelled orders for this shop, sorted chronologically (oldest invoice first)
-  const allShopOrders = db.orders
+  // 1. Get all non-cancelled orders for this shop, sorted chronologically (oldest first)
+  const pendingOrders = db.orders
     .filter(o => o.shop_id === shopId && o.status !== 'cancelled')
     .sort((a, b) => new Date(a.order_date).getTime() - new Date(b.order_date).getTime());
 
-  // 2. Check all orders that are ALREADY fully paid from direct payments, and fulfill them
-  for (const order of allShopOrders) {
-    const directPayments = db.payments.filter(p => p.order_id === order.id);
-    const directPaid = directPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
-    if (directPaid >= Number(order.net_amount || 0)) {
-      if (order.status === 'pending') {
-        fulfillOrderInDb(db, order, shop);
-      }
-    }
-  }
+  // 2. Unassigned payments pool for this shop
+  const unassignedPayments = (db.payments || [])
+    .filter(p => p.shop_id === shopId && (!p.order_id || p.order_id === '' || p.order_id === 'LEDGER_ONLY'));
+  let unassignedPool = unassignedPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
 
-  // 3. Get pending/unpaid orders remaining
-  const pendingOrders = allShopOrders.filter(o => o.status === 'pending');
-  if (pendingOrders.length === 0) return;
-
-  // 4. Find all unassigned payments for this shop (order_id === '')
-  const unassignedPayments = db.payments
-    .filter(p => p.shop_id === shopId && (!p.order_id || p.order_id === ''))
-    .sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
-
-  if (unassignedPayments.length === 0) return;
-
-  // Calculate total unassigned collection pool available to allocate
-  let availablePool = unassignedPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
-  if (availablePool <= 0) return;
-
-  // 5. Calculate Previous Shop Outstanding (opening outstanding / old balance prior to unpaid orders)
-  const unpaidInvoicesNetSum = pendingOrders.reduce((sum, order) => {
-    const directPaid = db.payments.filter(p => p.order_id === order.id).reduce((s, p) => s + (Number(p.collected_amount) || 0), 0);
-    return sum + Math.max(0, Number(order.net_amount || 0) - directPaid);
+  // Calculate Previous Outstanding Balance of shop prior to pending orders
+  const totalUnpaidInvoicesNet = pendingOrders.reduce((sum, o) => {
+    const dPaid = (db.payments || []).filter(p => p.order_id === o.id).reduce((s, p) => s + (Number(p.collected_amount) || 0), 0);
+    return sum + Math.max(0, Number(o.net_amount || 0) - dPaid);
   }, 0);
 
-  const previousOutstandingLedger = Math.max(0, Number(shop.outstanding_amount || 0) - unpaidInvoicesNetSum);
+  const shopBal = Number(shop.outstanding_amount || 0);
+  const ledgerBalance = Math.max(0, shopBal - totalUnpaidInvoicesNet);
 
-  // Priority 1: Clear Previous Shop Outstanding FIRST!
-  const amtForPrevOutstanding = Math.min(availablePool, previousOutstandingLedger);
-  let remainingPaymentForFIFO = availablePool - amtForPrevOutstanding;
+  // STEP 1: Clear Previous Outstanding Amount Balance FIRST!
+  unassignedPool = Math.max(0, unassignedPool - ledgerBalance);
 
-  if (remainingPaymentForFIFO <= 0) {
-    return;
-  }
-
-  // Priority 2: Apply remaining payment to oldest unpaid invoice (FIFO)
+  // STEP 2: Allocate remaining payment pool to Oldest Invoice (FIFO)
   for (const order of pendingOrders) {
-    if (remainingPaymentForFIFO <= 0) break;
+    const directPayments = (db.payments || []).filter(p => p.order_id === order.id);
+    const directPaid = directPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+    const netAmt = Number(order.net_amount || 0);
+    const needed = Math.max(0, netAmt - directPaid);
 
-    const directPaid = db.payments.filter(p => p.order_id === order.id).reduce((s, p) => s + (Number(p.collected_amount) || 0), 0);
-    const invoiceNeeded = Math.max(0, Number(order.net_amount || 0) - directPaid);
-
-    if (invoiceNeeded <= 0) {
-      if (order.status === 'pending') fulfillOrderInDb(db, order, shop);
-      continue;
+    let unassignedAllocated = 0;
+    if (needed > 0 && unassignedPool > 0) {
+      unassignedAllocated = Math.min(unassignedPool, needed);
+      unassignedPool -= unassignedAllocated;
     }
 
-    const allocateAmt = Math.min(remainingPaymentForFIFO, invoiceNeeded);
-    let neededToTakeFromPool = allocateAmt;
-    let poolProcessed = 0;
+    const totalPaidOnOrder = directPaid + unassignedAllocated;
+    const remainingDue = Math.max(0, netAmt - totalPaidOnOrder);
 
-    for (const uPay of unassignedPayments) {
-      if (neededToTakeFromPool <= 0) break;
-      const uAmt = Number(uPay.collected_amount || 0);
-      if (uAmt <= 0) continue;
+    const del = (db.deliveries || []).find(d => d.order_id === order.id);
 
-      if (poolProcessed < amtForPrevOutstanding) {
-        const amountInPrevOut = Math.min(uAmt, amtForPrevOutstanding - poolProcessed);
-        poolProcessed += amountInPrevOut;
-        const remainingInUPay = uAmt - amountInPrevOut;
-        if (remainingInUPay <= 0) continue;
-
-        const takeFromUPay = Math.min(neededToTakeFromPool, remainingInUPay);
-        uPay.collected_amount = uAmt - takeFromUPay;
-
-        const payForOrder = {
-          ...uPay,
-          id: `pay_${Date.now()}_alloc_${Math.random().toString(36).substr(2, 4)}`,
-          order_id: order.id,
-          collected_amount: takeFromUPay
-        };
-        db.payments.push(payForOrder);
-        neededToTakeFromPool -= takeFromUPay;
-        remainingPaymentForFIFO -= takeFromUPay;
-      } else {
-        if (uAmt <= neededToTakeFromPool) {
-          uPay.order_id = order.id;
-          neededToTakeFromPool -= uAmt;
-          remainingPaymentForFIFO -= uAmt;
-          poolProcessed += uAmt;
-        } else {
-          const payForOrder = {
-            ...uPay,
-            id: `pay_${Date.now()}_alloc_${Math.random().toString(36).substr(2, 4)}`,
-            order_id: order.id,
-            collected_amount: neededToTakeFromPool
-          };
-          uPay.collected_amount = uAmt - neededToTakeFromPool;
-          db.payments.push(payForOrder);
-          remainingPaymentForFIFO -= neededToTakeFromPool;
-          poolProcessed += neededToTakeFromPool;
-          neededToTakeFromPool = 0;
+    if (remainingDue <= 0) {
+      // FULLY PAID: Fulfill invoice and close it!
+      if (order.status === 'pending' || (del && del.status === 'pending')) {
+        fulfillOrderInDb(db, order, shop);
+      }
+    } else {
+      // PARTIALLY PAID or UNPAID: Leave as OPEN (pending) unless returned or not delivered
+      if (order.status !== 'not_delivered' && order.status !== 'returned') {
+        order.status = 'pending';
+        if (del && del.status !== 'not_delivered' && del.status !== 'returned') {
+          del.status = 'pending';
         }
       }
-    }
-
-    // Check if invoice is now FULLY paid (Remaining Balance = ₹0)
-    const newDirectPaid = db.payments.filter(p => p.order_id === order.id).reduce((s, p) => s + (Number(p.collected_amount) || 0), 0);
-    if (newDirectPaid >= Number(order.net_amount || 0)) {
-      fulfillOrderInDb(db, order, shop);
-    } else {
-      order.status = 'pending';
-      const del = (db.deliveries || []).find(d => d.order_id === order.id);
-      if (del) del.status = 'pending';
     }
   }
 }
@@ -2192,6 +2165,9 @@ app.post('/api/payments', async (req, res) => {
 
     await writeDB(req.tenantId, db);
     res.status(201).json({ payment: newPayment, outstanding_amount: shop.outstanding_amount });
+  } catch (err) {
+    console.error('Error recording payment:', err);
+    res.status(500).json({ error: err.message || 'Failed to register payment' });
   } finally {
     releaseLock();
   }

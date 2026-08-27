@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
 import { translateShopName, translateRouteName } from '../translations';
+import { calculateOrderPaymentInfo } from '../utils/paymentUtils';
 
 export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPrint, onEditOrder }) {
   const [deliveries, setDeliveries] = useState([]);
   const [orders, setOrders] = useState([]);
   const [shops, setShops] = useState([]);
   const [routes, setRoutes] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDeliveryIds, setSelectedDeliveryIds] = useState([]);
   const [statusFilter, setStatusFilter] = useState(() => {
@@ -210,16 +212,18 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   useEffect(() => {
     async function loadData() {
       try {
-        const [dData, oData, sData, rData] = await Promise.all([
+        const [dData, oData, sData, rData, pData] = await Promise.all([
           api.getDeliveries(),
           api.getOrders(),
           api.getShops(),
-          api.getRoutes()
+          api.getRoutes(),
+          api.getPayments()
         ]);
         setDeliveries(dData);
         setOrders(oData);
         setShops(sData);
         setRoutes(rData);
+        setPayments(pData);
       } catch (err) {
         console.error('Failed to load logistics datasets', err);
       } finally {
@@ -251,10 +255,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     const order = orders.find(o => o.id === del.order_id);
     const shop = order ? shops.find(s => s.id === order.shop_id) : null;
     
+    const directPayments = order ? (payments || []).filter(p => p.order_id === order.id) : [];
+    const directPaid = directPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+    const remainingDue = order ? Math.max(0, Number(order.net_amount || 0) - directPaid) : 0;
+
     setActiveDelivery({ del, order, shop });
     setRemarks('');
     setPaymentMode('cash');
-    setOrderPaymentAmount(order ? order.net_amount : 0);
+    setOrderPaymentAmount(remainingDue);
     setPrevOutstandingAmount(0);
     setGpayTxn('');
     setFulfillmentType('delivered');
@@ -271,6 +279,9 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       const { del, order, shop } = activeDelivery;
       
       // 1. Process Collection Payment if status is delivered and collected amount is entered
+      let isPartial = false;
+      let effectiveStatus = status;
+
       if (status === 'delivered') {
         const ordAmt = Number(orderPaymentAmount || 0);
         const prevAmt = Number(prevOutstandingAmount || 0);
@@ -300,32 +311,42 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
           }
           await api.createPayment({ payments: paymentsToSubmit });
         }
+
+        const totalPaidOnOrder = (Number(orderPaymentAmount) || 0);
+        if (totalPaidOnOrder < Number(order.net_amount || 0)) {
+          isPartial = true;
+          effectiveStatus = 'pending';
+        }
       }
 
       // 2. Mark Delivery complete on backend
       await api.completeDelivery(del.id, {
-        status,
+        status: effectiveStatus,
         reason: selectedReason,
-        remarks: customRemarks
+        remarks: customRemarks || (isPartial ? `Partially Paid (₹${orderPaymentAmount} of ₹${order.net_amount}). Balance ₹${order.net_amount - orderPaymentAmount} Due.` : undefined)
       });
 
       alert(
         status === 'delivered'
-          ? 'Delivery recorded successfully! / விநியோகம் பதிவு செய்யப்பட்டது!'
+          ? (isPartial 
+              ? `Partial payment of ₹${orderPaymentAmount} recorded! Invoice remains Open in Deliveries with balance ₹${order.net_amount - orderPaymentAmount}.`
+              : 'Delivery recorded successfully! / விநியோகம் பதிவு செய்யப்பட்டது!')
           : status === 'returned'
           ? 'Order marked as Returned. Stock and outstanding reverted. / ஆர்டர் திரும்பப் பெறப்பட்டது.'
           : 'Order marked as Not Delivered. Stock and outstanding reverted. / ஆர்டர் விநியோகிக்கப்படவில்லை.'
       );
 
       // Reload dataset
-      const [dData, oData, sData] = await Promise.all([
+      const [dData, oData, sData, pData] = await Promise.all([
         api.getDeliveries(),
         api.getOrders(),
-        api.getShops()
+        api.getShops(),
+        api.getPayments()
       ]);
       setDeliveries(dData);
       setOrders(oData);
       setShops(sData);
+      setPayments(pData);
       
       setActiveDelivery(null);
       setNonDeliveryModalOpen(false);
@@ -365,14 +386,16 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       );
 
       // Reload dataset
-      const [dData, oData, sData] = await Promise.all([
+      const [dData, oData, sData, pData] = await Promise.all([
         api.getDeliveries(),
         api.getOrders(),
-        api.getShops()
+        api.getShops(),
+        api.getPayments()
       ]);
       setDeliveries(dData);
       setOrders(oData);
       setShops(sData);
+      setPayments(pData);
       
       setActiveDelivery(null);
     } catch (err) {
@@ -617,7 +640,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   <th>{t('date')}</th>
                   <th>Shop & Route</th>
                   <th>Delivery Person</th>
-                  <th>Amount Due</th>
+                  <th>{lang === 'ta' ? 'பில் தொகை' : 'Invoice Amount'}</th>
                   <th>{lang === 'ta' ? 'செலுத்த வேண்டிய நிலுவை தொகை' : 'Outstanding Amount to Pay'}</th>
                   <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
@@ -630,11 +653,17 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   const shop = shops.find(s => s.id === order.shop_id);
                   const route = routes.find(r => r.id === order.route_id);
                   
+                  const info = calculateOrderPaymentInfo(order, shop, orders, payments);
+                  const remainingInvoiceDue = info.remainingDue;
+                  const totalPaidSoFar = info.totalPaid;
+                  
                   let statusBg = 'rgba(245, 158, 11, 0.1)';
                   let statusColor = 'var(--warning)';
-                  let statusLabel = t('pending');
+                  let statusLabel = totalPaidSoFar > 0
+                    ? (lang === 'ta' ? 'பகுதியளவு நிலுவை (Open)' : 'Pending (Partially Paid)')
+                    : t('pending');
 
-                  if (d.status === 'delivered') {
+                  if (remainingInvoiceDue <= 0) {
                     statusBg = 'rgba(16, 185, 129, 0.1)';
                     statusColor = 'var(--success)';
                     statusLabel = t('delivered');
@@ -648,12 +677,13 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                     statusLabel = t('returned');
                   }
 
+                  const isFullyClosed = remainingInvoiceDue <= 0 || d.status === 'not_delivered' || d.status === 'returned';
                   const isSelected = activeDelivery && activeDelivery.del.id === d.id;
                   return (
                     <tr 
                       key={d.id} 
                       style={{ 
-                        opacity: d.status !== 'pending' ? 0.7 : 1,
+                        opacity: isFullyClosed ? 0.7 : 1,
                         background: isSelected ? 'rgba(6, 182, 212, 0.08)' : 'none',
                         borderLeft: isSelected ? '4px solid var(--accent-cyan)' : 'none'
                       }}
@@ -678,8 +708,8 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                       <td>{t('delivery_man')}</td>
                       <td>₹{order.net_amount}</td>
                       <td>
-                        <strong style={{ color: 'var(--warning)' }}>
-                          ₹{shop ? Number(shop.outstanding_amount || 0) : 0}
+                        <strong style={{ color: remainingInvoiceDue > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                          ₹{remainingInvoiceDue.toLocaleString()}
                         </strong>
                       </td>
                       <td>
@@ -881,7 +911,11 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                     {(() => {
                       const totalShopBal = Number(activeDelivery.shop.outstanding_amount || 0);
                       const currentOrderNet = Number(activeDelivery.order.net_amount || 0);
-                      const prevShopBal = Math.max(0, totalShopBal - currentOrderNet);
+                      
+                      const orderPayments = (payments || []).filter(p => p.order_id === activeDelivery.order.id);
+                      const alreadyPaid = orderPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+                      const initialInvoiceDue = Math.max(0, currentOrderNet - alreadyPaid);
+                      const prevShopBal = Math.max(0, totalShopBal - initialInvoiceDue);
 
                       return (
                         <>
@@ -899,11 +933,11 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                 color: prevOutstandingAmount === 0 ? 'var(--success)' : 'var(--text-muted)'
                               }}
                               onClick={() => {
-                                setOrderPaymentAmount(currentOrderNet);
+                                setOrderPaymentAmount(initialInvoiceDue);
                                 setPrevOutstandingAmount(0);
                               }}
                             >
-                              🟢 {lang === 'ta' ? 'இந்த பில் மட்டும் (₹' : 'Current Order Only (₹'}{currentOrderNet})
+                              🟢 {lang === 'ta' ? 'இந்த பில் நிலுவை மட்டும் (₹' : 'Current Invoice Due Only (₹'}{initialInvoiceDue})
                             </button>
                             {prevShopBal > 0 && (
                               <button
@@ -919,7 +953,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                   color: prevOutstandingAmount > 0 ? 'var(--warning)' : 'var(--text-muted)'
                                 }}
                                 onClick={() => {
-                                  setOrderPaymentAmount(currentOrderNet);
+                                  setOrderPaymentAmount(initialInvoiceDue);
                                   setPrevOutstandingAmount(prevShopBal);
                                 }}
                               >
@@ -1007,17 +1041,27 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                           {/* Live calculation for collection */}
                           {(() => {
                             const totalCollected = Number(orderPaymentAmount || 0) + Number(prevOutstandingAmount || 0);
-                            const remainingInvoice = Math.max(0, currentOrderNet - Number(orderPaymentAmount || 0));
+                            const remainingInvoice = Math.max(0, initialInvoiceDue - Number(orderPaymentAmount || 0));
                             const remainingTotalOutstanding = Math.max(0, totalShopBal - totalCollected);
 
                             return (
                               <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius)', fontSize: '0.85rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                                  <span>Invoice Total:</span>
-                                  <strong style={{ color: 'var(--accent-cyan)' }}>₹{currentOrderNet}</strong>
+                                  <span>Invoice Bill Total:</span>
+                                  <strong style={{ color: 'var(--text-muted)' }}>₹{currentOrderNet}</strong>
+                                </div>
+                                {alreadyPaid > 0 && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                                    <span>Previously Paid (Partial):</span>
+                                    <strong style={{ color: 'var(--success)' }}>- ₹{alreadyPaid}</strong>
+                                  </div>
+                                )}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', fontWeight: '700' }}>
+                                  <span>Current Invoice Amount Due:</span>
+                                  <strong style={{ color: 'var(--accent-cyan)' }}>₹{initialInvoiceDue}</strong>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                                  <span>Total Collected:</span>
+                                  <span>Collecting Now:</span>
                                   <strong style={{ color: 'var(--success)' }}>₹{totalCollected}</strong>
                                 </div>
 

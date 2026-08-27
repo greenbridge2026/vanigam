@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import { translateShopName } from '../translations';
+import { calculateOrderPaymentInfo } from '../utils/paymentUtils';
 
 export default function OutstandingCollection({ t, lang }) {
   const [routes, setRoutes] = useState([]);
@@ -21,6 +22,8 @@ export default function OutstandingCollection({ t, lang }) {
   const [chequeAmount, setChequeAmount] = useState(0);
   const [chequeNo, setChequeNo] = useState('');
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [allocationTarget, setAllocationTarget] = useState('invoice'); // 'invoice' | 'outstanding'
+  const [targetInvoiceId, setTargetInvoiceId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showMobileModal, setShowMobileModal] = useState(false);
 
@@ -55,13 +58,12 @@ export default function OutstandingCollection({ t, lang }) {
     const invoices = orders
       .filter(o => o.shop_id === shop.id && o.status === 'pending')
       .map(order => {
-        const orderPayments = payments.filter(p => p.order_id === order.id);
-        const totalCollected = orderPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
-        const remaining = (Number(order.net_amount) || 0) - totalCollected;
+        const info = calculateOrderPaymentInfo(order, shop, orders, payments);
         return {
           ...order,
-          total_collected: totalCollected,
-          remaining_outstanding: remaining
+          net_amount: info.netAmount,
+          total_collected: info.totalPaid,
+          remaining_outstanding: info.remainingDue
         };
       })
       .filter(o => o.remaining_outstanding > 0);
@@ -110,23 +112,13 @@ export default function OutstandingCollection({ t, lang }) {
 
   const handleSelectShop = (shopId) => {
     setSelectedShopId(shopId);
-    const targetShop = shops.find(s => s.id === shopId);
-    if (targetShop) {
-      const info = getShopOutstandingInfo(targetShop);
-      if (info.totalOutstanding > 0) {
-        setCashAmount(info.totalOutstanding);
-        setGpayAmount(0);
-        setGpayTxn('');
-        setChequeAmount(0);
-        setChequeNo('');
-      } else {
-        setCashAmount(0);
-        setGpayAmount(0);
-        setGpayTxn('');
-        setChequeAmount(0);
-        setChequeNo('');
-      }
-    }
+    setAllocationTarget('invoice');
+    setTargetInvoiceId('');
+    setCashAmount(0);
+    setGpayAmount(0);
+    setGpayTxn('');
+    setChequeAmount(0);
+    setChequeNo('');
     if (window.innerWidth <= 768) {
       setShowMobileModal(true);
     }
@@ -145,11 +137,13 @@ export default function OutstandingCollection({ t, lang }) {
 
     setSubmitting(true);
     try {
+      const orderIdToPass = allocationTarget === 'outstanding' ? 'LEDGER_ONLY' : (targetInvoiceId || '');
       const paymentsToSubmit = [];
+
       if (Number(cashAmount) > 0) {
         paymentsToSubmit.push({
           shop_id: selectedShopId,
-          order_id: '',
+          order_id: orderIdToPass,
           collected_amount: Number(cashAmount),
           payment_mode: 'cash',
           transaction_number: '',
@@ -160,7 +154,7 @@ export default function OutstandingCollection({ t, lang }) {
       if (Number(gpayAmount) > 0) {
         paymentsToSubmit.push({
           shop_id: selectedShopId,
-          order_id: '',
+          order_id: orderIdToPass,
           collected_amount: Number(gpayAmount),
           payment_mode: 'gpay',
           transaction_number: gpayTxn || `TXN-${Date.now()}`,
@@ -171,7 +165,7 @@ export default function OutstandingCollection({ t, lang }) {
       if (Number(chequeAmount) > 0) {
         paymentsToSubmit.push({
           shop_id: selectedShopId,
-          order_id: '',
+          order_id: orderIdToPass,
           collected_amount: Number(chequeAmount),
           payment_mode: 'cheque',
           transaction_number: '',
@@ -182,13 +176,18 @@ export default function OutstandingCollection({ t, lang }) {
 
       await api.createPayment({ payments: paymentsToSubmit });
 
-      alert(lang === 'ta' ? 'வசூல் வெற்றிகரமாகப் பதிவு செய்யப்பட்டது!' : 'Outstanding collection recorded successfully!');
+      const successMsg = allocationTarget === 'outstanding'
+        ? (lang === 'ta' ? 'பழைய கடை நிலுவை வசூல் வெற்றிகரமாக பதிவு செய்யப்பட்டது! பில்கள் திறந்தே உள்ளன.' : 'Previous outstanding payment recorded! Open sales invoices remain open.')
+        : (lang === 'ta' ? 'வசூல் வெற்றிகரமாகப் பதிவு செய்யப்பட்டது!' : 'Payment collection recorded successfully!');
+
+      alert(successMsg);
 
       setCashAmount(0);
       setGpayAmount(0);
       setGpayTxn('');
       setChequeAmount(0);
       setChequeNo('');
+      setTargetInvoiceId('');
 
       // Reload dataset
       const [rData, sData, oData, pData] = await Promise.all([
@@ -220,40 +219,136 @@ export default function OutstandingCollection({ t, lang }) {
       {/* Selected Shop Banner */}
       {selectedShop && selectedShopInfo ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <div style={{ padding: '0.75rem 1rem', background: 'rgba(6, 182, 212, 0.1)', border: '1px solid var(--accent-cyan)', borderRadius: 'var(--radius)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', fontWeight: '600', display: 'block' }}>SELECTED SHOP</span>
-              <strong style={{ fontSize: '1.1rem' }}>{translateShopName(selectedShop, lang)}</strong>
-              {selectedShop.mobile && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>📞 {selectedShop.mobile}</span>}
+          <div style={{ padding: '0.85rem 1rem', background: 'rgba(6, 182, 212, 0.08)', border: '1px solid var(--accent-cyan)', borderRadius: 'var(--radius)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
+              <div>
+                <span style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>SELECTED SHOP</span>
+                <strong style={{ fontSize: '1.15rem', display: 'block' }}>{translateShopName(selectedShop, lang)}</strong>
+                {selectedShop.mobile && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>📞 {selectedShop.mobile}</span>}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Total Shop Outstanding</span>
+                <strong style={{ fontSize: '1.4rem', color: 'var(--warning)' }}>₹{selectedShopInfo.totalOutstanding.toLocaleString()}</strong>
+              </div>
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Total Shop Outstanding</span>
-              <strong style={{ fontSize: '1.35rem', color: 'var(--warning)' }}>₹{selectedShopInfo.totalOutstanding.toLocaleString()}</strong>
-            </div>
-          </div>
 
-          {/* Invoices + Ledger summary snippet in payment panel */}
-          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', padding: '0.5rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem' }}>
-            <span style={{ color: 'var(--text-muted)', fontWeight: '600', display: 'block', marginBottom: '0.25rem' }}>
-              📑 Outstanding Breakdown:
-            </span>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {selectedShopInfo.baseOutstanding > 0 && (
-                <span style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)', padding: '2px 6px', borderRadius: '4px', fontWeight: '600' }}>
-                  Ledger: ₹{selectedShopInfo.baseOutstanding.toLocaleString()}
-                </span>
-              )}
-              {shopInvoices.map(inv => (
-                <span key={inv.id} style={{ background: 'rgba(6,182,212,0.1)', color: 'var(--accent-cyan)', padding: '2px 6px', borderRadius: '4px', fontWeight: '600' }}>
-                  {inv.invoice_number}: ₹{inv.remaining_outstanding.toLocaleString()}
-                </span>
-              ))}
+            {/* 3-Column Breakdown Metric Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.65rem' }}>
+              <div style={{ background: 'rgba(6, 182, 212, 0.1)', padding: '0.4rem 0.6rem', borderRadius: '6px', textAlign: 'center' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--accent-cyan)', fontWeight: '600', display: 'block' }}>📄 {lang === 'ta' ? 'பில் நிலுவை' : 'Invoice Outstanding'}</span>
+                <strong style={{ fontSize: '0.95rem', color: 'var(--accent-cyan)' }}>₹{selectedShopInfo.invoicesSum.toLocaleString()}</strong>
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block' }}>({shopInvoices.length} {lang === 'ta' ? 'பில்கள்' : 'Bills'})</span>
+              </div>
+
+              <div style={{ background: 'rgba(245, 158, 11, 0.1)', padding: '0.4rem 0.6rem', borderRadius: '6px', textAlign: 'center' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--warning)', fontWeight: '600', display: 'block' }}>🏛️ {lang === 'ta' ? 'பழைய நிலுவை' : 'Previous Outstanding'}</span>
+                <strong style={{ fontSize: '0.95rem', color: 'var(--warning)' }}>₹{selectedShopInfo.baseOutstanding.toLocaleString()}</strong>
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block' }}>({lang === 'ta' ? 'கணக்கு இருப்பு' : 'Ledger Balance'})</span>
+              </div>
+
+              <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.4rem 0.6rem', borderRadius: '6px', textAlign: 'center' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--success)', fontWeight: '600', display: 'block' }}>💰 {lang === 'ta' ? 'மொத்த நிலுவை' : 'Total Outstanding'}</span>
+                <strong style={{ fontSize: '0.95rem', color: 'var(--success)' }}>₹{selectedShopInfo.totalOutstanding.toLocaleString()}</strong>
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block' }}>({lang === 'ta' ? 'செலுத்த வேண்டியது' : 'Combined Total'})</span>
+              </div>
             </div>
           </div>
         </div>
       ) : (
         <div style={{ padding: '1rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px dashed var(--warning)', borderRadius: 'var(--radius)', textAlign: 'center', color: 'var(--warning)' }}>
           👈 {lang === 'ta' ? 'பட்டியலிலிருந்து கடையைத் தேர்ந்தெடுக்கவும்' : 'Please select a shop from the list on the left to start collecting.'}
+        </div>
+      )}
+
+      {/* Payment Allocation Target Option Selector */}
+      {selectedShop && (
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
+          <label style={{ fontWeight: '700', fontSize: '0.88rem', display: 'block', marginBottom: '0.5rem' }}>
+            🎯 {lang === 'ta' ? 'கட்டண நோக்கம் / ஒதுக்கீடு' : 'Payment Purpose / Allocation Target'}
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <button
+              type="button"
+              className={`language-btn ${allocationTarget === 'invoice' ? 'active' : ''}`}
+              style={{
+                padding: '0.5rem 0.75rem',
+                fontSize: '0.8rem',
+                fontWeight: '600',
+                borderColor: allocationTarget === 'invoice' ? 'var(--accent-cyan)' : 'var(--border-color)',
+                background: allocationTarget === 'invoice' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+                color: allocationTarget === 'invoice' ? 'var(--accent-cyan)' : 'var(--text-muted)'
+              }}
+              onClick={() => {
+                setAllocationTarget('invoice');
+              }}
+            >
+              📄 {lang === 'ta' ? 'பில் நிலுவை செலுத்த (Invoice Fulfill)' : 'Fulfill Sales Invoice'}
+            </button>
+
+            <button
+              type="button"
+              className={`language-btn ${allocationTarget === 'outstanding' ? 'active' : ''}`}
+              style={{
+                padding: '0.5rem 0.75rem',
+                fontSize: '0.8rem',
+                fontWeight: '600',
+                borderColor: allocationTarget === 'outstanding' ? 'var(--warning)' : 'var(--border-color)',
+                background: allocationTarget === 'outstanding' ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+                color: allocationTarget === 'outstanding' ? 'var(--warning)' : 'var(--text-muted)'
+              }}
+              onClick={() => {
+                setAllocationTarget('outstanding');
+                setTargetInvoiceId('');
+              }}
+            >
+              🏛️ {lang === 'ta' ? 'பழைய கடை நிலுவை (Ledger Only)' : 'Previous Outstanding Only'}
+            </button>
+          </div>
+
+          {/* Sub-selector when Fulfill Invoice is selected */}
+          {allocationTarget === 'invoice' && (
+            <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--accent-cyan)' }}>
+                {lang === 'ta' ? 'குறிப்பிட்ட பில் தேர்ந்தெடுக்கவும்:' : 'Select Sales Invoice to Pay & Close:'}
+              </label>
+              <select
+                className="form-select"
+                style={{ fontSize: '0.85rem' }}
+                value={targetInvoiceId}
+                onChange={e => {
+                  setTargetInvoiceId(e.target.value);
+                }}
+              >
+                <option value="">⚡ Auto (FIFO - Oldest Invoice First)</option>
+                {shopInvoices.map(inv => (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.invoice_number} ({new Date(inv.order_date).toLocaleDateString()}) - Due: ₹{inv.remaining_outstanding.toLocaleString()} (Net: ₹{(inv.net_amount || 0).toLocaleString()})
+                  </option>
+                ))}
+              </select>
+              
+              {targetInvoiceId ? (
+                <div style={{ marginTop: '0.4rem', padding: '0.4rem 0.65rem', background: 'rgba(6, 182, 212, 0.1)', border: '1px solid var(--accent-cyan)', borderRadius: '4px', fontSize: '0.75rem', color: 'var(--accent-cyan)', fontWeight: '600' }}>
+                  🎯 Selected Target: Invoice #{shopInvoices.find(inv => inv.id === targetInvoiceId)?.invoice_number} — Amount Due: ₹{shopInvoices.find(inv => inv.id === targetInvoiceId)?.remaining_outstanding.toLocaleString()}
+                  <span style={{ display: 'block', fontSize: '0.68rem', fontWeight: 'normal', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    Full payment will fulfill & close this invoice and mark its delivery as Completed. Partial payment keeps it Open.
+                  </span>
+                </div>
+              ) : (
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.25rem' }}>
+                  {shopInvoices.length > 0 
+                    ? 'Payment will apply chronologically to open invoices (FIFO). Only fully paid invoices will close.'
+                    : 'No open sales invoices. Payment will reduce shop ledger balance.'}
+                </span>
+              )}
+            </div>
+          )}
+
+          {allocationTarget === 'outstanding' && (
+            <div style={{ padding: '0.45rem 0.65rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '4px', fontSize: '0.73rem', color: 'var(--warning)' }}>
+              🏛️ {lang === 'ta' ? 'இந்த கட்டணம் பழைய கடை நிலுவையை (ரூ. ' + (selectedShopInfo ? selectedShopInfo.baseOutstanding : 0) + ') மட்டுமே குறைக்கும். பில்கள் திறந்தே இருக்கும்.' : 'Payment will clear Previous Shop Outstanding (opening ledger balance of ₹' + (selectedShopInfo ? selectedShopInfo.baseOutstanding.toLocaleString() : 0) + '). Sales invoices will NOT be closed.'}
+            </div>
+          )}
         </div>
       )}
 
@@ -489,7 +584,7 @@ export default function OutstandingCollection({ t, lang }) {
                 {lang === 'ta' ? 'கடைகள் எதுவும் கிடைக்கவில்லை.' : 'No shops found matching filter criteria.'}
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.68rem', maxHeight: '380px', overflowY: 'auto', paddingRight: '4px' }}>
                 {filteredShopsList.map(s => {
                   const isSelected = selectedShopId === s.id;
                   const routeObj = routes.find(r => r.id === s.route_id);
@@ -529,16 +624,16 @@ export default function OutstandingCollection({ t, lang }) {
                           )}
                         </div>
 
-                        {/* Breakdown pill info */}
-                        <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.3rem', fontSize: '0.68rem' }}>
-                          {baseOutstanding > 0 && (
-                            <span style={{ background: 'rgba(245, 158, 11, 0.12)', color: 'var(--warning)', padding: '1px 5px', borderRadius: '3px' }}>
-                              Ledger: ₹{baseOutstanding.toLocaleString()}
+                        {/* Explicit Breakdown Pills: Invoice Amount vs Previous Outstanding */}
+                        <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
+                          {invoicesSum > 0 && (
+                            <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-cyan)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.68rem', fontWeight: '600' }}>
+                              📄 {lang === 'ta' ? 'பில் நிலுவை' : 'Invoice Amount'}: ₹{invoicesSum.toLocaleString()} ({invoices.length})
                             </span>
                           )}
-                          {invoicesSum > 0 && (
-                            <span style={{ background: 'rgba(6, 182, 212, 0.12)', color: 'var(--accent-cyan)', padding: '1px 5px', borderRadius: '3px' }}>
-                              {invoices.length} Inv: ₹{invoicesSum.toLocaleString()}
+                          {baseOutstanding > 0 && (
+                            <span style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--warning)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.68rem', fontWeight: '600' }}>
+                              🏛️ {lang === 'ta' ? 'பழைய நிலுவை' : 'Prev Outstanding'}: ₹{baseOutstanding.toLocaleString()}
                             </span>
                           )}
                         </div>
@@ -552,7 +647,7 @@ export default function OutstandingCollection({ t, lang }) {
                           type="button"
                           className="btn"
                           style={{
-                            padding: '0.2rem 0.5rem',
+                            padding: '0.2rem 0.55rem',
                             fontSize: '0.75rem',
                             fontWeight: '600',
                             background: isSelected ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.08)',
@@ -575,58 +670,122 @@ export default function OutstandingCollection({ t, lang }) {
           {selectedShop && selectedShopInfo && (
             <div className="glass-card">
               <h2 style={{ fontSize: '1.05rem', marginBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>📄 {lang === 'ta' ? 'நிலுவை தொகையின் முழு விவரம்' : 'Outstanding Breakdown'}</span>
+                <span>📄 {lang === 'ta' ? 'நிலுவை தொகையின் விவரங்கள்' : 'Outstanding Breakdown'}</span>
                 <span style={{ fontSize: '0.75rem', background: 'rgba(245, 158, 11, 0.2)', color: 'var(--warning)', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
                   Total: ₹{selectedShopInfo.totalOutstanding.toLocaleString()}
                 </span>
               </h2>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
                 {/* Ledger balance item if present */}
                 {selectedShopInfo.baseOutstanding > 0 && (
-                  <div style={{ padding: '0.6rem 0.8rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px dashed var(--warning)', borderRadius: 'var(--radius)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div 
+                    onClick={() => {
+                      setAllocationTarget('outstanding');
+                      setTargetInvoiceId('');
+                      setCashAmount(selectedShopInfo.baseOutstanding);
+                      setGpayAmount(0);
+                      setChequeAmount(0);
+                    }}
+                    style={{ 
+                      padding: '0.75rem 0.85rem', 
+                      background: allocationTarget === 'outstanding' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.05)', 
+                      border: allocationTarget === 'outstanding' ? '2px solid var(--warning)' : '1px dashed var(--warning)', 
+                      borderRadius: 'var(--radius)', 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
                     <div>
-                      <strong style={{ fontSize: '0.85rem', color: 'var(--warning)' }}>💼 {lang === 'ta' ? 'முந்தைய / பொது கணக்கு நிலுவை' : 'General / Ledger Outstanding'}</strong>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block' }}>Shop Ledger Account</span>
+                      <strong style={{ fontSize: '0.88rem', color: 'var(--warning)', display: 'block' }}>
+                        🏛️ {lang === 'ta' ? 'முந்தைய / பழைய கணக்கு நிலுவை' : 'Previous Ledger Outstanding'}
+                      </strong>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        Opening Shop Ledger Balance (Does not affect sales invoices)
+                      </span>
                     </div>
-                    <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--warning)' }}>
-                      ₹{selectedShopInfo.baseOutstanding.toLocaleString()}
+                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem' }}>
+                      <div style={{ fontWeight: '800', fontSize: '1.05rem', color: 'var(--warning)' }}>
+                        ₹{selectedShopInfo.baseOutstanding.toLocaleString()}
+                      </div>
+                      <span style={{ fontSize: '0.68rem', background: allocationTarget === 'outstanding' ? 'var(--warning)' : 'rgba(245,158,11,0.2)', color: allocationTarget === 'outstanding' ? '#0f172a' : 'var(--warning)', padding: '2px 6px', borderRadius: '4px', fontWeight: '700' }}>
+                        {allocationTarget === 'outstanding' ? '✓ Target Selected' : '⚡ Pay Ledger'}
+                      </span>
                     </div>
                   </div>
                 )}
 
-                {/* Unpaid Invoices */}
-                {shopInvoices.map(inv => (
-                  <div 
-                    key={inv.id} 
-                    style={{
-                      padding: '0.6rem 0.8rem',
-                      background: 'rgba(255,255,255,0.02)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: 'var(--radius)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-primary)' }}>
-                        Invoice: {inv.invoice_number}
-                      </div>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                        📅 {new Date(inv.order_date).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: '800', fontSize: '0.95rem', color: 'var(--danger)' }}>
-                        ₹{inv.remaining_outstanding.toLocaleString()} <span style={{ fontSize: '0.7rem', fontWeight: 'normal' }}>Due</span>
-                      </div>
-                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                        Bill Amount: ₹{(inv.net_amount || 0).toLocaleString()}
-                      </span>
-                    </div>
+                {/* Unpaid Invoices Header */}
+                {shopInvoices.length > 0 && (
+                  <div style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--accent-cyan)', marginTop: '0.25rem', marginBottom: '-0.25rem' }}>
+                    📄 {lang === 'ta' ? 'விற்பனை பில்கள் நிலுவை (' + shopInvoices.length + ' பில்கள்):' : 'Open Sales Invoices (' + shopInvoices.length + ' Unpaid Bills):'}
                   </div>
-                ))}
+                )}
+
+                {/* Unpaid Invoices Interactive Cards */}
+                {shopInvoices.map(inv => {
+                  const isInvTarget = allocationTarget === 'invoice' && targetInvoiceId === inv.id;
+                  return (
+                    <div 
+                      key={inv.id} 
+                      onClick={() => {
+                        setAllocationTarget('invoice');
+                        setTargetInvoiceId(inv.id);
+                        setCashAmount(inv.remaining_outstanding);
+                        setGpayAmount(0);
+                        setChequeAmount(0);
+                      }}
+                      style={{
+                        padding: '0.75rem 0.85rem',
+                        background: isInvTarget ? 'rgba(6, 182, 212, 0.12)' : 'rgba(255,255,255,0.02)',
+                        border: isInvTarget ? '2px solid var(--accent-cyan)' : '1px solid var(--border-color)',
+                        borderRadius: 'var(--radius)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        boxShadow: isInvTarget ? '0 0 8px rgba(6, 182, 212, 0.2)' : 'none'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: '700', fontSize: '0.9rem', color: isInvTarget ? 'var(--accent-cyan)' : 'var(--text-primary)' }}>
+                          Invoice #{inv.invoice_number}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                          📅 Date: {new Date(inv.order_date).toLocaleDateString()}
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                          Bill Total: ₹{(inv.net_amount || 0).toLocaleString()} | Paid: ₹{(inv.total_collected || 0).toLocaleString()}
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
+                        <div style={{ fontWeight: '800', fontSize: '1.05rem', color: 'var(--danger)' }}>
+                          ₹{inv.remaining_outstanding.toLocaleString()} <span style={{ fontSize: '0.7rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>Due</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{
+                            padding: '0.2rem 0.6rem',
+                            fontSize: '0.72rem',
+                            fontWeight: '700',
+                            background: isInvTarget ? 'var(--accent-cyan)' : 'rgba(6, 182, 212, 0.15)',
+                            color: isInvTarget ? '#0f172a' : 'var(--accent-cyan)',
+                            border: 'none',
+                            borderRadius: '4px'
+                          }}
+                        >
+                          {isInvTarget ? '✓ Selected to Fulfill' : '⚡ Select & Pay Invoice'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

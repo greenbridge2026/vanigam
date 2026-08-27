@@ -5,7 +5,7 @@ const API_BASE = '/api';
 
 function apiFetch(url, options = {}, targetTenantId = null) {
   const headers = { ...options.headers };
-  const tenantId = targetTenantId || localStorage.getItem('tenantId') || 'default';
+  const tenantId = targetTenantId || localStorage.getItem('tenantId') || 'GSK_AGENCY';
   headers['x-tenant-id'] = tenantId;
   
   const sessionStr = localStorage.getItem('session');
@@ -23,13 +23,32 @@ function apiFetch(url, options = {}, targetTenantId = null) {
   return fetch(url, { ...options, headers });
 }
 
+// Robust response parser that reads body stream once as text and parses JSON safely
+async function parseJsonResponse(res, defaultErrMsg = 'API Request Failed') {
+  const text = await res.text();
+  let parsed = null;
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      // text is not valid JSON
+    }
+  }
+
+  if (!res.ok) {
+    const errorMsg = (parsed && (parsed.error || parsed.message)) || text || `${defaultErrMsg} (Status ${res.status})`;
+    throw new Error(errorMsg);
+  }
+
+  return parsed;
+}
 
 // Helper to load table data from Firestore directly (for real-time fallback/speed)
 async function getTableData(tableName, fallbackUrl, targetTenantId = null) {
-  const tenantId = targetTenantId || localStorage.getItem('tenantId');
+  const tenantId = targetTenantId || localStorage.getItem('tenantId') || 'GSK_AGENCY';
   if (isFirebaseConfigured && db) {
     try {
-      const docRef = doc(db, 'tenants', tenantId || 'default', 'tables', tableName);
+      const docRef = doc(db, 'tenants', tenantId, 'tables', tableName);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
         return docSnap.data().data || [];
@@ -40,7 +59,7 @@ async function getTableData(tableName, fallbackUrl, targetTenantId = null) {
     }
   }
   const res = await apiFetch(fallbackUrl, {}, tenantId);
-  return res.json();
+  return parseJsonResponse(res, `Failed to load ${tableName}`);
 }
 
 export const api = {
@@ -52,19 +71,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tenantId, username, password })
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Login failed');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Login failed');
   },
-
-
 
   // System / Super Admin
   async getTenants() {
     const res = await apiFetch(`${API_BASE}/system/tenants`);
-    return res.json();
+    return parseJsonResponse(res, 'Failed to fetch tenants');
   },
   async createTenant(tenantData) {
     const res = await apiFetch(`${API_BASE}/system/tenants`, {
@@ -72,11 +85,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(tenantData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create tenant');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to create tenant');
   },
   async updateTenantStatus(id, active) {
     const res = await apiFetch(`${API_BASE}/system/tenants/${id}/status`, {
@@ -84,17 +93,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ active })
     });
-    return res.json();
+    return parseJsonResponse(res, 'Failed to update tenant status');
   },
   async deleteTenant(id) {
     const res = await apiFetch(`${API_BASE}/system/tenants/${id}`, {
       method: 'DELETE'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to delete tenant');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to delete tenant');
   },
 
   async getUsers(targetTenantId = null) {
@@ -111,11 +116,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(routeData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create route');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to create route');
   },
   async updateRoute(id, routeData) {
     const res = await apiFetch(`${API_BASE}/routes/${id}`, {
@@ -123,21 +124,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(routeData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update route');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to update route');
   },
   async deleteRoute(id) {
     const res = await apiFetch(`${API_BASE}/routes/${id}`, {
       method: 'DELETE'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to delete route');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to delete route');
   },
 
   // Shops
@@ -150,11 +143,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(shopData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create shop');
-    }
-    const added = await res.json();
+    const added = await parseJsonResponse(res, 'Failed to create shop');
     if (isFirebaseConfigured && db) {
       try {
         const tenantId = localStorage.getItem('tenantId') || 'default';
@@ -174,11 +163,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(shopData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update shop');
-    }
-    const updated = await res.json();
+    const updated = await parseJsonResponse(res, 'Failed to update shop');
     if (isFirebaseConfigured && db) {
       try {
         const tenantId = localStorage.getItem('tenantId') || 'default';
@@ -208,11 +193,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(productData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create product');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to create product');
   },
   async updateProduct(id, productData) {
     const res = await apiFetch(`${API_BASE}/products/${id}`, {
@@ -220,11 +201,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(productData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update product');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to update product');
   },
   async importProducts(productsList) {
     const res = await apiFetch(`${API_BASE}/products/import`, {
@@ -232,21 +209,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(productsList)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to import products');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to import products');
   },
   async autoTranslateProducts() {
     const res = await apiFetch(`${API_BASE}/products/auto-translate-all`, {
       method: 'POST'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to auto translate products');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to auto translate products');
   },
   async importShops(routeId, shopsList) {
     const res = await apiFetch(`${API_BASE}/shops/import`, {
@@ -254,11 +223,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ routeId, shops: shopsList })
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to import shops');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to import shops');
   },
 
   // Purchases
@@ -271,11 +236,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(purchaseData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to record purchase');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to record purchase');
   },
   async updatePurchase(id, purchaseData) {
     const res = await apiFetch(`${API_BASE}/purchases/${id}`, {
@@ -283,11 +244,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(purchaseData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update purchase entry');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to update purchase entry');
   },
 
   // Stock Ledger
@@ -335,11 +292,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(orderData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to place order');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to place order');
   },
   async updateOrder(id, orderData) {
     const res = await apiFetch(`${API_BASE}/orders/${id}`, {
@@ -347,11 +300,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(orderData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update order/invoice');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to update order/invoice');
   },
 
   // Deliveries
@@ -364,21 +313,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to complete delivery');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to complete delivery');
   },
   async getDeliveryAuditTrail() {
     return getTableData('delivery_audit_trail', `${API_BASE}/delivery-audit-trail`);
   },
   async getSettings() {
     const res = await apiFetch(`${API_BASE}/settings`);
-    if (!res.ok) {
-      throw new Error('Failed to fetch settings');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to fetch settings');
   },
   async updateSettings(settings) {
     const res = await apiFetch(`${API_BASE}/settings`, {
@@ -386,13 +328,8 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
     });
-    if (!res.ok) {
-      throw new Error('Failed to update settings');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to update settings');
   },
-
-
 
   // Payments & Collections
   async getPayments() {
@@ -404,11 +341,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(paymentData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to register payment');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to register payment');
   },
   async getOutstandingHistory() {
     return getTableData('outstanding_history', `${API_BASE}/outstanding/history`);
@@ -422,13 +355,13 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/notifications/mark-read`, {
       method: 'POST'
     });
-    return res.json();
+    return parseJsonResponse(res, 'Failed to mark notifications read');
   },
 
   // Reports
   async getReportSummary() {
     const res = await apiFetch(`${API_BASE}/reports/summary`);
-    return res.json();
+    return parseJsonResponse(res, 'Failed to fetch report summary');
   },
 
   // Corrections & Cancellations
@@ -436,11 +369,7 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/shops/${id}`, {
       method: 'DELETE'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to delete shop');
-    }
-    const result = await res.json();
+    const result = await parseJsonResponse(res, 'Failed to delete shop');
     if (isFirebaseConfigured && db) {
       try {
         const tenantId = localStorage.getItem('tenantId') || 'default';
@@ -458,11 +387,7 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/products/${id}`, {
       method: 'DELETE'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to delete product');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to delete product');
   },
   async bulkDeleteProducts(ids) {
     const res = await apiFetch(`${API_BASE}/products/bulk-delete`, {
@@ -470,32 +395,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids })
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to bulk delete products');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to bulk delete products');
   },
 
   async deletePurchase(id) {
     const res = await apiFetch(`${API_BASE}/purchases/${id}`, {
       method: 'DELETE'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to delete purchase');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to delete purchase');
   },
   async deleteOrder(id) {
     const res = await apiFetch(`${API_BASE}/orders/${id}`, {
       method: 'DELETE'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to cancel/delete order');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to cancel/delete order');
   },
 
   // User Access Management
@@ -505,11 +418,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData)
     }, targetTenantId);
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create user access');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to create user access');
   },
   async updateUser(id, userData, targetTenantId = null) {
     const res = await apiFetch(`${API_BASE}/users/${id}`, {
@@ -517,21 +426,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData)
     }, targetTenantId);
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update user access');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to update user access');
   },
   async deleteUser(id, targetTenantId = null) {
     const res = await apiFetch(`${API_BASE}/users/${id}`, {
       method: 'DELETE'
     }, targetTenantId);
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to delete user access');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to delete user access');
   },
 
   // Recycle Bin
@@ -542,21 +443,13 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/recycle-bin/${id}/restore`, {
       method: 'POST'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to restore item');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to restore item');
   },
   async purgeRecycleBinItem(id) {
     const res = await apiFetch(`${API_BASE}/recycle-bin/${id}`, {
       method: 'DELETE'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to purge item');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to purge item');
   },
 
   // Vehicle Direct Sales
@@ -569,11 +462,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(vehicleData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create vehicle');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to create vehicle');
   },
   async updateVehicle(id, vehicleData) {
     const res = await apiFetch(`${API_BASE}/vehicles/${id}`, {
@@ -581,21 +470,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(vehicleData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update vehicle');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to update vehicle');
   },
   async deleteVehicle(id) {
     const res = await apiFetch(`${API_BASE}/vehicles/${id}`, {
       method: 'DELETE'
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to delete vehicle');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to delete vehicle');
   },
   async getVehicleStock() {
     return getTableData('vehicle_stock', `${API_BASE}/vehicles/stock`);
@@ -609,11 +490,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dispatchData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update vehicle dispatch');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to update vehicle dispatch');
   },
   async dispatchVehicleStock(dispatchData) {
     const res = await apiFetch(`${API_BASE}/vehicles/dispatch`, {
@@ -621,11 +498,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dispatchData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to dispatch vehicle stock');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to dispatch vehicle stock');
   },
   async getVehicleSales() {
     return getTableData('vehicle_sales', `${API_BASE}/vehicles/sales`);
@@ -636,11 +509,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(saleData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to record direct sale');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to record direct sale');
   },
   async getVehicleReconciliations() {
     return getTableData('vehicle_reconciliations', `${API_BASE}/vehicles/reconciliations`);
@@ -651,11 +520,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(reconcileData)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to reconcile vehicle stock');
-    }
-    return res.json();
+    return parseJsonResponse(res, 'Failed to reconcile vehicle stock');
   },
 
   async translate(text, from, to) {
@@ -664,12 +529,8 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, from, to })
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to translate');
-    }
-    const data = await res.json();
-    return data.translatedText;
+    const data = await parseJsonResponse(res, 'Failed to translate');
+    return data ? data.translatedText : '';
   }
 };
 
