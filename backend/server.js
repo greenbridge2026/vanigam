@@ -1893,11 +1893,11 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
 
       db.delivery_audit_trail.push({
         id: `dat_${Date.now()}`,
-        order_number: order.invoice_number,
+        order_number: order ? order.invoice_number : '',
         route_name: routeObj ? routeObj.name_en : '',
         shop_name: shop ? shop.name_en : '',
         delivery_person: deliveryManObj ? deliveryManObj.name : 'Delivery Man',
-        status: status,
+        status: finalStatus,
         reason: reason || '',
         remarks: remarks || '',
         timestamp: new Date().toISOString(),
@@ -2041,12 +2041,12 @@ function autoAllocatePaymentsAndFulfillOrders(db, shopId) {
         fulfillOrderInDb(db, order, shop);
       }
     } else {
-      // PARTIALLY PAID or UNPAID: Leave as OPEN (pending) unless returned or not delivered
-      if (order.status !== 'not_delivered' && order.status !== 'returned') {
+      // PARTIALLY PAID or UNPAID: Do NOT reset already delivered, not_delivered, or returned orders back to pending!
+      if (order.status !== 'delivered' && order.status !== 'not_delivered' && order.status !== 'returned') {
         order.status = 'pending';
-        if (del && del.status !== 'not_delivered' && del.status !== 'returned') {
-          del.status = 'pending';
-        }
+      }
+      if (del && del.status !== 'delivered' && del.status !== 'not_delivered' && del.status !== 'returned') {
+        del.status = 'pending';
       }
     }
   }

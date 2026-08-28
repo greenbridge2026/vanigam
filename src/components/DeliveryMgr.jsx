@@ -808,10 +808,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                     ? (lang === 'ta' ? 'பகுதியளவு நிலுவை (Open)' : 'Pending (Partially Paid)')
                     : t('pending');
 
-                  if (remainingInvoiceDue <= 0) {
+                  const isDeliveredStatus = d.status === 'delivered' || order.status === 'delivered' || remainingInvoiceDue <= 0;
+
+                  if (isDeliveredStatus) {
                     statusBg = 'rgba(16, 185, 129, 0.1)';
                     statusColor = 'var(--success)';
-                    statusLabel = t('delivered');
+                    statusLabel = remainingInvoiceDue > 0
+                      ? (lang === 'ta' ? 'விநியோகிக்கப்பட்டது (கடன்)' : 'Delivered (Credit)')
+                      : t('delivered');
                   } else if (d.status === 'not_delivered') {
                     statusBg = 'rgba(239, 68, 68, 0.1)';
                     statusColor = 'var(--danger)';
@@ -822,7 +826,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                     statusLabel = t('returned');
                   }
 
-                  const isFullyClosed = remainingInvoiceDue <= 0 || d.status === 'not_delivered' || d.status === 'returned';
+                  const isFullyClosed = isDeliveredStatus || d.status === 'not_delivered' || d.status === 'returned';
                   const isSelected = activeDelivery && activeDelivery.del.id === d.id;
                   return (
                     <tr 
@@ -876,7 +880,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'inline-flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                          {d.status === 'pending' ? (
+                          {!isDeliveredStatus && d.status === 'pending' ? (
                             <>
                               {(!session || session.role === 'admin' || session.role === 'salesman') && (
                                 <button
