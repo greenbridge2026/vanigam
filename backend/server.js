@@ -1804,17 +1804,10 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
     const shop = order ? db.shops.find(s => s.id === order.shop_id) : null;
 
     let finalStatus = requestedStatus;
-    if (order && requestedStatus === 'delivered') {
-      const orderPayments = (db.payments || []).filter(p => p.order_id === order.id);
-      const totalPaid = orderPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
-      if (totalPaid < Number(order.net_amount || 0)) {
-        finalStatus = 'pending'; // Invoice is partially paid or unpaid - keep Open in Deliveries!
-      }
-    }
 
     delivery.status = finalStatus;
     delivery.delivery_time = new Date().toISOString();
-    delivery.remarks = remarks || (finalStatus === 'delivered' ? 'Delivered successfully' : finalStatus === 'pending' ? 'Partially Paid - Invoice Open' : `${finalStatus} due to ${reason}`);
+    delivery.remarks = remarks || (finalStatus === 'delivered' ? 'Delivered successfully' : `${finalStatus} due to ${reason}`);
     delivery.reason = reason;
 
     if (order) {

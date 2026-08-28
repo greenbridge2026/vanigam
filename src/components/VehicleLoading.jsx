@@ -725,7 +725,7 @@ export default function VehicleLoading({ t, lang, session }) {
 
           {/* Consolidated Loading Summary Table */}
           <div className={`glass-card ${printScope === 'routewise' ? 'print-hide-consolidated' : ''}`} id="printable-loading-summary">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
               <h3 style={{ fontSize: '1.2rem', fontWeight: '700', margin: 0 }}>
                 📋 {lang === 'ta' ? 'ஏற்றுதல் விபரம் - ' : 'Consolidated Load List - '} {new Date(filterDate).toLocaleDateString()}
               </h3>
@@ -744,46 +744,89 @@ export default function VehicleLoading({ t, lang, session }) {
               </div>
             </div>
 
-            <div className="table-container">
-              <table className="custom-table" style={{ fontSize: '0.9rem' }}>
-                <thead>
-                  <tr>
-                    <th>S.No</th>
-                    <th>Product</th>
-                    <th>Brand</th>
-                    <th>Size</th>
-                    <th style={{ textAlign: 'right' }}>Total Cases</th>
-                    <th style={{ textAlign: 'right' }}>Total Bottles</th>
-                    <th style={{ textAlign: 'right' }}>Total Units</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {consolidatedRequirements.map((req, idx) => (
-                    <tr key={idx}>
-                      <td>{idx + 1}</td>
-                      <td><strong>{translateProductName(req.product, lang)}</strong></td>
-                      <td>{req.product.brand}</td>
-                      <td>{req.product.size}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--accent-cyan)' }}>{req.cases}</td>
-                      <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{req.bottles}</td>
-                      <td style={{ textAlign: 'right', color: 'var(--success)' }}>{req.total_bottles} B</td>
-                    </tr>
+            {(() => {
+              const pageChunks = [];
+              for (let i = 0; i < consolidatedRequirements.length; i += 23) {
+                pageChunks.push(consolidatedRequirements.slice(i, i + 23));
+              }
+
+              if (pageChunks.length === 0) {
+                return (
+                  <div className="table-container">
+                    <table className="custom-table" style={{ fontSize: '0.9rem' }}>
+                      <tbody>
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                            No order requirements found for this filter criteria.
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              }
+
+              return (
+                <div>
+                  {pageChunks.map((chunk, pageIdx) => (
+                    <div
+                      key={pageIdx}
+                      className="vehicle-loading-print-page"
+                      style={{
+                        marginBottom: pageIdx < pageChunks.length - 1 ? '1.5rem' : 0,
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      {pageIdx > 0 && (
+                        <div className="print-only" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '2px solid #000000', paddingBottom: '0.25rem' }}>
+                          <h4 style={{ margin: 0, fontWeight: 'bold', textTransform: 'uppercase', color: '#000000', fontSize: '0.95rem' }}>
+                            Consolidated Load List - {new Date(filterDate).toLocaleDateString()}
+                          </h4>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#000000' }}>
+                            Page {pageIdx + 1} of {pageChunks.length}
+                          </span>
+                        </div>
+                      )}
+
+                      <table className="custom-table" style={{ fontSize: '0.85rem' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: '7%', textAlign: 'center' }}>S.NO</th>
+                            <th>Product</th>
+                            <th>Brand</th>
+                            <th>Size</th>
+                            <th style={{ textAlign: 'right' }}>Total Cases</th>
+                            <th style={{ textAlign: 'right' }}>Total Bottles</th>
+                            <th style={{ textAlign: 'right' }}>Total Units</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {chunk.map((req, idx) => {
+                            const globalIndex = pageIdx * 23 + idx + 1;
+                            return (
+                              <tr key={idx} style={{ height: '26px' }}>
+                                <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{globalIndex}</td>
+                                <td><strong>{translateProductName(req.product, lang)}</strong></td>
+                                <td>{req.product.brand}</td>
+                                <td>{req.product.size}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--accent-cyan)' }}>{req.cases}</td>
+                                <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{req.bottles}</td>
+                                <td style={{ textAlign: 'right', color: 'var(--success)' }}>{req.total_bottles} B</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   ))}
-                  {consolidatedRequirements.length === 0 && (
-                    <tr>
-                      <td colSpan="7" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
-                        No order requirements found for this filter criteria.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Route-wise Load Summary */}
           {routeWiseBreakdown.length > 0 && (
-            <div className={`glass-card ${printScope === 'consolidated' ? 'print-hide-routewise' : ''}`}>
+            <div className={`glass-card ${printScope === 'all' ? 'vehicle-loading-route-breakdown-card' : ''} ${printScope === 'consolidated' ? 'print-hide-routewise' : ''}`}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
                 <h3 style={{ fontSize: '1.2rem', fontWeight: '700', margin: 0 }}>
                   🗺️ {lang === 'ta' ? 'வழித்தடம் வாரியான ஏற்றுதல் விபரம்' : 'Route-wise Loading Breakdown'}
@@ -1050,34 +1093,72 @@ export default function VehicleLoading({ t, lang, session }) {
             </h3>
 
             {/* Sub-report Renders */}
-            {reportType === 'loading_report' && (
-              <div className="table-container">
-                <table className="custom-table" style={{ fontSize: '0.9rem' }}>
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      <th>Brand</th>
-                      <th>Size</th>
-                      <th style={{ textAlign: 'right' }}>Total Cases</th>
-                      <th style={{ textAlign: 'right' }}>Total Bottles</th>
-                      <th style={{ textAlign: 'right' }}>Total Units</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {consolidatedRequirements.map((req, idx) => (
-                      <tr key={idx}>
-                        <td><strong>{translateProductName(req.product, lang)}</strong></td>
-                        <td>{req.product.brand}</td>
-                        <td>{req.product.size}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{req.cases}</td>
-                        <td style={{ textAlign: 'right' }}>{req.bottles}</td>
-                        <td style={{ textAlign: 'right', color: 'var(--success)' }}>{req.total_bottles} B</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {reportType === 'loading_report' && (() => {
+              const pageChunks = [];
+              for (let i = 0; i < consolidatedRequirements.length; i += 23) {
+                pageChunks.push(consolidatedRequirements.slice(i, i + 23));
+              }
+
+              if (pageChunks.length === 0) {
+                return <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>No loading requirements found.</div>;
+              }
+
+              return (
+                <div>
+                  {pageChunks.map((chunk, pageIdx) => (
+                    <div
+                      key={pageIdx}
+                      className="vehicle-loading-print-page"
+                      style={{
+                        marginBottom: pageIdx < pageChunks.length - 1 ? '1.5rem' : 0,
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      {pageIdx > 0 && (
+                        <div className="print-only" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '2px solid #000000', paddingBottom: '0.25rem' }}>
+                          <h4 style={{ margin: 0, fontWeight: 'bold', textTransform: 'uppercase', color: '#000000', fontSize: '0.95rem' }}>
+                            Consolidated Load List ({new Date(reportDateFrom).toLocaleDateString()} to {new Date(reportDateTo).toLocaleDateString()})
+                          </h4>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#000000' }}>
+                            Page {pageIdx + 1} of {pageChunks.length}
+                          </span>
+                        </div>
+                      )}
+
+                      <table className="custom-table" style={{ fontSize: '0.85rem' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: '7%', textAlign: 'center' }}>S.NO</th>
+                            <th>Product</th>
+                            <th>Brand</th>
+                            <th>Size</th>
+                            <th style={{ textAlign: 'right' }}>Total Cases</th>
+                            <th style={{ textAlign: 'right' }}>Total Bottles</th>
+                            <th style={{ textAlign: 'right' }}>Total Units</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {chunk.map((req, idx) => {
+                            const globalIndex = pageIdx * 23 + idx + 1;
+                            return (
+                              <tr key={idx} style={{ height: '26px' }}>
+                                <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{globalIndex}</td>
+                                <td><strong>{translateProductName(req.product, lang)}</strong></td>
+                                <td>{req.product.brand}</td>
+                                <td>{req.product.size}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{req.cases}</td>
+                                <td style={{ textAlign: 'right' }}>{req.bottles}</td>
+                                <td style={{ textAlign: 'right', color: 'var(--success)' }}>{req.total_bottles} B</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             {reportType === 'route_report' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
 import { translateShopName, translateRouteName } from '../translations';
@@ -25,6 +26,19 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isPrintSheetOpen, setIsPrintSheetOpen] = useState(false);
+  const [printScope, setPrintScope] = useState('filtered'); // 'filtered' | 'selected'
+
+  useEffect(() => {
+    if (isPrintSheetOpen) {
+      document.body.classList.add('print-sheet-active');
+    } else {
+      document.body.classList.remove('print-sheet-active');
+    }
+    return () => {
+      document.body.classList.remove('print-sheet-active');
+    };
+  }, [isPrintSheetOpen]);
 
   const handleToggleSelect = (id) => {
     setSelectedDeliveryIds(prev =>
@@ -38,6 +52,39 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     } else {
       setSelectedDeliveryIds(filteredDeliveries.map(d => d.id));
     }
+  };
+
+  const getPreviousOutstanding = (ord, shp) => {
+    if (!ord || !shp) return 0;
+    const shopOrders = (orders || []).filter(o => o.shop_id === ord.shop_id && o.status !== 'cancelled');
+    const shopPayments = (payments || []).filter(p => p.shop_id === ord.shop_id);
+    const currentOrderDate = new Date(ord.order_date).getTime();
+
+    const futureOrders = shopOrders.filter(o => {
+      if (o.id === ord.id) return false;
+      const oDate = new Date(o.order_date).getTime();
+      if (oDate > currentOrderDate) return true;
+      if (oDate === currentOrderDate) {
+        const numA = parseInt((String(o.invoice_number).match(/\d+/) || [0])[0], 10);
+        const numB = parseInt((String(ord.invoice_number).match(/\d+/) || [0])[0], 10);
+        return numA > numB;
+      }
+      return false;
+    });
+
+    const futureUnpaidNet = futureOrders.reduce((sum, futOrd) => {
+      const futPayments = shopPayments.filter(p => p.order_id === futOrd.id);
+      const futPaid = futPayments.reduce((pSum, p) => pSum + (Number(p.collected_amount) || 0), 0);
+      return sum + Math.max(0, (Number(futOrd.net_amount) || 0) - futPaid);
+    }, 0);
+
+    const shopCurrentBal = Number(shp.outstanding_amount || 0);
+    const shopBalAtOrderTime = Math.max(0, shopCurrentBal - futureUnpaidNet);
+    const currentPayments = shopPayments.filter(p => p.order_id === ord.id);
+    const totalCollected = currentPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+    const currentInvoiceUnpaid = Math.max(0, Number(ord.net_amount || 0) - totalCollected);
+
+    return Math.max(0, shopBalAtOrderTime - currentInvoiceUnpaid);
   };
 
   const handleBulkPrintTrigger = () => {
@@ -269,74 +316,26 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     setReason('');
   };
 
-  const handleFulfillOrder = async (status, selectedReason, customRemarks) => {
-    if (!activeDelivery) return;
+  const handleDirectCreditFulfill = async (del) => {
+    const order = orders.find(o => o.id === del.order_id);
+    if (!order) return;
 
-    const finalRemarks = customRemarks !== undefined ? customRemarks : remarks;
+    if (!window.confirm(lang === 'ta' 
+      ? `இந்த பில்லை கடனில் (ரூ. 0 வசூல்) விநியோகிக்க விரும்புகிறீர்களா?\nமுழுத் தொகையும் நிலுவையில் சேர்க்கப்படும்.`
+      : `Deliver on credit (₹0 collected)?\nFull invoice amount will remain in Outstanding Collection.`)) {
+      return;
+    }
 
-    setSubmitting(true);
+    const remarksMsg = 'Delivered on Credit (₹0 Collected)';
+    setDeliveries(prev => prev.map(d => d.id === del.id ? { ...d, status: 'delivered', remarks: remarksMsg } : d));
+    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'delivered' } : o));
+
     try {
-      const { del, order, shop } = activeDelivery;
-      
-      // 1. Process Collection Payment if status is delivered and collected amount is entered
-      let isPartial = false;
-      let effectiveStatus = status;
-
-      if (status === 'delivered') {
-        const ordAmt = Number(orderPaymentAmount || 0);
-        const prevAmt = Number(prevOutstandingAmount || 0);
-        if (ordAmt > 0 || prevAmt > 0) {
-          const paymentsToSubmit = [];
-          if (ordAmt > 0) {
-            paymentsToSubmit.push({
-              shop_id: shop.id,
-              order_id: order.id,
-              collected_amount: ordAmt,
-              payment_mode: paymentMode === 'split' ? 'cash' : paymentMode,
-              transaction_number: (paymentMode === 'gpay' || paymentMode === 'split') ? (gpayTxn || `TXN-${Date.now()}`) : '',
-              reference_number: '',
-              payment_date: new Date().toISOString()
-            });
-          }
-          if (prevAmt > 0) {
-            paymentsToSubmit.push({
-              shop_id: shop.id,
-              order_id: '',
-              collected_amount: prevAmt,
-              payment_mode: paymentMode === 'split' ? 'gpay' : paymentMode,
-              transaction_number: (paymentMode === 'gpay' || paymentMode === 'split') ? (gpayTxn || `TXN-${Date.now()}`) : '',
-              reference_number: '',
-              payment_date: new Date().toISOString()
-            });
-          }
-          await api.createPayment({ payments: paymentsToSubmit });
-        }
-
-        const totalPaidOnOrder = (Number(orderPaymentAmount) || 0);
-        if (totalPaidOnOrder < Number(order.net_amount || 0)) {
-          isPartial = true;
-          effectiveStatus = 'pending';
-        }
-      }
-
-      // 2. Mark Delivery complete on backend
       await api.completeDelivery(del.id, {
-        status: effectiveStatus,
-        reason: selectedReason,
-        remarks: customRemarks || (isPartial ? `Partially Paid (₹${orderPaymentAmount} of ₹${order.net_amount}). Balance ₹${order.net_amount - orderPaymentAmount} Due.` : undefined)
+        status: 'delivered',
+        remarks: remarksMsg
       });
 
-      alert(
-        status === 'delivered'
-          ? (isPartial 
-              ? `Partial payment of ₹${orderPaymentAmount} recorded! Invoice remains Open in Deliveries with balance ₹${order.net_amount - orderPaymentAmount}.`
-              : 'Delivery recorded successfully! / விநியோகம் பதிவு செய்யப்பட்டது!')
-          : status === 'returned'
-          ? 'Order marked as Returned. Stock and outstanding reverted. / ஆர்டர் திரும்பப் பெறப்பட்டது.'
-          : 'Order marked as Not Delivered. Stock and outstanding reverted. / ஆர்டர் விநியோகிக்கப்படவில்லை.'
-      );
-
-      // Reload dataset
       const [dData, oData, sData, pData] = await Promise.all([
         api.getDeliveries(),
         api.getOrders(),
@@ -347,13 +346,123 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       setOrders(oData);
       setShops(sData);
       setPayments(pData);
-      
-      setActiveDelivery(null);
-      setNonDeliveryModalOpen(false);
     } catch (err) {
+      console.error('Error fulfilling credit delivery:', err);
+      const [dData, oData, sData, pData] = await Promise.all([
+        api.getDeliveries(),
+        api.getOrders(),
+        api.getShops(),
+        api.getPayments()
+      ]);
+      setDeliveries(dData);
+      setOrders(oData);
+      setShops(sData);
+      setPayments(pData);
+      alert('Error updating credit delivery: ' + (err.message || err));
+    }
+  };
+
+  const handleFulfillOrder = async (status, selectedReason, customRemarks) => {
+    if (!activeDelivery) return;
+
+    const { del, order, shop } = activeDelivery;
+    const finalRemarks = customRemarks !== undefined ? customRemarks : remarks;
+    const ordAmt = Number(orderPaymentAmount || 0);
+    const prevAmt = Number(prevOutstandingAmount || 0);
+
+    // 1. Instantly update local state optimistically for lightning-fast UX
+    setDeliveries(prev => prev.map(d => d.id === del.id ? { ...d, status, remarks: finalRemarks, reason: selectedReason } : d));
+    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status } : o));
+
+    if (status === 'delivered' && (ordAmt > 0 || prevAmt > 0)) {
+      const newPayItems = [];
+      if (ordAmt > 0) {
+        newPayItems.push({
+          id: `p_opt_${Date.now()}_1`,
+          shop_id: shop.id,
+          order_id: order.id,
+          collected_amount: ordAmt,
+          payment_mode: paymentMode === 'split' ? 'cash' : paymentMode,
+          payment_date: new Date().toISOString()
+        });
+      }
+      if (prevAmt > 0) {
+        newPayItems.push({
+          id: `p_opt_${Date.now()}_2`,
+          shop_id: shop.id,
+          order_id: '',
+          collected_amount: prevAmt,
+          payment_mode: paymentMode === 'split' ? 'gpay' : paymentMode,
+          payment_date: new Date().toISOString()
+        });
+      }
+      setPayments(prev => [...prev, ...newPayItems]);
+    }
+
+    // 2. Instantly close modal and reset state
+    setActiveDelivery(null);
+    setNonDeliveryModalOpen(false);
+
+    // 3. Background asynchronous API persistence
+    try {
+      if (status === 'delivered' && (ordAmt > 0 || prevAmt > 0)) {
+        const paymentsToSubmit = [];
+        if (ordAmt > 0) {
+          paymentsToSubmit.push({
+            shop_id: shop.id,
+            order_id: order.id,
+            collected_amount: ordAmt,
+            payment_mode: paymentMode === 'split' ? 'cash' : paymentMode,
+            transaction_number: (paymentMode === 'gpay' || paymentMode === 'split') ? (gpayTxn || `TXN-${Date.now()}`) : '',
+            reference_number: '',
+            payment_date: new Date().toISOString()
+          });
+        }
+        if (prevAmt > 0) {
+          paymentsToSubmit.push({
+            shop_id: shop.id,
+            order_id: '',
+            collected_amount: prevAmt,
+            payment_mode: paymentMode === 'split' ? 'gpay' : paymentMode,
+            transaction_number: (paymentMode === 'gpay' || paymentMode === 'split') ? (gpayTxn || `TXN-${Date.now()}`) : '',
+            reference_number: '',
+            payment_date: new Date().toISOString()
+          });
+        }
+        await api.createPayment({ payments: paymentsToSubmit });
+      }
+
+      await api.completeDelivery(del.id, {
+        status: status,
+        reason: selectedReason,
+        remarks: finalRemarks
+      });
+
+      // Reload dataset in background to ensure sync
+      const [dData, oData, sData, pData] = await Promise.all([
+        api.getDeliveries(),
+        api.getOrders(),
+        api.getShops(),
+        api.getPayments()
+      ]);
+      setDeliveries(dData);
+      setOrders(oData);
+      setShops(sData);
+      setPayments(pData);
+    } catch (err) {
+      console.error('Error in background delivery fulfillment:', err);
+      // Fallback reload if backend error occurred
+      const [dData, oData, sData, pData] = await Promise.all([
+        api.getDeliveries(),
+        api.getOrders(),
+        api.getShops(),
+        api.getPayments()
+      ]);
+      setDeliveries(dData);
+      setOrders(oData);
+      setShops(sData);
+      setPayments(pData);
       alert('Error updating delivery logistics: ' + (err.message || err));
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -467,6 +576,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       const route = routes.find(r => r.id === order.route_id);
       const shopEn = shop ? (shop.name_en || shop.name || '').toLowerCase() : '';
       const shopTa = shop ? (shop.name_ta || '').toLowerCase() : '';
+      const shopMobile = shop ? (shop.mobile || '').toLowerCase() : '';
       const routeEn = route ? (route.name_en || route.name || '').toLowerCase() : '';
       const routeTa = route ? (route.name_ta || '').toLowerCase() : '';
       const delPerson = (d.delivery_man || '').toLowerCase();
@@ -474,6 +584,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       const matches = invNum.includes(q) ||
         shopEn.includes(q) ||
         shopTa.includes(q) ||
+        shopMobile.includes(q) ||
         routeEn.includes(q) ||
         routeTa.includes(q) ||
         delPerson.includes(q);
@@ -502,7 +613,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
+      <div className="no-print" style={{ marginBottom: '2rem' }}>
         <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>🚚 {t('deliveries')}</h1>
         <p style={{ color: 'var(--text-muted)' }}>Fulfill orders, collect outstanding payments, and issue final shop receipts</p>
       </div>
@@ -511,59 +622,108 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         
         {/* Deliveries list */}
         <div className="glass-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', flex: 1 }}>
-              <h2 style={{ margin: 0, fontSize: '1.25rem', whiteSpace: 'nowrap' }}>{t('assigned_orders')}</h2>
-              
-              <input
-                type="text"
-                className="form-control"
-                placeholder={lang === 'ta' ? '🔍 இன்வாய்ஸ், கடை, வழி தேடுக...' : '🔍 Search Invoice, Shop, Route...'}
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                style={{ width: '220px', padding: '0.4rem 0.75rem', fontSize: '0.9rem', margin: 0 }}
-              />
+          {/* Top Control Bar (Clean 2-row layout for 100% zoom fit) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {/* Row 1: Title, Search, Filters, Print Button */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', flex: 1 }}>
+                <h2 style={{ margin: 0, fontSize: '1.2rem', whiteSpace: 'nowrap' }}>{t('assigned_orders')}</h2>
+                
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder={lang === 'ta' ? '🔍 இன்வாய்ஸ், கடை, போன்...' : '🔍 Search Invoice, Shop, Phone...'}
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    style={{ width: '210px', padding: '0.35rem 1.8rem 0.35rem 0.65rem', fontSize: '0.85rem', margin: 0, height: '36px' }}
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        fontSize: '0.85rem',
+                        padding: 0
+                      }}
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
 
-              <select
-                className="form-select"
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
-                style={{ width: '150px', padding: '0.4rem 0.75rem', fontSize: '0.9rem', margin: 0 }}
-              >
-                <option value="all">{lang === 'ta' ? 'அனைத்து நிலை' : 'All Statuses'}</option>
-                <option value="pending">{lang === 'ta' ? 'நிலுவையில் உள்ளவை' : 'Pending'}</option>
-                <option value="delivered">{lang === 'ta' ? 'விநியோகிக்கப்பட்டவை' : 'Delivered'}</option>
-                <option value="not_delivered">{lang === 'ta' ? 'விநியோகிக்கப்படாதவை' : 'Not Delivered'}</option>
-                <option value="returned">{lang === 'ta' ? 'திரும்பப் பெறப்பட்டவை' : 'Returned'}</option>
-              </select>
+                <select
+                  className="form-select"
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                  style={{ width: '140px', padding: '0.35rem 0.65rem', fontSize: '0.85rem', margin: 0, height: '36px' }}
+                >
+                  <option value="all">{lang === 'ta' ? 'அனைத்து நிலை' : 'All Statuses'}</option>
+                  <option value="pending">{lang === 'ta' ? 'நிலுவையில் உள்ளவை' : 'Pending'}</option>
+                  <option value="delivered">{lang === 'ta' ? 'விநியோகிக்கப்பட்டவை' : 'Delivered'}</option>
+                  <option value="not_delivered">{lang === 'ta' ? 'விநியோகிக்கப்படாதவை' : 'Not Delivered'}</option>
+                  <option value="returned">{lang === 'ta' ? 'திரும்பப் பெறப்பட்டவை' : 'Returned'}</option>
+                </select>
 
-              <select
-                className="form-select"
-                value={routeFilter}
-                onChange={e => setRouteFilter(e.target.value)}
-                style={{ width: '180px', padding: '0.4rem 0.75rem', fontSize: '0.9rem', margin: 0 }}
-              >
-                <option value="all">{lang === 'ta' ? 'அனைத்து வழிகள்' : 'All Routes'}</option>
-                {routes.map(r => (
-                  <option key={r.id} value={r.id}>
-                    {lang === 'ta' ? r.name_ta : r.name_en}
-                  </option>
-                ))}
-              </select>
+                <select
+                  className="form-select"
+                  value={routeFilter}
+                  onChange={e => setRouteFilter(e.target.value)}
+                  style={{ width: '170px', padding: '0.35rem 0.65rem', fontSize: '0.85rem', margin: 0, height: '36px' }}
+                >
+                  <option value="all">{lang === 'ta' ? 'அனைத்து வழிகள்' : 'All Routes'}</option>
+                  {routes.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {lang === 'ta' ? r.name_ta : r.name_en}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{lang === 'ta' ? 'முதல்' : 'From'}:</span>
+              <div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => window.print()}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.4rem 0.85rem',
+                    fontSize: '0.85rem',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  🖨️ {lang === 'ta' ? 'விநியோகத் தாள் அச்சிடு' : 'Print Delivery Sheet'}
+                  {selectedDeliveryIds.length > 0 ? ` (${selectedDeliveryIds.length})` : ` (${filteredDeliveries.length})`}
+                </button>
+              </div>
+            </div>
+
+            {/* Row 2: Date Range Filters */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'முதல்' : 'From'}:</span>
                 <input
                   type="date"
                   className="form-select"
                   value={startDate}
                   onChange={e => setStartDate(e.target.value)}
                   style={{ 
-                    padding: '0.4rem 0.5rem', 
-                    fontSize: '0.9rem', 
-                    width: '145px', 
+                    padding: '0.3rem 0.5rem', 
+                    fontSize: '0.85rem', 
+                    width: '135px', 
                     margin: 0,
-                    height: '38px',
+                    height: '34px',
                     lineHeight: '1.2',
                     background: 'var(--bg-input)',
                     color: 'var(--text-main)',
@@ -573,19 +733,19 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                 />
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{lang === 'ta' ? 'வரை' : 'To'}:</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'வரை' : 'To'}:</span>
                 <input
                   type="date"
                   className="form-select"
                   value={endDate}
                   onChange={e => setEndDate(e.target.value)}
                   style={{ 
-                    padding: '0.4rem 0.5rem', 
-                    fontSize: '0.9rem', 
-                    width: '145px', 
+                    padding: '0.3rem 0.5rem', 
+                    fontSize: '0.85rem', 
+                    width: '135px', 
                     margin: 0,
-                    height: '38px',
+                    height: '34px',
                     lineHeight: '1.2',
                     background: 'var(--bg-input)',
                     color: 'var(--text-main)',
@@ -600,34 +760,19 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   type="button"
                   className="language-btn"
                   onClick={() => { setStartDate(''); setEndDate(''); }}
-                  style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem', margin: 0, height: '38px' }}
+                  style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem', margin: 0, height: '34px' }}
                 >
                   {lang === 'ta' ? 'அழி' : 'Clear'}
                 </button>
               )}
             </div>
-            {selectedDeliveryIds.length > 0 && (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleBulkPrintTrigger}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.4rem 1rem',
-                  fontSize: '0.85rem'
-                }}
-              >
-                🖨️ {lang === 'ta' ? 'தேர்ந்தெடுக்கப்பட்டவற்றை அச்சிடு' : 'Print Selected'} ({selectedDeliveryIds.length})
-              </button>
-            )}
           </div>
-          <div className="table-container">
-            <table className="custom-table">
+
+          <div className="table-container" style={{ overflowX: 'auto' }}>
+            <table className="custom-table" style={{ width: '100%', fontSize: '0.85rem' }}>
               <thead>
                 <tr>
-                  <th style={{ width: '40px', padding: '0.75rem 0.5rem', textAlign: 'center' }}>
+                  <th style={{ width: '38px', padding: '0.5rem 0.25rem', textAlign: 'center' }}>
                     <input
                       type="checkbox"
                       className="form-checkbox"
@@ -706,11 +851,16 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                         </div>
                       </td>
                       <td>{t('delivery_man')}</td>
-                      <td>₹{order.net_amount}</td>
+                      <td>₹{Number(order.net_amount || 0).toLocaleString()}</td>
                       <td>
-                        <strong style={{ color: remainingInvoiceDue > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                          ₹{remainingInvoiceDue.toLocaleString()}
-                        </strong>
+                        {(() => {
+                          const prevOutstanding = getPreviousOutstanding(order, shop);
+                          return (
+                            <strong style={{ color: prevOutstanding > 0 ? 'var(--warning)' : 'var(--text-muted)' }}>
+                              ₹{prevOutstanding.toLocaleString()}
+                            </strong>
+                          );
+                        })()}
                       </td>
                       <td>
                         <span style={{
@@ -919,7 +1069,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
                       return (
                         <>
-                          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.85rem' }}>
+                          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.85rem', flexWrap: 'wrap' }}>
                             <button
                               type="button"
                               className="language-btn"
@@ -928,9 +1078,9 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                 padding: '0.45rem 0.5rem',
                                 fontSize: '0.8rem',
                                 fontWeight: '600',
-                                borderColor: prevOutstandingAmount === 0 ? 'var(--success)' : 'var(--border-color)',
-                                background: prevOutstandingAmount === 0 ? 'rgba(16, 185, 129, 0.12)' : 'none',
-                                color: prevOutstandingAmount === 0 ? 'var(--success)' : 'var(--text-muted)'
+                                borderColor: (orderPaymentAmount > 0 && prevOutstandingAmount === 0) ? 'var(--success)' : 'var(--border-color)',
+                                background: (orderPaymentAmount > 0 && prevOutstandingAmount === 0) ? 'rgba(16, 185, 129, 0.12)' : 'none',
+                                color: (orderPaymentAmount > 0 && prevOutstandingAmount === 0) ? 'var(--success)' : 'var(--text-muted)'
                               }}
                               onClick={() => {
                                 setOrderPaymentAmount(initialInvoiceDue);
@@ -960,6 +1110,25 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                 🟠 {lang === 'ta' ? 'மொத்த நிலுவையும் (₹' : 'Full Outstanding (₹'}{totalShopBal})
                               </button>
                             )}
+                            <button
+                              type="button"
+                              className="language-btn"
+                              style={{
+                                flex: 1,
+                                padding: '0.45rem 0.5rem',
+                                fontSize: '0.8rem',
+                                fontWeight: '600',
+                                borderColor: (orderPaymentAmount === 0 && prevOutstandingAmount === 0) ? 'var(--accent-blue)' : 'var(--border-color)',
+                                background: (orderPaymentAmount === 0 && prevOutstandingAmount === 0) ? 'rgba(59, 130, 246, 0.12)' : 'none',
+                                color: (orderPaymentAmount === 0 && prevOutstandingAmount === 0) ? 'var(--accent-blue)' : 'var(--text-muted)'
+                              }}
+                              onClick={() => {
+                                setOrderPaymentAmount(0);
+                                setPrevOutstandingAmount(0);
+                              }}
+                            >
+                              💳 {lang === 'ta' ? 'கடன் விநியோகம் (ரூ. 0)' : 'Credit Delivery (₹0 Paid)'}
+                            </button>
                           </div>
 
                           {/* Payment Mode Select Dropdown */}
@@ -1500,6 +1669,148 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
           </div>
         </div>
+      )}
+
+      {/* Direct Delivery Sheet Print Template (Mounted on document.body to ensure direct printing & zero blank page 1) */}
+      {ReactDOM.createPortal(
+        <div className="delivery-sheet-print-only">
+          {(() => {
+            const itemsToPrint = selectedDeliveryIds.length > 0
+              ? filteredDeliveries.filter(d => selectedDeliveryIds.includes(d.id))
+              : filteredDeliveries;
+
+            if (itemsToPrint.length === 0) return null;
+
+            // Chunk items into pages of exactly 20 items each
+            const pageChunks = [];
+            for (let i = 0; i < itemsToPrint.length; i += 20) {
+              pageChunks.push(itemsToPrint.slice(i, i + 20));
+            }
+
+            const activeRouteObj = routes.find(r => r.id === routeFilter);
+            const activeRouteName = routeFilter !== 'all' ? (activeRouteObj?.name_en || activeRouteObj?.name || 'Filtered Route') : 'All Routes';
+
+            return (
+              <div>
+                {pageChunks.map((chunk, pageIdx) => (
+                  <div
+                    key={pageIdx}
+                    className="delivery-print-page"
+                    style={{
+                      pageBreakAfter: pageIdx < pageChunks.length - 1 ? 'always' : 'auto',
+                      breakAfter: pageIdx < pageChunks.length - 1 ? 'page' : 'auto',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    {/* Page Header (Repeated at top of EVERY page chunk) */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '8px', borderBottom: '2px solid #000000', paddingBottom: '4px' }}>
+                      <div>
+                        <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '800', color: '#000000', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                          GSK AGENCY - DELIVERY SHEET
+                        </h1>
+                        <div style={{ fontSize: '0.78rem', color: '#1e293b', marginTop: '2px', fontWeight: 'bold' }}>
+                          Date: {new Date().toLocaleDateString('en-IN')} | Route: {activeRouteName} | Status: {statusFilter.toUpperCase()}
+                          {(startDate || endDate) ? ` | Dates: ${startDate || 'Start'} - ${endDate || 'Today'}` : ''}
+                          {searchQuery ? ` | Search: "${searchQuery}"` : ''}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', fontSize: '0.78rem', fontWeight: 'bold', color: '#000000' }}>
+                        Page {pageIdx + 1} of {pageChunks.length} ({itemsToPrint.length} items)
+                      </div>
+                    </div>
+
+                    {/* Delivery Items Table */}
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', fontFamily: 'Arial, sans-serif' }}>
+                      <thead>
+                        <tr style={{ background: '#e2e8f0', color: '#000000' }}>
+                          <th style={{ border: '1px solid #000000', padding: '4px 5px', textAlign: 'left', width: '13%' }}>Invoice No</th>
+                          <th style={{ border: '1px solid #000000', padding: '4px 5px', textAlign: 'left', width: '12%' }}>Date</th>
+                          <th style={{ border: '1px solid #000000', padding: '4px 5px', textAlign: 'left', width: '32%' }}>Shop & Route</th>
+                          <th style={{ border: '1px solid #000000', padding: '4px 5px', textAlign: 'right', width: '14%' }}>Invoice Amount</th>
+                          <th style={{ border: '1px solid #000000', padding: '4px 5px', textAlign: 'right', width: '15%' }}>Outstanding Amount to Pay</th>
+                          <th style={{ border: '1px solid #000000', padding: '4px 5px', textAlign: 'center', width: '14%' }}>Payment</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chunk.map((d, itemIdx) => {
+                          const order = orders.find(o => o.id === d.order_id);
+                          if (!order) return null;
+                          const shop = shops.find(s => s.id === order.shop_id);
+                          const route = routes.find(r => r.id === order.route_id);
+                          
+                          // Calculate Previous Outstanding EXCLUDING current invoice
+                          const getPreviousOutstanding = (ord, shp) => {
+                            if (!ord || !shp) return 0;
+                            const shopOrders = (orders || []).filter(o => o.shop_id === ord.shop_id && o.status !== 'cancelled');
+                            const shopPayments = (payments || []).filter(p => p.shop_id === ord.shop_id);
+                            const currentOrderDate = new Date(ord.order_date).getTime();
+
+                            const futureOrders = shopOrders.filter(o => {
+                              if (o.id === ord.id) return false;
+                              const oDate = new Date(o.order_date).getTime();
+                              if (oDate > currentOrderDate) return true;
+                              if (oDate === currentOrderDate) {
+                                const numA = parseInt((String(o.invoice_number).match(/\d+/) || [0])[0], 10);
+                                const numB = parseInt((String(ord.invoice_number).match(/\d+/) || [0])[0], 10);
+                                return numA > numB;
+                              }
+                              return false;
+                            });
+
+                            const futureUnpaidNet = futureOrders.reduce((sum, futOrd) => {
+                              const futPayments = shopPayments.filter(p => p.order_id === futOrd.id);
+                              const futPaid = futPayments.reduce((pSum, p) => pSum + (Number(p.collected_amount) || 0), 0);
+                              return sum + Math.max(0, (Number(futOrd.net_amount) || 0) - futPaid);
+                            }, 0);
+
+                            const shopCurrentBal = Number(shp.outstanding_amount || 0);
+                            const shopBalAtOrderTime = Math.max(0, shopCurrentBal - futureUnpaidNet);
+                            const currentPayments = shopPayments.filter(p => p.order_id === ord.id);
+                            const totalCollected = currentPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+                            const currentInvoiceUnpaid = Math.max(0, Number(ord.net_amount || 0) - totalCollected);
+
+                            return Math.max(0, shopBalAtOrderTime - currentInvoiceUnpaid);
+                          };
+
+                          const prevOutstanding = getPreviousOutstanding(order, shop);
+
+                          return (
+                            <tr key={d.id} style={{ height: '28px', background: itemIdx % 2 === 1 ? '#f8fafc' : '#ffffff' }}>
+                              <td style={{ border: '1px solid #000000', padding: '3px 5px', fontWeight: 'bold', color: '#000000' }}>
+                                {order.invoice_number}
+                              </td>
+                              <td style={{ border: '1px solid #000000', padding: '3px 5px', color: '#000000' }}>
+                                {order.order_date ? new Date(order.order_date).toLocaleDateString('en-IN') : 'N/A'}
+                              </td>
+                              <td style={{ border: '1px solid #000000', padding: '3px 5px', color: '#000000' }}>
+                                <div style={{ fontWeight: 'bold' }}>
+                                  {shop ? (shop.name_en || shop.name) : ''} {shop?.name_ta ? `(${shop.name_ta})` : ''}
+                                </div>
+                                <div style={{ fontSize: '0.7rem', color: '#334155' }}>
+                                  Route: {route ? (route.name_en || route.name) : 'N/A'}
+                                </div>
+                              </td>
+                              <td style={{ border: '1px solid #000000', padding: '3px 5px', textAlign: 'right', fontWeight: 'bold', color: '#000000' }}>
+                                ₹{Number(order.net_amount || 0).toLocaleString('en-IN')}
+                              </td>
+                              <td style={{ border: '1px solid #000000', padding: '3px 5px', textAlign: 'right', fontWeight: 'bold', color: '#000000' }}>
+                                ₹{prevOutstanding.toLocaleString('en-IN')}
+                              </td>
+                              <td style={{ border: '1px solid #000000', padding: '3px 5px', background: '#ffffff' }}>
+                                {/* Blank every time for manual handwritten entry */}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>,
+        document.body
       )}
     </div>
   );
