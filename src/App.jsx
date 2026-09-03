@@ -578,7 +578,7 @@ export default function App() {
       case 'recycle_bin':
         return <RecycleBin t={t} lang={lang} />;
       case 'outstanding_collection':
-        return <OutstandingCollection t={t} lang={lang} />;
+        return <OutstandingCollection t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} />;
       case 'vehicle_sales':
         return <VehicleDirectSales t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} />;
       default:

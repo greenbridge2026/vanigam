@@ -521,33 +521,50 @@ export default function VehicleLoading({ t, lang, session }) {
       {/* Embedded Print CSS for print options */}
       <style>{`
         @media print {
+          @page {
+            size: portrait;
+            margin: 8mm;
+          }
           .no-print { display: none !important; }
-          .printable-header-banner { display: block !important; margin-bottom: 20px; }
-          body { background: #fff !important; color: #000 !important; font-family: sans-serif; }
+          .printable-header-banner { display: block !important; margin-bottom: 15px; }
+          body { background: #fff !important; color: #000 !important; font-family: system-ui, -apple-system, sans-serif; margin: 0 !important; padding: 0 !important; }
           .glass-card {
             background: #fff !important;
-            border: 1px solid #999 !important;
+            border: none !important;
             box-shadow: none !important;
             color: #000 !important;
-            padding: 12px !important;
-            margin-bottom: 20px !important;
-            break-inside: avoid;
+            padding: 0 !important;
+            margin-bottom: 15px !important;
+            break-inside: auto;
+          }
+          .table-container {
+            overflow: visible !important;
+            width: 100% !important;
+            border: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
           .custom-table {
             width: 100% !important;
+            table-layout: auto !important;
             border-collapse: collapse !important;
             color: #000 !important;
+            margin-top: 4px !important;
           }
           .custom-table th, .custom-table td {
-            border: 1px solid #333 !important;
-            padding: 6px 10px !important;
+            border: 1px solid #000 !important;
+            padding: 4px 6px !important;
             color: #000 !important;
-            font-size: 11pt !important;
+            font-size: 9pt !important;
+            white-space: normal !important;
+            word-break: break-word !important;
           }
           .custom-table th {
-            background-color: #f0f0f0 !important;
+            background-color: #f1f5f9 !important;
             color: #000 !important;
-            font-weight: bold !important;
+            font-weight: 800 !important;
+            text-transform: uppercase !important;
+            font-size: 8.5pt !important;
           }
           .print-hide-consolidated { display: none !important; }
           .print-hide-routewise { display: none !important; }
@@ -729,10 +746,20 @@ export default function VehicleLoading({ t, lang, session }) {
               <h3 style={{ fontSize: '1.2rem', fontWeight: '700', margin: 0 }}>
                 📋 {lang === 'ta' ? 'ஏற்றுதல் விபரம் - ' : 'Consolidated Load List - '} {new Date(filterDate).toLocaleDateString()}
               </h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <span style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '700' }}>
                   {filteredOrders.length} Orders
                 </span>
+                {(() => {
+                  const tCases = consolidatedRequirements.reduce((sum, r) => sum + Number(r.cases || 0), 0);
+                  const tBottles = consolidatedRequirements.reduce((sum, r) => sum + Number(r.bottles || 0), 0);
+                  const tUnits = consolidatedRequirements.reduce((sum, r) => sum + Number(r.total_bottles || 0), 0);
+                  return (
+                    <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: 'var(--accent-cyan)', padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '700' }}>
+                      📦 {lang === 'ta' ? 'மொத்த பாட்டில்கள்' : 'Total Load'}: {tCases} Cases {tBottles > 0 ? `, ${tBottles} B` : ''} ({tUnits} Units)
+                    </span>
+                  );
+                })()}
                 <button
                   type="button"
                   className="btn btn-secondary no-print"
@@ -815,7 +842,23 @@ export default function VehicleLoading({ t, lang, session }) {
                               </tr>
                             );
                           })}
-                        </tbody>
+                         </tbody>
+                        <tfoot style={{ borderTop: '2px solid var(--border-color)', fontWeight: 'bold', background: 'rgba(255,255,255,0.04)' }}>
+                          <tr>
+                            <td colSpan="4" style={{ textAlign: 'right', fontWeight: '700' }}>
+                              {lang === 'ta' ? 'மொத்தம் (Grand Total):' : 'Grand Total:'}
+                            </td>
+                            <td style={{ textAlign: 'right', color: 'var(--accent-cyan)', fontWeight: '800' }}>
+                              {consolidatedRequirements.reduce((sum, r) => sum + Number(r.cases || 0), 0)} C
+                            </td>
+                            <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>
+                              {consolidatedRequirements.reduce((sum, r) => sum + Number(r.bottles || 0), 0)} B
+                            </td>
+                            <td style={{ textAlign: 'right', color: 'var(--success)', fontWeight: '800' }}>
+                              {consolidatedRequirements.reduce((sum, r) => sum + Number(r.total_bottles || 0), 0)} B
+                            </td>
+                          </tr>
+                        </tfoot>
                       </table>
                     </div>
                   ))}
@@ -848,8 +891,10 @@ export default function VehicleLoading({ t, lang, session }) {
                       <table className="custom-table" style={{ fontSize: '0.85rem' }}>
                         <thead>
                           <tr>
-                            <th>S.No</th>
+                            <th style={{ width: '7%', textAlign: 'center' }}>S.NO</th>
                             <th>Product</th>
+                            <th>Brand</th>
+                            <th>Size</th>
                             <th style={{ textAlign: 'right' }}>Cases Required</th>
                             <th style={{ textAlign: 'right' }}>Bottles Required</th>
                             <th style={{ textAlign: 'right' }}>Total Units</th>
@@ -858,14 +903,33 @@ export default function VehicleLoading({ t, lang, session }) {
                         <tbody>
                           {route.requirements.map((req, reqIdx) => (
                             <tr key={reqIdx}>
-                              <td>{reqIdx + 1}</td>
-                              <td>{translateProductName(req.product, lang)}</td>
-                              <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{req.cases}</td>
-                              <td style={{ textAlign: 'right' }}>{req.bottles}</td>
-                              <td style={{ textAlign: 'right' }}>{req.total_bottles} B</td>
+                              <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{reqIdx + 1}</td>
+                              <td><strong>{translateProductName(req.product, lang)}</strong></td>
+                              <td>{req.product ? req.product.brand : '-'}</td>
+                              <td>{req.product ? req.product.size : '-'}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--accent-cyan)' }}>{req.cases}</td>
+                              <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{req.bottles}</td>
+                              <td style={{ textAlign: 'right', color: 'var(--success)' }}>{req.total_bottles} B</td>
                             </tr>
                           ))}
                         </tbody>
+                        {(() => {
+                          const rCases = route.requirements.reduce((sum, r) => sum + Number(r.cases || 0), 0);
+                          const rBottles = route.requirements.reduce((sum, r) => sum + Number(r.bottles || 0), 0);
+                          const rUnits = route.requirements.reduce((sum, r) => sum + Number(r.total_bottles || 0), 0);
+                          return (
+                            <tfoot style={{ borderTop: '2px solid var(--border-color)', fontWeight: 'bold', background: 'rgba(255,255,255,0.04)' }}>
+                              <tr>
+                                <td colSpan="4" style={{ textAlign: 'right', fontWeight: '700' }}>
+                                  {lang === 'ta' ? 'வழித்தட மொத்தம்:' : 'Route Total:'}
+                                </td>
+                                <td style={{ textAlign: 'right', color: 'var(--accent-cyan)', fontWeight: '800' }}>{rCases} C</td>
+                                <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{rBottles} B</td>
+                                <td style={{ textAlign: 'right', color: 'var(--success)', fontWeight: '800' }}>{rUnits} B</td>
+                              </tr>
+                            </tfoot>
+                          );
+                        })()}
                       </table>
                     </div>
                   </div>
@@ -1168,17 +1232,25 @@ export default function VehicleLoading({ t, lang, session }) {
                     <table className="custom-table" style={{ fontSize: '0.85rem' }}>
                       <thead>
                         <tr>
+                          <th style={{ width: '7%', textAlign: 'center' }}>S.NO</th>
                           <th>Product</th>
+                          <th>Brand</th>
+                          <th>Size</th>
                           <th style={{ textAlign: 'right' }}>Cases Required</th>
                           <th style={{ textAlign: 'right' }}>Bottles Required</th>
+                          <th style={{ textAlign: 'right' }}>Total Units</th>
                         </tr>
                       </thead>
                       <tbody>
                         {route.requirements.map((req, reqIdx) => (
                           <tr key={reqIdx}>
-                            <td>{translateProductName(req.product, lang)}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{req.cases}</td>
-                            <td style={{ textAlign: 'right' }}>{req.bottles}</td>
+                            <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{reqIdx + 1}</td>
+                            <td><strong>{translateProductName(req.product, lang)}</strong></td>
+                            <td>{req.product ? req.product.brand : '-'}</td>
+                            <td>{req.product ? req.product.size : '-'}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--accent-cyan)' }}>{req.cases}</td>
+                            <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{req.bottles}</td>
+                            <td style={{ textAlign: 'right', color: 'var(--success)' }}>{req.total_bottles} B</td>
                           </tr>
                         ))}
                       </tbody>

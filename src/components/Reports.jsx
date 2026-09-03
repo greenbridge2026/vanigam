@@ -20,6 +20,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
   // Expandable shop outstanding details
   const [expandedShopId, setExpandedShopId] = useState(null);
+  const [outstandingRouteFilter, setOutstandingRouteFilter] = useState('');
 
   // Customer Ledger states
   const [ledgerShopId, setLedgerShopId] = useState('');
@@ -654,15 +655,23 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                 </div>
               </div>
 
-              {/* Excel Export */}
-              <div>
+              {/* Excel Export & Print Report */}
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <button
                   type="button"
-                  className="btn btn-primary"
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600 }}
+                  className="btn btn-secondary no-print"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.85rem' }}
                   onClick={() => handleExportDailySalesExcel(filtered)}
                 >
-                  📊 {lang === 'ta' ? 'எக்செல் ஏற்றுமதி (Excel Export)' : 'Export to Excel'} ({selectedDailySalesIds.length > 0 ? `${selectedDailySalesIds.length} Selected` : `All ${filtered.length}`})
+                  📊 {lang === 'ta' ? 'எக்செல்' : 'Export Excel'} ({selectedDailySalesIds.length > 0 ? `${selectedDailySalesIds.length} Selected` : `All ${filtered.length}`})
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary no-print"
+                  style={{ fontSize: '0.85rem' }}
+                  onClick={() => window.print()}
+                >
+                  🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}
                 </button>
               </div>
             </div>
@@ -807,6 +816,9 @@ export default function Reports({ t, lang, onBillSelected, session }) {
               <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                 Showing {filteredRoutes.length} of {routes.length} Routes
               </span>
+              <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>
+                🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}
+              </button>
             </div>
 
             <div className="table-container">
@@ -880,8 +892,11 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                 />
               </div>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Showing {filteredSalesmen.length} Sales Representatives
+                Showing {filteredSalesmen.length} of {listToDisplay.length} Salespersons
               </span>
+              <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>
+                🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}
+              </button>
             </div>
 
             <div className="table-container">
@@ -1177,6 +1192,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                 <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}>📥 Export Excel</button>
                 <button type="button" className="btn btn-secondary" onClick={handleExportCSV} style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}>📄 Export CSV</button>
                 <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}>🖨️ Download PDF</button>
+                <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}>🖨️ Print Report</button>
               </div>
 
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -1447,6 +1463,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
                 <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+                <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}</button>
               </div>
             </div>
 
@@ -1492,7 +1509,12 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       }
 
       case 'outstanding_report': {
-        const filtered = shops.filter(s => s.outstanding_amount > 0 && matchesSearch(s, 'shop'));
+        const filtered = shops.filter(s => {
+          if (s.outstanding_amount <= 0) return false;
+          if (!matchesSearch(s, 'shop')) return false;
+          if (outstandingRouteFilter && s.route_id !== outstandingRouteFilter) return false;
+          return true;
+        });
         const sumOutstanding = filtered.reduce((sum, s) => sum + s.outstanding_amount, 0);
 
         const handleExportExcel = () => {
@@ -1559,12 +1581,25 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                 <h3 style={{ fontSize: '1.5rem', color: 'var(--warning)', fontWeight: '800', margin: 0 }}>₹{sumOutstanding}</h3>
               </div>
 
-              <div style={{ position: 'relative', flex: 1, minWidth: '240px', maxWidth: '380px' }}>
+              <div style={{ display: 'flex', gap: '0.75rem', flex: 1, minWidth: '280px', maxWidth: '580px', flexWrap: 'wrap' }}>
+                <select
+                  className="form-select"
+                  style={{ width: '170px', padding: '0.45rem 0.75rem', fontSize: '0.85rem', margin: 0 }}
+                  value={outstandingRouteFilter}
+                  onChange={e => setOutstandingRouteFilter(e.target.value)}
+                >
+                  <option value="">{lang === 'ta' ? 'அனைத்து வழிகள்' : 'All Routes'}</option>
+                  {routes.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {lang === 'ta' ? r.name_ta : r.name_en}
+                    </option>
+                  ))}
+                </select>
                 <input
                   type="text"
                   className="form-input"
-                  style={{ fontSize: '0.88rem', padding: '0.45rem 0.75rem', width: '100%' }}
-                  placeholder="🔍 Search Outstanding Shop, Mobile, Contact..."
+                  style={{ fontSize: '0.88rem', padding: '0.45rem 0.75rem', flex: 1, minWidth: '180px' }}
+                  placeholder="🔍 Search Shop, Mobile, Contact..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
@@ -1573,6 +1608,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
                 <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+                <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}</button>
               </div>
             </div>
 
@@ -1636,9 +1672,21 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.75rem' }}>
                                   {shopInvoices.map(inv => (
                                     <div key={inv.id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', padding: '0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
                                         <span>Invoice: {inv.invoice_number}</span>
-                                        <span style={{ color: 'var(--danger)' }}>₹{inv.remaining_outstanding} Due</span>
+                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                          <span style={{ color: 'var(--danger)' }}>₹{inv.remaining_outstanding} Due</span>
+                                          {onBillSelected && (
+                                            <button
+                                              type="button"
+                                              className="language-btn"
+                                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                              onClick={() => onBillSelected(inv.id)}
+                                            >
+                                              📄 Print Bill
+                                            </button>
+                                          )}
+                                        </div>
                                       </div>
                                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.1rem 0' }}>
                                         Date: {new Date(inv.order_date).toLocaleDateString()} | Total: ₹{inv.net_amount}
@@ -1697,12 +1745,15 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                   onChange={e => setSearchQuery(e.target.value)}
                 />
               </div>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Showing {filtered.length} of {products.length} Products
-              </span>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Showing {filtered.length} of {products.length} Products
+                </span>
+                <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}</button>
+              </div>
             </div>
 
-            <div className="table-container">
+            <div className="table-container" id="printable-stock-report">
               <table className="custom-table">
                 <thead>
                   <tr>
@@ -1783,12 +1834,15 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                   onChange={e => setSearchQuery(e.target.value)}
                 />
               </div>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Showing {filtered.length} of {purchases.length} Purchase Records
-              </span>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Showing {filtered.length} of {purchases.length} Purchase Records
+                </span>
+                <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}</button>
+              </div>
             </div>
 
-            <div className="table-container">
+            <div className="table-container" id="printable-purchase-report">
               <table className="custom-table">
                 <thead>
                   <tr>
@@ -1870,9 +1924,12 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                   onChange={e => setSearchQuery(e.target.value)}
                 />
               </div>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                Showing {filteredProducts.length} of {products.length} Products
-              </span>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Showing {filteredProducts.length} of {products.length} Products
+                </span>
+                <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}</button>
+              </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
               <div style={{ padding: '1rem', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
@@ -2013,6 +2070,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
                   <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+                  <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}</button>
                 </div>
               )}
             </div>

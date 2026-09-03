@@ -545,6 +545,46 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     }
   };
 
+  const handleResetToPending = async (delivery, order) => {
+    if (!window.confirm(lang === 'ta' ? 'இந்த விநியோகத்தை மீண்டும் நிலுவை நிலைக்கு மாற்றவா?' : 'Reset this delivery status back to Pending?')) return;
+    try {
+      setDeliveries(prev => prev.map(d => d.id === delivery.id ? { ...d, status: 'pending', reason: '', remarks: '' } : d));
+      setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'pending' } : o));
+      await api.completeDelivery(delivery.id, { status: 'pending', reason: '', remarks: 'Reset to pending' });
+      const [dData, oData, sData] = await Promise.all([
+        api.getDeliveries(),
+        api.getOrders(),
+        api.getShops()
+      ]);
+      setDeliveries(dData);
+      setOrders(oData);
+      setShops(sData);
+    } catch (err) {
+      console.error('Error resetting status:', err);
+      alert(err.message || 'Failed to reset delivery status');
+    }
+  };
+
+  const handleCancelOrder = async (orderId) => {
+    if (!window.confirm(lang === 'ta' ? 'இந்த ஆர்டரை நிச்சயமாக ரத்து செய்ய விரும்புகிறீர்களா?' : 'Are you sure you want to cancel this order?')) return;
+    try {
+      const del = deliveries.find(d => d.order_id === orderId);
+      if (del) {
+        await api.completeDelivery(del.id, { status: 'cancelled', reason: 'Cancelled by user', remarks: 'Cancelled' });
+      }
+      const [dData, oData, sData] = await Promise.all([
+        api.getDeliveries(),
+        api.getOrders(),
+        api.getShops()
+      ]);
+      setDeliveries(dData);
+      setOrders(oData);
+      setShops(sData);
+    } catch (err) {
+      alert(err.message || 'Failed to cancel order');
+    }
+  };
+
 
   const generateUPILink = (pa, pn, am, tn) => {
     // UPI payment URI template
@@ -689,7 +729,30 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                 </select>
               </div>
 
-              <div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {selectedDeliveryIds.length > 0 && onBulkPrint && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      const selectedOrders = selectedDeliveryIds.map(id => {
+                        const d = deliveries.find(item => item.id === id);
+                        return d ? d.order_id : null;
+                      }).filter(Boolean);
+                      onBulkPrint(selectedOrders);
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      padding: '0.4rem 0.85rem',
+                      fontSize: '0.85rem',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    🖨️ {lang === 'ta' ? 'தேர்ந்தெடுக்கப்பட்ட பில்களை அச்சிடு' : 'Print Selected Bills'} ({selectedDeliveryIds.length})
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-primary"
@@ -879,7 +942,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                         </span>
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <div style={{ display: 'inline-flex', gap: '0.4rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
                           {!isDeliveredStatus && d.status === 'pending' ? (
                             <>
                               {(!session || session.role === 'admin' || session.role === 'salesman') && (
@@ -895,32 +958,54 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                               )}
                               <button 
                                 className="language-btn" 
-                                style={{ padding: '0.4rem 0.6rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} 
+                                style={{ padding: '0.4rem 0.6rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem' }} 
                                 onClick={() => onBillSelected(order.id)}
-                                title={lang === 'ta' ? 'பில் பார்க்க' : 'View Bill'}
+                                title={lang === 'ta' ? 'பில் அச்சிடு / பார்க்க' : 'Print / View Bill'}
                               >
-                                👁️
+                                🖨️ {lang === 'ta' ? 'பில்' : 'Bill'}
                               </button>
-                              <button className="btn btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }} onClick={() => handleSelectDelivery(d)}>
+                              <button className="btn btn-primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} onClick={() => handleSelectDelivery(d)}>
                                 ⚡ {t('fulfill')}
                               </button>
                             </>
                           ) : (
                             <>
-                              <button className="language-btn" onClick={() => onBillSelected(order.id)}>
-                                📄 View Bill
+                              <button className="language-btn" style={{ padding: '0.35rem 0.65rem', fontSize: '0.8rem' }} onClick={() => onBillSelected(order.id)}>
+                                🖨️ {lang === 'ta' ? 'பில் அச்சிடு' : 'Print Bill'}
                               </button>
+                              {(d.status === 'not_delivered' || d.status === 'returned') && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  onClick={() => handleResetToPending(d, order)}
+                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                                  title={lang === 'ta' ? 'மீண்டும் நிலுவைக்கு மாற்றுக' : 'Reset to Pending'}
+                                >
+                                  🔄 {lang === 'ta' ? 'நிலுவைக்கு' : 'To Pending'}
+                                </button>
+                              )}
                               {d.status === 'not_delivered' && (
-                                <span style={{ fontSize: '0.8rem', color: 'var(--danger)', fontStyle: 'italic', marginRight: '0.5rem' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--danger)', fontStyle: 'italic' }}>
                                   ({d.reason})
                                 </span>
                               )}
                               {d.status === 'returned' && (
-                                <span style={{ fontSize: '0.8rem', color: 'var(--accent-blue)', fontStyle: 'italic', marginRight: '0.5rem' }}>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--accent-blue)', fontStyle: 'italic' }}>
                                   ({d.reason})
                                 </span>
                               )}
                             </>
+                          )}
+                          {(!session || session.role === 'admin' || session.role === 'salesman') && d.status !== 'cancelled' && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => handleCancelOrder(order.id)}
+                              style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--warning)', borderColor: 'var(--warning)' }}
+                              title={lang === 'ta' ? 'ஆர்டர் ரத்து செய்க' : 'Cancel Order'}
+                            >
+                              🚫
+                            </button>
                           )}
                           {session?.role === 'admin' && (
                             <button

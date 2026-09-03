@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import { translateShopName, translateRouteName, translateProductName } from '../translations';
 
@@ -16,6 +16,21 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
   const [discount, setDiscount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  // Route dropdown & keyboard navigation states
+  const [routeSearchQuery, setRouteSearchQuery] = useState('');
+  const [isRouteDropdownOpen, setIsRouteDropdownOpen] = useState(false);
+  const [routeHighlightedIndex, setRouteHighlightedIndex] = useState(0);
+  const routeDropdownRef = useRef(null);
+  const routeContainerRef = useRef(null);
+
+  // Shop dropdown & keyboard navigation states
+  const [shopSearchQuery, setShopSearchQuery] = useState('');
+  const [isShopDropdownOpen, setIsShopDropdownOpen] = useState(false);
+  const [shopHighlightedIndex, setShopHighlightedIndex] = useState(0);
+  const shopDropdownRef = useRef(null);
+  const shopContainerRef = useRef(null);
+  const shopInputRef = useRef(null);
 
   // Catalog search & Brand Tabs
   const [catalogSearch, setCatalogSearch] = useState('');
@@ -72,8 +87,149 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
     }
   }, [editingOrder]);
 
+  // Click outside listener for route and shop dropdowns
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (routeContainerRef.current && !routeContainerRef.current.contains(e.target)) {
+        setIsRouteDropdownOpen(false);
+      }
+      if (shopContainerRef.current && !shopContainerRef.current.contains(e.target)) {
+        setIsShopDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Auto-scroll highlighted route into view
+  useEffect(() => {
+    if (isRouteDropdownOpen && routeDropdownRef.current) {
+      const activeEl = routeDropdownRef.current.children[routeHighlightedIndex];
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [routeHighlightedIndex, isRouteDropdownOpen]);
+
+  // Auto-scroll highlighted shop into view
+  useEffect(() => {
+    if (isShopDropdownOpen && shopDropdownRef.current) {
+      const activeEl = shopDropdownRef.current.children[shopHighlightedIndex];
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [shopHighlightedIndex, isShopDropdownOpen]);
+
+  // Filtered routes list for route autocomplete
+  const filteredRoutesList = [
+    { id: '', name_en: lang === 'ta' ? '-- அனைத்து வழித்தடங்கள் --' : '-- All Routes --', name_ta: '-- அனைத்து வழித்தடங்கள் --' },
+    ...routes.filter(r => {
+      if (!routeSearchQuery.trim()) return true;
+      const q = routeSearchQuery.toLowerCase().trim();
+      const nameEn = (r.name_en || '').toLowerCase();
+      const nameTa = (r.name_ta || '').toLowerCase();
+      return nameEn.includes(q) || nameTa.includes(q);
+    })
+  ];
+
+  const selectedRouteObj = routes.find(r => r.id === selectedRoute);
+  const selectedRouteDisplayName = selectedRoute
+    ? (selectedRouteObj ? translateRouteName(selectedRouteObj, lang) : '')
+    : (lang === 'ta' ? '-- வழித்தடத்தை தேர்வு செய்க --' : '-- Select Route --');
+
+  // Select route and automatically shift focus to shop search dropdown
+  const selectRouteAndFocusShop = (routeId) => {
+    setSelectedRoute(routeId);
+    setSelectedShop('');
+    setCart({});
+    setIsRouteDropdownOpen(false);
+    setRouteSearchQuery('');
+
+    setTimeout(() => {
+      if (shopInputRef.current) {
+        shopInputRef.current.focus();
+        setIsShopDropdownOpen(true);
+        setShopSearchQuery('');
+        setShopHighlightedIndex(0);
+      }
+    }, 50);
+  };
+
+  // Keyboard navigation handler for route search
+  const handleRouteKeyDown = (e) => {
+    if (!isRouteDropdownOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      setIsRouteDropdownOpen(true);
+      setRouteHighlightedIndex(0);
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setRouteHighlightedIndex(prev => (prev < filteredRoutesList.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setRouteHighlightedIndex(prev => (prev > 0 ? prev - 1 : filteredRoutesList.length - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredRoutesList.length > 0 && routeHighlightedIndex >= 0 && routeHighlightedIndex < filteredRoutesList.length) {
+        const selected = filteredRoutesList[routeHighlightedIndex];
+        selectRouteAndFocusShop(selected.id);
+      }
+    } else if (e.key === 'Escape') {
+      setIsRouteDropdownOpen(false);
+    }
+  };
+
   // Filter shops by selected route and active status
-  const routeShops = shops.filter(s => s.route_id === selectedRoute && s.status === 'active');
+  const routeShops = selectedRoute ? shops.filter(s => s.route_id === selectedRoute && s.status === 'active') : shops.filter(s => s.status === 'active');
+  const filteredRouteShops = routeShops.filter(s => {
+    if (!shopSearchQuery.trim()) return true;
+    const q = shopSearchQuery.toLowerCase().trim();
+    const nameEn = (s.name_en || s.name || '').toLowerCase();
+    const nameTa = (s.name_ta || '').toLowerCase();
+    const mob = s.mobile || '';
+    const addr = (s.address || '').toLowerCase();
+    const routeObj = routes.find(r => r.id === s.route_id);
+    const routeEn = routeObj ? (routeObj.name_en || '').toLowerCase() : '';
+    const routeTa = routeObj ? (routeObj.name_ta || '').toLowerCase() : '';
+    return nameEn.includes(q) || nameTa.includes(q) || mob.includes(q) || addr.includes(q) || routeEn.includes(q) || routeTa.includes(q);
+  });
+
+  const selectedShopObj = shops.find(s => s.id === selectedShop);
+  const selectedShopDisplayName = selectedShop
+    ? (selectedShopObj ? `${translateShopName(selectedShopObj, lang)} (${selectedShopObj.shop_type === 'wholesale' ? t('wholesale') : t('retail')})` : '')
+    : (lang === 'ta' ? '-- கடையைத் தேர்வு செய்க --' : '-- Select Shop --');
+
+  // Keyboard navigation handler for shop search
+  const handleShopKeyDown = (e) => {
+    if (!isShopDropdownOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      setIsShopDropdownOpen(true);
+      setShopHighlightedIndex(0);
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setShopHighlightedIndex(prev => (prev < filteredRouteShops.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setShopHighlightedIndex(prev => (prev > 0 ? prev - 1 : filteredRouteShops.length - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filteredRouteShops.length > 0 && shopHighlightedIndex >= 0 && shopHighlightedIndex < filteredRouteShops.length) {
+        const selected = filteredRouteShops[shopHighlightedIndex];
+        setSelectedShop(selected.id);
+        if (!selectedRoute) {
+          setSelectedRoute(selected.route_id);
+        }
+        setCart({});
+        setIsShopDropdownOpen(false);
+        setShopSearchQuery('');
+      }
+    } else if (e.key === 'Escape') {
+      setIsShopDropdownOpen(false);
+    }
+  };
+
   const shopObj = shops.find(s => s.id === selectedShop);
   const activeProducts = products.filter(p => p.status === 'active');
 
@@ -311,39 +467,269 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
       </div>
 
       {/* Selectors Bar */}
-      <div className="glass-card" style={{ marginBottom: '0.75rem', padding: '0.75rem 1.25rem' }}>
+      <div className="glass-card" style={{ marginBottom: '0.75rem', padding: '0.75rem 1.25rem', position: 'relative', zIndex: 500 }}>
         <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-          <div className="form-group" style={{ flex: 1, minWidth: '220px', margin: 0 }}>
-            <label style={{ fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.25rem' }}>{t('route_mgmt')}</label>
-            <select
-              className="form-select"
-              value={selectedRoute}
-              onChange={e => { setSelectedRoute(e.target.value); setSelectedShop(''); setCart({}); }}
-              style={{ padding: '0.4rem 0.75rem', fontSize: '0.9rem' }}
-            >
-              <option value="">-- {lang === 'ta' ? 'வழித்தடத்தை தேர்வு செய்க' : 'Select Route'} --</option>
-              {routes.map(r => (
-                <option key={r.id} value={r.id}>{translateRouteName(r, lang)}</option>
-              ))}
-            </select>
+          {/* Route Management Searchable Dropdown */}
+          <div className="form-group" style={{ flex: 1, minWidth: '240px', margin: 0, position: 'relative' }} ref={routeContainerRef}>
+            <label style={{ fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.25rem', display: 'block' }}>
+              {t('route_mgmt')}
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                className="form-input"
+                placeholder={lang === 'ta' ? '🔍 வழித்தடத்தை தேடுக...' : '🔍 Search route...'}
+                value={isRouteDropdownOpen ? routeSearchQuery : selectedRouteDisplayName}
+                onFocus={() => {
+                  setIsRouteDropdownOpen(true);
+                  setRouteSearchQuery('');
+                  setRouteHighlightedIndex(0);
+                }}
+                onChange={e => {
+                  setRouteSearchQuery(e.target.value);
+                  setIsRouteDropdownOpen(true);
+                  setRouteHighlightedIndex(0);
+                }}
+                onKeyDown={handleRouteKeyDown}
+                style={{ fontSize: '0.9rem', width: '100%', paddingRight: '2rem', padding: '0.45rem 0.75rem' }}
+              />
+              <button
+                type="button"
+                onClick={() => setIsRouteDropdownOpen(!isRouteDropdownOpen)}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  padding: 0
+                }}
+              >
+                ▼
+              </button>
+            </div>
+
+            {/* Interactive Route Dropdown Popup */}
+            {isRouteDropdownOpen && (
+              <div
+                ref={routeDropdownRef}
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  zIndex: 9999,
+                  marginTop: '4px',
+                  maxHeight: '240px',
+                  overflowY: 'auto',
+                  background: '#ffffff',
+                  border: '2px solid var(--accent-cyan)',
+                  borderRadius: '8px',
+                  boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
+                  padding: '4px 0'
+                }}
+              >
+                {filteredRoutesList.length === 0 ? (
+                  <div style={{ padding: '0.65rem 1rem', fontSize: '0.85rem', color: '#64748b', textAlign: 'center' }}>
+                    {lang === 'ta' ? 'வழித்தடங்கள் எதுவும் இல்லை' : 'No matching routes'}
+                  </div>
+                ) : (
+                  filteredRoutesList.map((r, idx) => {
+                    const isHighlighted = idx === routeHighlightedIndex;
+                    const isSelected = selectedRoute === r.id;
+                    const rName = r.id === '' ? (lang === 'ta' ? '-- அனைத்து வழித்தடங்கள் --' : '-- All Routes --') : (lang === 'ta' ? (r.name_ta || r.name_en) : (r.name_en || r.name_ta));
+
+                    return (
+                      <div
+                        key={r.id || 'all'}
+                        onMouseEnter={() => setRouteHighlightedIndex(idx)}
+                        onClick={() => {
+                          selectRouteAndFocusShop(r.id);
+                        }}
+                        style={{
+                          padding: '0.6rem 0.85rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          justify: 'space-between',
+                          alignItems: 'center',
+                          transition: 'all 0.15s ease',
+                          background: isHighlighted
+                            ? 'linear-gradient(90deg, #0284c7 0%, #06b6d4 100%)'
+                            : isSelected
+                            ? '#e0f2fe'
+                            : '#ffffff',
+                          color: isHighlighted ? '#ffffff' : '#0f172a',
+                          borderBottom: '1px solid #f1f5f9',
+                          borderLeft: isHighlighted ? '4px solid #0284c7' : '4px solid transparent',
+                          fontWeight: isHighlighted ? '700' : isSelected ? '600' : 'normal'
+                        }}
+                      >
+                        <div style={{ fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span>🗺️ {rName}</span>
+                          {isSelected && (
+                            <span style={{ fontSize: '0.7rem', background: isHighlighted ? 'rgba(255,255,255,0.3)' : '#0284c7', color: '#ffffff', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                              Selected
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="form-group" style={{ flex: 1, minWidth: '220px', margin: 0 }}>
-            <label style={{ fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.25rem' }}>{t('select_shop')}</label>
-            <select
-              className="form-select"
-              value={selectedShop}
-              onChange={e => { setSelectedShop(e.target.value); setCart({}); }}
-              disabled={!selectedRoute}
-              style={{ padding: '0.4rem 0.75rem', fontSize: '0.9rem' }}
-            >
-              <option value="">-- {t('select_shop')} --</option>
-              {routeShops.map(s => (
-                <option key={s.id} value={s.id}>
-                  {translateShopName(s, lang)} ({s.shop_type === 'wholesale' ? t('wholesale') : t('retail')})
-                </option>
-              ))}
-            </select>
+          {/* Select Shop Searchable Dropdown */}
+          <div className="form-group" style={{ flex: 1, minWidth: '260px', margin: 0, position: 'relative' }} ref={shopContainerRef}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+              <label style={{ fontWeight: '600', fontSize: '0.85rem', margin: 0 }}>{t('select_shop')}</label>
+              <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)' }}>
+                ({filteredRouteShops.length} {lang === 'ta' ? 'கடைகள்' : 'shops'})
+              </span>
+            </div>
+            <div style={{ position: 'relative' }}>
+              <input
+                ref={shopInputRef}
+                type="text"
+                className="form-input"
+                placeholder={lang === 'ta' ? '🔍 கடை பெயர் / மொபைல் தேடுக...' : '🔍 Search shop name / mobile...'}
+                value={isShopDropdownOpen ? shopSearchQuery : selectedShopDisplayName}
+                onFocus={() => {
+                  setIsShopDropdownOpen(true);
+                  setShopSearchQuery('');
+                  setShopHighlightedIndex(0);
+                }}
+                onChange={e => {
+                  setShopSearchQuery(e.target.value);
+                  setIsShopDropdownOpen(true);
+                  setShopHighlightedIndex(0);
+                }}
+                onKeyDown={handleShopKeyDown}
+                style={{ fontSize: '0.9rem', width: '100%', paddingRight: '2rem', padding: '0.45rem 0.75rem' }}
+              />
+              <button
+                type="button"
+                onClick={() => setIsShopDropdownOpen(!isShopDropdownOpen)}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  padding: 0
+                }}
+              >
+                ▼
+              </button>
+            </div>
+
+            {/* Interactive Shop Dropdown Popup */}
+            {isShopDropdownOpen && (
+              <div
+                ref={shopDropdownRef}
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  zIndex: 9999,
+                  marginTop: '4px',
+                  maxHeight: '260px',
+                  overflowY: 'auto',
+                  background: '#ffffff',
+                  border: '2px solid var(--accent-cyan)',
+                  borderRadius: '8px',
+                  boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
+                  padding: '4px 0'
+                }}
+              >
+                {filteredRouteShops.length === 0 ? (
+                  <div style={{ padding: '0.65rem 1rem', fontSize: '0.85rem', color: '#64748b', textAlign: 'center' }}>
+                    {lang === 'ta' ? 'கடைகள் எதுவும் கிடைக்கவில்லை' : 'No matching shops'}
+                  </div>
+                ) : (
+                  filteredRouteShops.map((s, idx) => {
+                    const isHighlighted = idx === shopHighlightedIndex;
+                    const isSelected = selectedShop === s.id;
+                    const routeObj = routes.find(r => r.id === s.route_id);
+                    const routeName = routeObj ? (lang === 'ta' ? routeObj.name_ta : routeObj.name_en) : 'Unassigned';
+
+                    return (
+                      <div
+                        key={s.id}
+                        onMouseEnter={() => setShopHighlightedIndex(idx)}
+                        onClick={() => {
+                          setSelectedShop(s.id);
+                          if (!selectedRoute) {
+                            setSelectedRoute(s.route_id);
+                          }
+                          setCart({});
+                          setIsShopDropdownOpen(false);
+                          setShopSearchQuery('');
+                        }}
+                        style={{
+                          padding: '0.65rem 0.9rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          justify: 'space-between',
+                          alignItems: 'center',
+                          transition: 'all 0.15s ease',
+                          background: isHighlighted
+                            ? 'linear-gradient(90deg, #0284c7 0%, #06b6d4 100%)'
+                            : isSelected
+                            ? '#e0f2fe'
+                            : '#ffffff',
+                          color: isHighlighted ? '#ffffff' : '#0f172a',
+                          borderBottom: '1px solid #f1f5f9',
+                          borderLeft: isHighlighted ? '4px solid #0284c7' : '4px solid transparent'
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: '0.9rem', fontWeight: '700', color: isHighlighted ? '#ffffff' : '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span>{translateShopName(s, lang)}</span>
+                            <span style={{ fontSize: '0.7rem', opacity: 0.85, fontWeight: 'normal' }}>
+                              ({s.shop_type === 'wholesale' ? t('wholesale') : t('retail')})
+                            </span>
+                            {isSelected && (
+                              <span style={{ fontSize: '0.7rem', background: isHighlighted ? 'rgba(255,255,255,0.3)' : '#0284c7', color: '#ffffff', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                Selected
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: isHighlighted ? 'rgba(255,255,255,0.92)' : '#475569', marginTop: '2px' }}>
+                            🗺️ {routeName} {s.mobile ? `| 📞 ${s.mobile}` : ''}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span
+                            style={{
+                              fontSize: '0.85rem',
+                              fontWeight: '800',
+                              color: isHighlighted ? '#ffffff' : s.outstanding_amount > 0 ? '#d97706' : '#16a34a',
+                              background: isHighlighted ? 'rgba(0,0,0,0.25)' : '#f8fafc',
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              border: isHighlighted ? '1px solid rgba(255,255,255,0.4)' : '1px solid #e2e8f0'
+                            }}
+                          >
+                            ₹{Number(s.outstanding_amount || 0).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
