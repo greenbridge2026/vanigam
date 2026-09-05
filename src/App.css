@@ -830,7 +830,7 @@ h1, h2, h3, h4, h5, h6 {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 8mm 10mm;
+    margin: 5mm 8mm;
   }
 
   /* Hide root app UI completely when printing direct delivery sheet portal */
@@ -848,7 +848,7 @@ h1, h2, h3, h4, h5, h6 {
     padding: 0 !important;
   }
 
-  html, body, .app-container, .main-content, .modal-overlay, .modal-card, .glass-card, .table-container, .delivery-print-modal-container {
+  html, body, #root, .app-container, .workspace, .main-content, .modal-overlay, .modal-card, .glass-card, .table-container, .delivery-print-modal-container {
     display: block !important;
     position: static !important;
     top: auto !important;
@@ -895,6 +895,49 @@ h1, h2, h3, h4, h5, h6 {
     background: #ffffff !important;
   }
 
+  /* Hide Outstanding Collection background UI & dark backdrop when printing shop statement */
+  body:has(#printable-shop-statement) .collection-grid,
+  body:has(#printable-shop-statement) .main-content > div > *:not(.shop-statement-modal-overlay) {
+    display: none !important;
+  }
+
+  .shop-statement-modal-overlay {
+    position: static !important;
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    box-shadow: none !important;
+    display: block !important;
+  }
+
+  .shop-statement-modal-card {
+    position: static !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  #printable-shop-statement {
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
   /* Allow tables and report containers to start immediately on Page 1 right under headers */
   .table-container, .custom-table, .glass-card, .delivery-sheet-printable-area {
     page-break-before: avoid !important;
@@ -937,9 +980,15 @@ h1, h2, h3, h4, h5, h6 {
     break-before: avoid !important;
   }
 
-  .delivery-print-page:last-child, .vehicle-loading-print-page:last-child {
-    page-break-after: auto !important;
-    break-after: auto !important;
+  .delivery-print-page:last-child, 
+  .vehicle-loading-print-page:last-child,
+  .shop-statement-modal-card:last-child,
+  #printable-shop-statement:last-child,
+  #printable-invoice:last-child {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
   }
 
   /* Force Route-wise Loading Breakdown onto a brand new separate page */
@@ -957,8 +1006,27 @@ h1, h2, h3, h4, h5, h6 {
     margin: 0 auto !important;
     width: 100% !important;
     max-width: 7.5in !important;
-    page-break-after: always;
+    page-break-after: auto !important;
+    break-after: auto !important;
     box-sizing: border-box !important;
+  }
+
+  .invoice-card:not(:last-child) {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .invoice-card:last-child {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* Universal prevention of trailing blank pages */
+  div:last-child, table:last-child, section:last-child, form:last-child {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
   /* CRISP SOLID BLACK TABLE BORDERS IN PRINT */

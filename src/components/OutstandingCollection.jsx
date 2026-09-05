@@ -1273,7 +1273,7 @@ export default function OutstandingCollection({ t, lang, onBillSelected }) {
       )}
       {/* Shop Statement Printable Modal */}
       {showShopStatementModal && selectedShop && selectedShopInfo && (
-        <div style={{
+        <div className="modal-overlay shop-statement-modal-overlay" style={{
           position: 'fixed',
           top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.7)',
@@ -1283,7 +1283,7 @@ export default function OutstandingCollection({ t, lang, onBillSelected }) {
           justifyContent: 'center',
           padding: '1rem'
         }}>
-          <div style={{
+          <div className="modal-card shop-statement-modal-card" style={{
             background: '#ffffff',
             color: '#0f172a',
             borderRadius: '12px',
@@ -1310,7 +1310,7 @@ export default function OutstandingCollection({ t, lang, onBillSelected }) {
             {/* Printable Statement Document */}
             <div id="printable-shop-statement" style={{ border: '2px solid #cbd5e1', borderRadius: '8px', padding: '1.25rem', background: '#ffffff' }}>
               <div style={{ textAlign: 'center', borderBottom: '2px solid #0284c7', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
-                <h2 style={{ margin: 0, color: '#0284c7', fontSize: '1.4rem', fontWeight: '800' }}>GREENBRIDGE DISTRIBUTORS</h2>
+                <h2 style={{ margin: 0, color: '#0284c7', fontSize: '1.4rem', fontWeight: '800' }}>GSK AGENCY</h2>
                 <div style={{ fontSize: '0.8rem', color: '#475569' }}>Cool Drinks & Beverage Distribution</div>
                 <h4 style={{ margin: '0.4rem 0 0 0', textTransform: 'uppercase', letterSpacing: '1px', color: '#0f172a' }}>
                   {lang === 'ta' ? 'கடை நிலுவை அறிக்கை' : 'SHOP OUTSTANDING STATEMENT'}
