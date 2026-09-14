@@ -230,9 +230,9 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       'Status': ''
     });
 
-    // Auditor Total Row
+    // Total Row
     exportRows.push({
-      'S.No': 'AUDITOR TOTAL SUMMARY',
+      'S.No': 'TOTAL SUMMARY',
       'Date': `Invoices Count: ${targetOrders.length}`,
       'Invoice No': 'GRAND TOTALS:',
       'Shop Name': '',
@@ -424,6 +424,15 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   const [delFilterShop, setDelFilterShop] = useState('');
   const [delFilterStatus, setDelFilterStatus] = useState('');
   const [selectedBreakdown, setSelectedBreakdown] = useState('all'); // 'all' | 'delivered' | 'not_delivered' | 'returned'
+
+  // Brand-wise Auditor Report Filters
+  const [brandReportDateFrom, setBrandReportDateFrom] = useState('');
+  const [brandReportDateTo, setBrandReportDateTo] = useState('');
+  const [brandReportBrandFilter, setBrandReportBrandFilter] = useState('');
+  const [brandReportSizeFilter, setBrandReportSizeFilter] = useState('');
+  const [brandReportRouteFilter, setBrandReportRouteFilter] = useState('');
+  const [brandReportShopTypeFilter, setBrandReportShopTypeFilter] = useState('');
+  const [brandReportSearchQuery, setBrandReportSearchQuery] = useState('');
 
 
   useEffect(() => {
@@ -756,7 +765,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
             }}>
               <div>
                 <strong style={{ fontSize: '0.95rem', color: 'var(--accent-cyan)', display: 'block' }}>
-                  📑 AUDITOR SUMMARY TOTALS ({selectedDailySalesIds.length > 0 ? `${selectedDailySalesIds.length} Selected Invoices` : `${filtered.length} Filtered Invoices`})
+                  📑 SUMMARY TOTALS ({selectedDailySalesIds.length > 0 ? `${selectedDailySalesIds.length} Selected Invoices` : `${filtered.length} Filtered Invoices`})
                 </strong>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                   Total calculated figures ready for inspection & Excel export
@@ -2350,6 +2359,582 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         );
       }
 
+      // 12. Brand-wise & ML-wise Report
+      case 'brand_wise_report': {
+        // Filter orders by date range, route, and shop_type
+        const filteredOrders = orders.filter(o => {
+          if (o.status === 'cancelled') return false;
+
+          // Date filter
+          const oDate = o.order_date ? o.order_date.slice(0, 10) : '';
+          if (brandReportDateFrom && (!oDate || oDate < brandReportDateFrom)) return false;
+          if (brandReportDateTo && (!oDate || oDate > brandReportDateTo)) return false;
+
+          // Route filter (check order route or shop route)
+          if (brandReportRouteFilter) {
+            const shop = shops.find(s => s.id === o.shop_id);
+            const rId = o.route_id || (shop ? shop.route_id : '');
+            if (rId !== brandReportRouteFilter) return false;
+          }
+
+          // Shop Type filter
+          if (brandReportShopTypeFilter) {
+            const shop = shops.find(s => s.id === o.shop_id);
+            if (!shop || (shop.shop_type || '').toLowerCase() !== brandReportShopTypeFilter.toLowerCase()) {
+              return false;
+            }
+          }
+
+          return true;
+        });
+
+        const filteredOrderIds = new Set(filteredOrders.map(o => o.id));
+
+        // Filter order items for these orders
+        const relevantOrderItems = orderItems.filter(oi => filteredOrderIds.has(oi.order_id));
+
+        // Filter purchases by date range
+        const filteredPurchases = purchases.filter(p => {
+          const pDate = p.purchase_date ? p.purchase_date.slice(0, 10) : '';
+          if (brandReportDateFrom && (!pDate || pDate < brandReportDateFrom)) return false;
+          if (brandReportDateTo && (!pDate || pDate > brandReportDateTo)) return false;
+          return true;
+        });
+
+        // Helper to normalize Brand names
+        const normalizeBrand = (b) => {
+          if (!b) return 'Unbranded';
+          const clean = b.trim();
+          const lower = clean.toLowerCase();
+          if (lower === 'pepsi') return 'Pepsi';
+          if (lower === 'coca-cola' || lower === 'coca cola') return 'Coca-Cola';
+          if (lower === 'frooti') return 'Frooti';
+          if (lower === 'bovonto') return 'Bovonto';
+          if (lower === 'k.c brands' || lower === 'kc brands') return 'K.C Brands';
+          if (lower === 'daily brands') return 'Daily Brands';
+          if (lower === 'fantasy') return 'Fantasy';
+          return clean.charAt(0).toUpperCase() + clean.slice(1);
+        };
+
+        // Helper to normalize Size names (e.g., 400ml -> 400 ml, 2.25 -> 2.25 L)
+        const normalizeSize = (s) => {
+          if (!s) return 'Standard';
+          let clean = s.trim();
+          clean = clean.replace(/(\d+)\s*ml/i, '$1 ml');
+          clean = clean.replace(/(\d+)\s*l$/i, '$1 L');
+          if (clean === '2.25') return '2.25 L';
+          if (clean === '1.2') return '1.2 L';
+          return clean;
+        };
+
+        // Extract list of all unique Brands and Sizes for Filter Dropdowns
+        const availableBrands = Array.from(new Set(products.map(p => normalizeBrand(p.brand)))).sort();
+        const availableSizes = Array.from(new Set(products.map(p => normalizeSize(p.size)))).sort();
+
+        // Build product aggregation grouped by Brand -> Size
+        const groupedData = {};
+
+        products.forEach(p => {
+          const normBrand = normalizeBrand(p.brand);
+          const normSize = normalizeSize(p.size);
+
+          // Apply Brand & Size filters
+          if (brandReportBrandFilter && normBrand !== brandReportBrandFilter) return;
+          if (brandReportSizeFilter && normSize !== brandReportSizeFilter) return;
+
+          // Apply search filter if present (dedicated filter search or global header search)
+          const q = (brandReportSearchQuery || searchQuery || '').toLowerCase().trim();
+          if (q) {
+            const pName = `${p.name_en} ${p.name_ta} ${normBrand} ${normSize}`.toLowerCase();
+            if (!pName.includes(q)) return;
+          }
+
+          if (!groupedData[normBrand]) {
+            groupedData[normBrand] = {};
+          }
+
+          if (!groupedData[normBrand][normSize]) {
+            groupedData[normBrand][normSize] = {
+              brand: normBrand,
+              size: normSize,
+              caseQtyRule: p.case_qty_rule || 24,
+              casesSold: 0,
+              bottlesSold: 0,
+              salesAmount: 0,
+              currentStockBottles: 0,
+              purchaseTotalBottles: 0,
+              productIds: []
+            };
+          }
+
+          groupedData[normBrand][normSize].productIds.push(p.id);
+          groupedData[normBrand][normSize].currentStockBottles += (p.current_stock_bottles || 0);
+        });
+
+        // Populate Sales & Purchases into groupedData
+        Object.keys(groupedData).forEach(b => {
+          Object.keys(groupedData[b]).forEach(s => {
+            const row = groupedData[b][s];
+            const pIds = new Set(row.productIds);
+
+            // Calculate sales
+            relevantOrderItems.forEach(oi => {
+              if (pIds.has(oi.product_id)) {
+                const c = Number(oi.cases || 0);
+                const bot = Number(oi.bottles || 0);
+                const totalBot = (c * row.caseQtyRule) + bot;
+                row.bottlesSold += totalBot;
+                row.casesSold += c + (bot / row.caseQtyRule);
+
+                let amt = Number(oi.amount || 0);
+                if (!amt && oi.rate) {
+                  amt = (c * Number(oi.rate)) + (bot * (Number(oi.rate) / row.caseQtyRule));
+                }
+                row.salesAmount += amt;
+              }
+            });
+
+            // Calculate purchases
+            filteredPurchases.forEach(pur => {
+              if (pIds.has(pur.product_id)) {
+                const c = Number(pur.cases || 0);
+                const bot = Number(pur.bottles || 0);
+                row.purchaseTotalBottles += (c * row.caseQtyRule) + bot;
+              }
+            });
+          });
+        });
+
+        // Compute Brand Subtotals and Grand Total
+        const brandSummaries = [];
+        let grandCasesSold = 0;
+        let grandBottlesSold = 0;
+        let grandSalesAmount = 0;
+        let grandCurrentStockBottles = 0;
+        let grandPurchaseBottles = 0;
+
+        Object.keys(groupedData).sort().forEach(b => {
+          const sizeRows = [];
+          let bCasesSold = 0;
+          let bBottlesSold = 0;
+          let bSalesAmount = 0;
+          let bCurrentStockBottles = 0;
+          let bPurchaseBottles = 0;
+
+          Object.keys(groupedData[b]).sort().forEach(s => {
+            const row = groupedData[b][s];
+            
+            const displayPurchases = `${Math.floor(row.purchaseTotalBottles / row.caseQtyRule)} C (${row.purchaseTotalBottles} B)`;
+            const displayStock = `${Math.floor(row.currentStockBottles / row.caseQtyRule)} C (${row.currentStockBottles} B)`;
+
+            sizeRows.push({
+              ...row,
+              displayPurchases,
+              displayStock
+            });
+
+            bCasesSold += row.casesSold;
+            bBottlesSold += row.bottlesSold;
+            bSalesAmount += row.salesAmount;
+            bCurrentStockBottles += row.currentStockBottles;
+            bPurchaseBottles += row.purchaseTotalBottles;
+          });
+
+          if (sizeRows.length > 0) {
+            brandSummaries.push({
+              brand: b,
+              rows: sizeRows,
+              totalCasesSold: bCasesSold,
+              totalBottlesSold: bBottlesSold,
+              totalSalesAmount: bSalesAmount,
+              totalCurrentStockBottles: bCurrentStockBottles,
+              totalPurchaseBottles: bPurchaseBottles
+            });
+
+            grandCasesSold += bCasesSold;
+            grandBottlesSold += bBottlesSold;
+            grandSalesAmount += bSalesAmount;
+            grandCurrentStockBottles += bCurrentStockBottles;
+            grandPurchaseBottles += bPurchaseBottles;
+          }
+        });
+
+        const resetFilters = () => {
+          setBrandReportDateFrom('');
+          setBrandReportDateTo('');
+          setBrandReportBrandFilter('');
+          setBrandReportSizeFilter('');
+          setBrandReportRouteFilter('');
+          setBrandReportShopTypeFilter('');
+          setBrandReportSearchQuery('');
+        };
+
+        const activeFilterCount = (brandReportDateFrom ? 1 : 0) +
+          (brandReportDateTo ? 1 : 0) +
+          (brandReportBrandFilter ? 1 : 0) +
+          (brandReportSizeFilter ? 1 : 0) +
+          (brandReportRouteFilter ? 1 : 0) +
+          (brandReportShopTypeFilter ? 1 : 0) +
+          (brandReportSearchQuery ? 1 : 0);
+
+        const selectedRouteObj = routes.find(r => r.id === brandReportRouteFilter);
+
+        // Export Excel function
+        const handleExportExcel = () => {
+          const rows = [];
+
+          // Top Header Row with Company Name
+          rows.push({
+            'Brand': t('company_name').toUpperCase(),
+            'ML / Size': 'BRAND-WISE & ML-WISE REPORT',
+            'Cases Sold': '',
+            'Total Bottles Sold': '',
+            'Sales Amount (₹)': '',
+            'Current Stock (Bottles)': '',
+            'Purchase Qty (Bottles)': '',
+            'Closing Stock (Bottles)': ''
+          });
+          rows.push({});
+
+          brandSummaries.forEach(bs => {
+            bs.rows.forEach(r => {
+              rows.push({
+                'Brand': r.brand,
+                'ML / Size': r.size,
+                'Cases Sold': Math.round(r.casesSold * 100) / 100,
+                'Total Bottles Sold': r.bottlesSold,
+                'Sales Amount (₹)': Math.round(r.salesAmount * 100) / 100,
+                'Current Stock (Bottles)': r.currentStockBottles,
+                'Purchase Qty (Bottles)': r.purchaseTotalBottles,
+                'Closing Stock (Bottles)': r.currentStockBottles
+              });
+            });
+
+            rows.push({
+              'Brand': `${bs.brand} - BRAND TOTAL`,
+              'ML / Size': 'SUBTOTAL',
+              'Cases Sold': Math.round(bs.totalCasesSold * 100) / 100,
+              'Total Bottles Sold': bs.totalBottlesSold,
+              'Sales Amount (₹)': Math.round(bs.totalSalesAmount * 100) / 100,
+              'Current Stock (Bottles)': bs.totalCurrentStockBottles,
+              'Purchase Qty (Bottles)': bs.totalPurchaseBottles,
+              'Closing Stock (Bottles)': bs.totalCurrentStockBottles
+            });
+
+            rows.push({});
+          });
+
+          rows.push({
+            'Brand': 'GRAND TOTAL',
+            'ML / Size': 'ALL BRANDS',
+            'Cases Sold': Math.round(grandCasesSold * 100) / 100,
+            'Total Bottles Sold': grandBottlesSold,
+            'Sales Amount (₹)': Math.round(grandSalesAmount * 100) / 100,
+            'Current Stock (Bottles)': grandCurrentStockBottles,
+            'Purchase Qty (Bottles)': grandPurchaseBottles,
+            'Closing Stock (Bottles)': grandCurrentStockBottles
+          });
+
+          const ws = XLSX.utils.json_to_sheet(rows);
+          ws['!cols'] = [
+            { wch: 25 },
+            { wch: 16 },
+            { wch: 14 },
+            { wch: 18 },
+            { wch: 18 },
+            { wch: 22 },
+            { wch: 22 },
+            { wch: 22 }
+          ];
+
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Brand-wise Report');
+          const dStr = (brandReportDateFrom || brandReportDateTo) ? `_${brandReportDateFrom}_to_${brandReportDateTo}` : '';
+          XLSX.writeFile(wb, `Brand_Wise_Report${dStr}_${Date.now()}.xlsx`);
+        };
+
+        // Export PDF function
+        const handleExportPDF = () => {
+          const element = document.getElementById('printable-brand-wise-report');
+          const opt = {
+            margin: 0.4,
+            filename: `Brand_Wise_Report_${Date.now()}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' }
+          };
+          import('html2pdf.js').then((html2pdfModule) => {
+            const html2pdf = html2pdfModule.default || html2pdfModule;
+            html2pdf().set(opt).from(element).save();
+          });
+        };
+
+        return (
+          <div>
+            {/* Filter Toolbar */}
+            <div className="glass-card no-print" style={{ marginBottom: '1.5rem', padding: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>From Date</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={brandReportDateFrom}
+                    onChange={e => setBrandReportDateFrom(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>To Date</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={brandReportDateTo}
+                    onChange={e => setBrandReportDateTo(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Brand</label>
+                  <select
+                    className="form-select"
+                    value={brandReportBrandFilter}
+                    onChange={e => setBrandReportBrandFilter(e.target.value)}
+                  >
+                    <option value="">All Brands</option>
+                    {availableBrands.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>ML / Size</label>
+                  <select
+                    className="form-select"
+                    value={brandReportSizeFilter}
+                    onChange={e => setBrandReportSizeFilter(e.target.value)}
+                  >
+                    <option value="">All Sizes</option>
+                    {availableSizes.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Route</label>
+                  <select
+                    className="form-select"
+                    value={brandReportRouteFilter}
+                    onChange={e => setBrandReportRouteFilter(e.target.value)}
+                  >
+                    <option value="">All Routes</option>
+                    {routes.map(r => (
+                      <option key={r.id} value={r.id}>{lang === 'ta' ? r.name_ta : r.name_en}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Shop Type</label>
+                  <select
+                    className="form-select"
+                    value={brandReportShopTypeFilter}
+                    onChange={e => setBrandReportShopTypeFilter(e.target.value)}
+                  >
+                    <option value="">All Types</option>
+                    <option value="wholesale">Wholesale</option>
+                    <option value="retail">Retail</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Search</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="🔍 Search Brand, Size..."
+                    value={brandReportSearchQuery}
+                    onChange={e => setBrandReportSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons & Filter Status */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    Found <strong>{brandSummaries.length}</strong> brand group(s)
+                  </span>
+                  {activeFilterCount > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={resetFilters}
+                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                    >
+                      ✕ Reset Filters ({activeFilterCount})
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
+                  <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+                  <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Printable Brand-wise Report */}
+            <div className="glass-card" id="printable-brand-wise-report" style={{ padding: '1.5rem' }}>
+              <div style={{ borderBottom: '2px solid var(--border-color)', paddingBottom: '1rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <h1 style={{ fontSize: '1.5rem', fontWeight: '900', margin: '0 0 0.35rem 0', textTransform: 'uppercase', color: 'var(--accent-cyan)', letterSpacing: '0.5px' }}>
+                    🏢 {t('company_name')}
+                  </h1>
+                  <h2 style={{ fontSize: '1.15rem', fontWeight: '800', margin: 0, textTransform: 'uppercase', color: 'var(--text-main)' }}>
+                    📊 {lang === 'ta' ? 'பிராண்ட் & அளவு வாரியான அறிக்கை' : 'Brand-wise & ML-wise Report'}
+                  </h2>
+                </div>
+                <div style={{ textAlign: 'right', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  <div><strong>Period:</strong> {brandReportDateFrom || 'All Time'} to {brandReportDateTo || 'Present'}</div>
+                  <div><strong>Generated:</strong> {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}</div>
+                </div>
+              </div>
+
+              {/* Active Filter Badges Indicator */}
+              {activeFilterCount > 0 && (
+                <div style={{ background: 'rgba(6, 182, 212, 0.06)', border: '1px solid rgba(6, 182, 212, 0.2)', borderRadius: '6px', padding: '0.5rem 0.75rem', marginBottom: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', fontSize: '0.78rem' }}>
+                  <span style={{ fontWeight: 700, color: 'var(--accent-cyan)' }}>🔍 Active Filters:</span>
+                  {brandReportDateFrom && <span style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>From: {brandReportDateFrom}</span>}
+                  {brandReportDateTo && <span style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>To: {brandReportDateTo}</span>}
+                  {brandReportBrandFilter && <span style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Brand: {brandReportBrandFilter}</span>}
+                  {brandReportSizeFilter && <span style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Size: {brandReportSizeFilter}</span>}
+                  {brandReportRouteFilter && <span style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Route: {selectedRouteObj ? (lang === 'ta' ? selectedRouteObj.name_ta : selectedRouteObj.name_en) : brandReportRouteFilter}</span>}
+                  {brandReportShopTypeFilter && <span style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Type: {brandReportShopTypeFilter.toUpperCase()}</span>}
+                  {brandReportSearchQuery && <span style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Search: "{brandReportSearchQuery}"</span>}
+
+                </div>
+              )}
+
+              {brandSummaries.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                  No matching brand and size records found for the selected filters.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                  {brandSummaries.map(bs => (
+                    <div key={bs.brand} style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                      <div style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '0.75rem 1rem', fontWeight: '800', fontSize: '1.05rem', color: 'var(--accent-cyan)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>🏷️ {bs.brand}</span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                          {bs.rows.length} Size Variant(s)
+                        </span>
+                      </div>
+
+                      <div className="table-container" style={{ overflowX: 'auto' }}>
+                        <table className="custom-table" style={{ margin: 0, width: '100%' }}>
+                          <thead>
+                            <tr style={{ background: 'rgba(0, 0, 0, 0.2)' }}>
+                              <th>ML / Size</th>
+                              <th style={{ textAlign: 'right' }}>Cases Sold</th>
+                              <th style={{ textAlign: 'right' }}>Bottles Sold</th>
+                              <th style={{ textAlign: 'right' }}>Sales Amount (₹)</th>
+                              <th style={{ textAlign: 'right' }}>Current Stock</th>
+                              <th style={{ textAlign: 'right' }}>Purchase Qty</th>
+                              <th style={{ textAlign: 'right' }}>Closing Stock</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {bs.rows.map(r => (
+                              <tr key={r.size}>
+                                <td style={{ fontWeight: '700' }}>{r.size}</td>
+                                <td style={{ textAlign: 'right', fontWeight: '600' }}>
+                                  {Math.round(r.casesSold * 100) / 100} C
+                                </td>
+                                <td style={{ textAlign: 'right' }}>{r.bottlesSold} B</td>
+                                <td style={{ textAlign: 'right', color: 'var(--success)', fontWeight: '700' }}>
+                                  ₹{Math.round(r.salesAmount).toLocaleString()}
+                                </td>
+                                <td style={{ textAlign: 'right' }}>{r.displayStock}</td>
+                                <td style={{ textAlign: 'right' }}>{r.displayPurchases}</td>
+                                <td style={{ textAlign: 'right', fontWeight: '600' }}>{r.displayStock}</td>
+                              </tr>
+                            ))}
+                            {/* Brand Subtotal Row */}
+                            <tr style={{ background: 'rgba(6, 182, 212, 0.08)', fontWeight: '800', borderTop: '2px solid var(--border-color)' }}>
+                              <td style={{ color: 'var(--accent-cyan)' }}>{bs.brand} TOTAL</td>
+                              <td style={{ textAlign: 'right', color: 'var(--accent-cyan)' }}>
+                                {Math.round(bs.totalCasesSold * 100) / 100} C
+                              </td>
+                              <td style={{ textAlign: 'right', color: 'var(--accent-cyan)' }}>{bs.totalBottlesSold} B</td>
+                              <td style={{ textAlign: 'right', color: 'var(--success)', fontSize: '1rem' }}>
+                                ₹{Math.round(bs.totalSalesAmount).toLocaleString()}
+                              </td>
+                              <td style={{ textAlign: 'right' }}>{bs.totalCurrentStockBottles} B</td>
+                              <td style={{ textAlign: 'right' }}>{bs.totalPurchaseBottles} B</td>
+                              <td style={{ textAlign: 'right' }}>{bs.totalCurrentStockBottles} B</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Grand Total Summary Box */}
+                  <div style={{ marginTop: '1rem', background: 'rgba(16, 185, 129, 0.08)', border: '2px solid var(--success)', padding: '1.25rem', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <h3 style={{ margin: 0, color: 'var(--success)', fontSize: '1.15rem', fontWeight: '800' }}>
+                        🏁 {lang === 'ta' ? 'மொத்த சுருக்கம் (GRAND TOTAL)' : 'GRAND TOTAL SUMMARY'}
+                      </h3>
+                      {activeFilterCount > 0 && (
+                        <span style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.2)', color: 'var(--success)', padding: '3px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                          Filtered by {activeFilterCount} filter(s)
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem' }}>
+                      <div style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '0.75rem', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Total Cases Sold</span>
+                        <strong style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>
+                          {Math.round(grandCasesSold * 100) / 100} C
+                        </strong>
+                      </div>
+                      <div style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '0.75rem', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Total Bottles Sold</span>
+                        <strong style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>
+                          {grandBottlesSold.toLocaleString()} B
+                        </strong>
+                      </div>
+                      <div style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '0.75rem', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Total Sales Amount</span>
+                        <strong style={{ fontSize: '1.3rem', color: 'var(--success)' }}>
+                          ₹{Math.round(grandSalesAmount).toLocaleString()}
+                        </strong>
+                      </div>
+                      <div style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '0.75rem', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Total Purchased Stock</span>
+                        <strong style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>
+                          {grandPurchaseBottles.toLocaleString()} B
+                        </strong>
+                      </div>
+                      <div style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '0.75rem', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Total Warehouse Stock</span>
+                        <strong style={{ fontSize: '1.2rem', color: 'var(--warning)' }}>
+                          {grandCurrentStockBottles.toLocaleString()} B
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
       default:
         return null;
     }
@@ -2365,6 +2950,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
     { id: 'customer_ledger', label: t('customer_ledger') },
     { id: 'daily_collection', label: t('daily_collection_report') },
     { id: 'stock_report', label: t('stock_report') },
+    { id: 'brand_wise_report', label: t('brand_wise_report') },
     { id: 'purchase_report', label: t('purchase_report') },
     { id: 'profit_report', label: t('profit_report') }
   ];

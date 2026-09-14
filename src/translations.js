@@ -157,7 +157,7 @@ export const translations = {
 
     // Billing
     invoice: "Invoice",
-    company_name: "VASANTHAM DISTRIBUTORS",
+    company_name: "GSK Agency",
     company_address: "123, Cool Drinks Junction, Trichy Road, TN",
     company_gst: "GST: 33ABCDE1234F1Z0",
     invoice_number: "Invoice No",
@@ -178,6 +178,14 @@ export const translations = {
     stock_report: "Stock Report",
     purchase_report: "Purchase Report",
     profit_report: "Profit Report",
+    brand_wise_report: "Brand-wise Report",
+    cases_sold: "Cases Sold",
+    bottles_sold: "Bottles Sold",
+    sales_amount: "Sales Amount",
+    purchase_qty: "Purchase Quantity",
+    closing_stock: "Closing Stock",
+    brand_total: "Brand Total",
+    grand_total: "Grand Total",
     search_placeholder: "Search by Shop, Route, Invoice, Mobile, Product, GST...",
     gross_profit: "Gross Profit",
 
@@ -385,7 +393,7 @@ export const translations = {
 
     // Billing
     invoice: "விலைப்பட்டியல் (Invoice)",
-    company_name: "வசந்தம் விநியோகஸ்தர்கள்",
+    company_name: "ஜிஎஸ்கே ஏஜென்சி",
     company_address: "123, கூல் டிரிங்க்ஸ் சந்திப்பு, திருச்சி சாலை, தமிழ்நாடு",
     company_gst: "ஜிஎஸ்டி: 33ABCDE1234F1Z0",
     invoice_number: "விலைப்பட்டியல் எண்",
@@ -406,6 +414,14 @@ export const translations = {
     stock_report: "சரக்கு அறிக்கை",
     purchase_report: "கொள்முதல் அறிக்கை",
     profit_report: "லாப அறிக்கை",
+    brand_wise_report: "பிராண்ட் வாரியான அறிக்கை",
+    cases_sold: "விற்பனையான கேஸ்கள்",
+    bottles_sold: "விற்பனையான பாட்டில்கள்",
+    sales_amount: "விற்பனை தொகை",
+    purchase_qty: "கொள்முதல் அளவு",
+    closing_stock: "இறுதி இருப்பு",
+    brand_total: "பிராண்ட் மொத்தம்",
+    grand_total: "மொத்த மொத்தம்",
     search_placeholder: "கடை, வழித்தடம், பில் எண், மொபைல், தயாரிப்பு, ஜிஎஸ்டி மூலம் தேடு...",
     gross_profit: "மொத்த லாபம்",
 
