@@ -376,25 +376,48 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
     if (status === 'delivered' && (ordAmt > 0 || prevAmt > 0)) {
       const newPayItems = [];
-      if (ordAmt > 0) {
-        newPayItems.push({
-          id: `p_opt_${Date.now()}_1`,
-          shop_id: shop.id,
-          order_id: order.id,
-          collected_amount: ordAmt,
-          payment_mode: paymentMode === 'split' ? 'cash' : paymentMode,
-          payment_date: new Date().toISOString()
-        });
-      }
-      if (prevAmt > 0) {
-        newPayItems.push({
-          id: `p_opt_${Date.now()}_2`,
-          shop_id: shop.id,
-          order_id: '',
-          collected_amount: prevAmt,
-          payment_mode: paymentMode === 'split' ? 'gpay' : paymentMode,
-          payment_date: new Date().toISOString()
-        });
+      if (paymentMode === 'split') {
+        if (ordAmt > 0) {
+          newPayItems.push({
+            id: `p_opt_${Date.now()}_cash`,
+            shop_id: shop.id,
+            order_id: order.id,
+            collected_amount: ordAmt,
+            payment_mode: 'cash',
+            payment_date: new Date().toISOString()
+          });
+        }
+        if (prevAmt > 0) {
+          newPayItems.push({
+            id: `p_opt_${Date.now()}_gpay`,
+            shop_id: shop.id,
+            order_id: order.id,
+            collected_amount: prevAmt,
+            payment_mode: 'gpay',
+            payment_date: new Date().toISOString()
+          });
+        }
+      } else {
+        if (ordAmt > 0) {
+          newPayItems.push({
+            id: `p_opt_${Date.now()}_1`,
+            shop_id: shop.id,
+            order_id: order.id,
+            collected_amount: ordAmt,
+            payment_mode: paymentMode,
+            payment_date: new Date().toISOString()
+          });
+        }
+        if (prevAmt > 0) {
+          newPayItems.push({
+            id: `p_opt_${Date.now()}_2`,
+            shop_id: shop.id,
+            order_id: '',
+            collected_amount: prevAmt,
+            payment_mode: paymentMode,
+            payment_date: new Date().toISOString()
+          });
+        }
       }
       setPayments(prev => [...prev, ...newPayItems]);
     }
@@ -407,28 +430,94 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     try {
       if (status === 'delivered' && (ordAmt > 0 || prevAmt > 0)) {
         const paymentsToSubmit = [];
-        if (ordAmt > 0) {
-          paymentsToSubmit.push({
-            shop_id: shop.id,
-            order_id: order.id,
-            collected_amount: ordAmt,
-            payment_mode: paymentMode === 'split' ? 'cash' : paymentMode,
-            transaction_number: (paymentMode === 'gpay' || paymentMode === 'split') ? (gpayTxn || `TXN-${Date.now()}`) : '',
-            reference_number: '',
-            payment_date: new Date().toISOString()
-          });
+
+        if (paymentMode === 'split') {
+          const orderPayments = (payments || []).filter(p => p.order_id === order.id);
+          const alreadyPaid = orderPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+          const initialInvoiceDue = Math.max(0, Number(order.net_amount || 0) - alreadyPaid);
+
+          // 1. Cash portion
+          if (ordAmt > 0) {
+            const invCash = Math.min(ordAmt, initialInvoiceDue);
+            const prevCash = ordAmt - invCash;
+            if (invCash > 0) {
+              paymentsToSubmit.push({
+                shop_id: shop.id,
+                order_id: order.id,
+                collected_amount: invCash,
+                payment_mode: 'cash',
+                transaction_number: '',
+                reference_number: '',
+                payment_date: new Date().toISOString()
+              });
+            }
+            if (prevCash > 0) {
+              paymentsToSubmit.push({
+                shop_id: shop.id,
+                order_id: '',
+                collected_amount: prevCash,
+                payment_mode: 'cash',
+                transaction_number: '',
+                reference_number: '',
+                payment_date: new Date().toISOString()
+              });
+            }
+          }
+
+          // 2. GPay portion
+          if (prevAmt > 0) {
+            const remInvoiceDue = Math.max(0, initialInvoiceDue - Math.min(ordAmt, initialInvoiceDue));
+            const invGpay = Math.min(prevAmt, remInvoiceDue);
+            const prevGpay = prevAmt - invGpay;
+
+            if (invGpay > 0) {
+              paymentsToSubmit.push({
+                shop_id: shop.id,
+                order_id: order.id,
+                collected_amount: invGpay,
+                payment_mode: 'gpay',
+                transaction_number: gpayTxn || `TXN-${Date.now()}`,
+                reference_number: '',
+                payment_date: new Date().toISOString()
+              });
+            }
+            if (prevGpay > 0) {
+              paymentsToSubmit.push({
+                shop_id: shop.id,
+                order_id: '',
+                collected_amount: prevGpay,
+                payment_mode: 'gpay',
+                transaction_number: gpayTxn || `TXN-${Date.now()}`,
+                reference_number: '',
+                payment_date: new Date().toISOString()
+              });
+            }
+          }
+        } else {
+          if (ordAmt > 0) {
+            paymentsToSubmit.push({
+              shop_id: shop.id,
+              order_id: order.id,
+              collected_amount: ordAmt,
+              payment_mode: paymentMode,
+              transaction_number: paymentMode === 'gpay' ? (gpayTxn || `TXN-${Date.now()}`) : '',
+              reference_number: '',
+              payment_date: new Date().toISOString()
+            });
+          }
+          if (prevAmt > 0) {
+            paymentsToSubmit.push({
+              shop_id: shop.id,
+              order_id: '',
+              collected_amount: prevAmt,
+              payment_mode: paymentMode,
+              transaction_number: paymentMode === 'gpay' ? (gpayTxn || `TXN-${Date.now()}`) : '',
+              reference_number: '',
+              payment_date: new Date().toISOString()
+            });
+          }
         }
-        if (prevAmt > 0) {
-          paymentsToSubmit.push({
-            shop_id: shop.id,
-            order_id: '',
-            collected_amount: prevAmt,
-            payment_mode: paymentMode === 'split' ? 'gpay' : paymentMode,
-            transaction_number: (paymentMode === 'gpay' || paymentMode === 'split') ? (gpayTxn || `TXN-${Date.now()}`) : '',
-            reference_number: '',
-            payment_date: new Date().toISOString()
-          });
-        }
+
         await api.createPayment({ payments: paymentsToSubmit });
       }
 
@@ -1238,32 +1327,32 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                           </div>
 
                           {/* Separate Payment Options */}
-                          <div style={{ display: 'grid', gridTemplateColumns: prevShopBal > 0 ? '1fr 1fr' : '1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                            {/* 1. Current Order Payment */}
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: '0.3rem' }}>
-                                📄 {lang === 'ta' ? 'தற்போதைய பில் கட்டணம் (₹)' : 'Current Invoice Payment (₹)'}
-                              </label>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                className="form-input"
-                                style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.2rem', padding: '0.5rem 0.75rem' }}
-                                value={orderPaymentAmount === '' || orderPaymentAmount === 0 ? (orderPaymentAmount === '' ? '' : '0') : orderPaymentAmount}
-                                onChange={e => {
-                                  const val = e.target.value.replace(/\D/g, '');
-                                  setOrderPaymentAmount(val === '' ? '' : parseInt(val, 10));
-                                }}
-                                placeholder="0"
-                              />
-                            </div>
-
-                            {/* 2. Previous Outstanding Payment */}
-                            {prevShopBal > 0 && (
+                          {paymentMode === 'split' ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                              {/* 1. Cash Column */}
                               <div className="form-group" style={{ marginBottom: 0 }}>
-                                <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--warning)', marginBottom: '0.3rem' }}>
-                                  💼 {lang === 'ta' ? 'முந்தைய நிலுவைத் தொகை (₹)' : 'Pay Previous Outstanding (₹)'}
+                                <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--success)', marginBottom: '0.3rem' }}>
+                                  💵 {lang === 'ta' ? 'ரொக்கத் தொகை (Cash ₹)' : 'Cash Amount (₹)'}
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  className="form-input"
+                                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.2rem', padding: '0.5rem 0.75rem' }}
+                                  value={orderPaymentAmount === '' || orderPaymentAmount === 0 ? (orderPaymentAmount === '' ? '' : '0') : orderPaymentAmount}
+                                  onChange={e => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    setOrderPaymentAmount(val === '' ? '' : parseInt(val, 10));
+                                  }}
+                                  placeholder="0"
+                                />
+                              </div>
+
+                              {/* 2. GPay Column */}
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: '0.3rem' }}>
+                                  📱 {lang === 'ta' ? 'ஜிபே / யுபிஐ (GPay ₹)' : 'GPay / UPI Amount (₹)'}
                                 </label>
                                 <input
                                   type="text"
@@ -1279,8 +1368,52 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                   placeholder="0"
                                 />
                               </div>
-                            )}
-                          </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: prevShopBal > 0 ? '1fr 1fr' : '1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                              {/* 1. Current Order Payment */}
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: '0.3rem' }}>
+                                  📄 {lang === 'ta' ? 'தற்போதைய பில் கட்டணம் (₹)' : 'Current Invoice Payment (₹)'}
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  className="form-input"
+                                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.2rem', padding: '0.5rem 0.75rem' }}
+                                  value={orderPaymentAmount === '' || orderPaymentAmount === 0 ? (orderPaymentAmount === '' ? '' : '0') : orderPaymentAmount}
+                                  onChange={e => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    setOrderPaymentAmount(val === '' ? '' : parseInt(val, 10));
+                                  }}
+                                  placeholder="0"
+                                />
+                              </div>
+
+                              {/* 2. Previous Outstanding Payment */}
+                              {prevShopBal > 0 && (
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                  <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--warning)', marginBottom: '0.3rem' }}>
+                                    💼 {lang === 'ta' ? 'முந்தைய நிலுவைத் தொகை (₹)' : 'Pay Previous Outstanding (₹)'}
+                                  </label>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    className="form-input"
+                                    style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.2rem', padding: '0.5rem 0.75rem' }}
+                                    value={prevOutstandingAmount === '' || prevOutstandingAmount === 0 ? (prevOutstandingAmount === '' ? '' : '0') : prevOutstandingAmount}
+                                    onChange={e => {
+                                      const val = e.target.value.replace(/\D/g, '');
+                                      setPrevOutstandingAmount(val === '' ? '' : parseInt(val, 10));
+                                    }}
+                                    placeholder="0"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           {/* GPay Transaction Number */}
                           {(paymentMode === 'gpay' || paymentMode === 'split') && (
@@ -1299,7 +1432,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                           {/* Live calculation for collection */}
                           {(() => {
                             const totalCollected = Number(orderPaymentAmount || 0) + Number(prevOutstandingAmount || 0);
-                            const remainingInvoice = Math.max(0, initialInvoiceDue - Number(orderPaymentAmount || 0));
+                            const remainingInvoice = Math.max(0, initialInvoiceDue - totalCollected);
                             const remainingTotalOutstanding = Math.max(0, totalShopBal - totalCollected);
 
                             return (
@@ -1325,7 +1458,10 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
                                 {totalCollected > 0 && (
                                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right', marginBottom: '0.25rem' }}>
-                                    ({[
+                                    ({paymentMode === 'split' ? [
+                                      Number(orderPaymentAmount) > 0 ? `💵 Cash: ₹${orderPaymentAmount}` : null,
+                                      Number(prevOutstandingAmount) > 0 ? `📱 GPay: ₹${prevOutstandingAmount}` : null
+                                    ].filter(Boolean).join(' + ') : [
                                       Number(orderPaymentAmount) > 0 ? `Invoice: ₹${orderPaymentAmount}` : null,
                                       Number(prevOutstandingAmount) > 0 ? `Prev Outstanding: ₹${prevOutstandingAmount}` : null
                                     ].filter(Boolean).join(' + ')})
