@@ -1018,14 +1018,6 @@ app.get('/api/products', async (req, res) => {
   const db = await readDB(req.tenantId);
   let changed = false;
   if (Array.isArray(db.products)) {
-    const initialCount = db.products.length;
-    db.products = db.products.filter(p => {
-      const name = ((p.name_en || '') + ' ' + (p.name_ta || '')).toLowerCase();
-      const size = (p.size || '').toLowerCase();
-      return !((name.includes('7up') || name.includes('7 up')) && (name.includes('2.25') || size.includes('2.25')));
-    });
-    if (db.products.length !== initialCount) changed = true;
-
     db.products.forEach(p => {
       const oldRule = p.case_qty_rule;
       sanitizeProductPackQty(p);
@@ -1050,19 +1042,49 @@ app.post('/api/products', async (req, res) => {
       if (translated) name_ta = translated;
     }
 
+    const brandStr = (req.body.brand || '').trim();
+    const sizeStr = (req.body.size || '').trim();
+
+    // Prevent duplicate product creation (by name, brand, size)
+    const normalizedEn = name_en.toLowerCase().replace(/\s+/g, '');
+    const normalizedTa = name_ta.toLowerCase().replace(/\s+/g, '');
+    const normalizedBrand = brandStr.toLowerCase().replace(/\s+/g, '');
+    const normalizedSize = sizeStr.toLowerCase().replace(/\s+/g, '');
+
+    const existingDup = db.products.find(p => {
+      const pEn = (p.name_en || '').toLowerCase().replace(/\s+/g, '');
+      const pTa = (p.name_ta || '').toLowerCase().replace(/\s+/g, '');
+      const pBrand = (p.brand || '').toLowerCase().replace(/\s+/g, '');
+      const pSize = (p.size || '').toLowerCase().replace(/\s+/g, '');
+
+      const nameMatch = (normalizedEn && pEn === normalizedEn) || (normalizedTa && pTa === normalizedTa);
+      const brandMatch = !normalizedBrand || pBrand === normalizedBrand;
+      const sizeMatch = !normalizedSize || pSize === normalizedSize;
+
+      return nameMatch && brandMatch && sizeMatch;
+    });
+
+    if (existingDup) {
+      return res.status(400).json({
+        error: `Product '${existingDup.name_en || existingDup.name_ta}' (${existingDup.size}) already exists under brand '${existingDup.brand}'. Duplicate products cannot be added.`
+      });
+    }
+
+    const caseRule = Number(req.body.case_qty_rule) || 24;
+
     const newProduct = {
       id: `p_${Date.now()}`,
       name_en,
       name_ta,
-      brand: req.body.brand,
+      brand: brandStr,
       category: req.body.category || '',
-      size: req.body.size,
-      case_qty_rule: Number(req.body.case_qty_rule),
-      purchase_price: Number(req.body.purchase_price),
-      wholesale_price: Number(req.body.wholesale_price),
-      retail_price: Number(req.body.retail_price),
+      size: sizeStr,
+      case_qty_rule: caseRule,
+      purchase_price: Number(req.body.purchase_price || 0),
+      wholesale_price: Number(req.body.wholesale_price || 0),
+      retail_price: Number(req.body.retail_price || 0),
       current_stock_bottles: Number(req.body.current_stock_bottles || 0),
-      min_stock: Number(req.body.min_stock),
+      min_stock: Number(req.body.min_stock || 0),
       status: req.body.status || 'active',
       mrp: Number(req.body.mrp || 0),
       gst: Number(req.body.gst || 0)

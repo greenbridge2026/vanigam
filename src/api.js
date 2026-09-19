@@ -193,7 +193,19 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(productData)
     });
-    return parseJsonResponse(res, 'Failed to create product');
+    const added = await parseJsonResponse(res, 'Failed to create product');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
+        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
+        await setDoc(docRef, { data: freshProducts }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing created product to Firestore client failed:', e);
+      }
+    }
+    return added;
   },
   async updateProduct(id, productData) {
     const res = await apiFetch(`${API_BASE}/products/${id}`, {
@@ -201,7 +213,19 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(productData)
     });
-    return parseJsonResponse(res, 'Failed to update product');
+    const updated = await parseJsonResponse(res, 'Failed to update product');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
+        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
+        await setDoc(docRef, { data: freshProducts }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing updated product to Firestore client failed:', e);
+      }
+    }
+    return updated;
   },
   async importProducts(productsList) {
     const res = await apiFetch(`${API_BASE}/products/import`, {
@@ -209,13 +233,37 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(productsList)
     });
-    return parseJsonResponse(res, 'Failed to import products');
+    const result = await parseJsonResponse(res, 'Failed to import products');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
+        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
+        await setDoc(docRef, { data: freshProducts }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing imported products to Firestore client failed:', e);
+      }
+    }
+    return result;
   },
   async autoTranslateProducts() {
     const res = await apiFetch(`${API_BASE}/products/auto-translate-all`, {
       method: 'POST'
     });
-    return parseJsonResponse(res, 'Failed to auto translate products');
+    const result = await parseJsonResponse(res, 'Failed to auto translate products');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
+        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
+        await setDoc(docRef, { data: freshProducts }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing translated products to Firestore client failed:', e);
+      }
+    }
+    return result;
   },
   async importShops(routeId, shopsList) {
     const res = await apiFetch(`${API_BASE}/shops/import`, {
@@ -387,7 +435,19 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/products/${id}`, {
       method: 'DELETE'
     });
-    return parseJsonResponse(res, 'Failed to delete product');
+    const result = await parseJsonResponse(res, 'Failed to delete product');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
+        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
+        await setDoc(docRef, { data: freshProducts }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing deleted product to Firestore client failed:', e);
+      }
+    }
+    return result;
   },
   async bulkDeleteProducts(ids) {
     const res = await apiFetch(`${API_BASE}/products/bulk-delete`, {
@@ -395,7 +455,19 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids })
     });
-    return parseJsonResponse(res, 'Failed to bulk delete products');
+    const result = await parseJsonResponse(res, 'Failed to bulk delete products');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
+        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
+        await setDoc(docRef, { data: freshProducts }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing bulk deleted products to Firestore client failed:', e);
+      }
+    }
+    return result;
   },
 
   async deletePurchase(id) {

@@ -33,12 +33,7 @@ export default function ProductMgr({ t, lang }) {
     async function loadProducts() {
       try {
         const data = await api.getProducts();
-        const cleaned = (data || []).filter(p => {
-          const name = ((p.name_en || '') + ' ' + (p.name_ta || '')).toLowerCase();
-          const size = (p.size || '').toLowerCase();
-          return !((name.includes('7up') || name.includes('7 up')) && (name.includes('2.25') || size.includes('2.25')));
-        });
-        setProducts(cleaned);
+        setProducts(data || []);
       } catch (err) {
         console.error('Failed to load products list', err);
       } finally {
@@ -120,11 +115,11 @@ export default function ProductMgr({ t, lang }) {
     const stockCasesNum = Number(currentStockCases) || 0;
 
     const payload = {
-      name_en: finalEn,
-      name_ta: finalTa,
-      brand,
+      name_en: finalEn || finalTa,
+      name_ta: finalTa || finalEn,
+      brand: brand.trim() || 'General',
       category: category || '',
-      size,
+      size: size.trim() || 'Standard',
       case_qty_rule: caseRuleNum,
       purchase_price: Number(purchasePrice) || 0,
       wholesale_price: Number(wholesalePrice) || 0,
@@ -136,16 +131,50 @@ export default function ProductMgr({ t, lang }) {
       current_stock_bottles: stockCasesNum * caseRuleNum
     };
 
+    if (!editingProduct) {
+      const normEn = (finalEn || finalTa).toLowerCase().replace(/\s+/g, '');
+      const normTa = (finalTa || finalEn).toLowerCase().replace(/\s+/g, '');
+      const normBrand = (brand || 'General').toLowerCase().replace(/\s+/g, '');
+      const normSize = (size || 'Standard').toLowerCase().replace(/\s+/g, '');
+
+      const isDup = products.some(p => {
+        const pEn = (p.name_en || '').toLowerCase().replace(/\s+/g, '');
+        const pTa = (p.name_ta || '').toLowerCase().replace(/\s+/g, '');
+        const pBrand = (p.brand || '').toLowerCase().replace(/\s+/g, '');
+        const pSize = (p.size || '').toLowerCase().replace(/\s+/g, '');
+
+        const nameMatch = (normEn && pEn === normEn) || (normTa && pTa === normTa);
+        const brandMatch = !normBrand || pBrand === normBrand;
+        const sizeMatch = !normSize || pSize === normSize;
+
+        return nameMatch && brandMatch && sizeMatch;
+      });
+
+      if (isDup) {
+        alert(
+          lang === 'ta'
+            ? 'இந்த தயாரிப்பு (பெயர், பிராண்ட், அளவு) ஏற்கனவே பட்டியலில் உள்ளது! நகல் தயாரிப்புகளை சேர்க்க முடியாது.'
+            : 'A product with this name, brand, and size already exists! Duplicate products cannot be added.'
+        );
+        return;
+      }
+    }
+
     try {
       if (editingProduct) {
-        const updated = await api.updateProduct(editingProduct.id, payload);
-        setProducts(products.map(p => p.id === editingProduct.id ? updated : p));
+        await api.updateProduct(editingProduct.id, payload);
       } else {
-        const added = await api.createProduct(payload);
-        setProducts([...products, added]);
+        await api.createProduct(payload);
       }
+
+      // Re-fetch fresh products list from server/cache
+      const updatedList = await api.getProducts();
+      setProducts(updatedList || []);
+
       resetForm();
+      alert(lang === 'ta' ? 'தயாரிப்பு வெற்றிகரமாக சேமிக்கப்பட்டது!' : 'Product saved successfully!');
     } catch (err) {
+      console.error('Save product error:', err);
       alert(err.message || 'Error saving product settings');
     }
   };
@@ -643,35 +672,35 @@ export default function ProductMgr({ t, lang }) {
               </div>
               <div className="form-group">
                 <label>{t('brand')}</label>
-                <input type="text" className="form-input" value={brand} onChange={e => setBrand(e.target.value)} required placeholder="e.g. Coca Cola" />
+                <input type="text" className="form-input" value={brand} onChange={e => setBrand(e.target.value)} placeholder="e.g. Coca Cola" />
               </div>
               <div className="form-group">
                 <label>{t('size')}</label>
-                <input type="text" className="form-input" value={size} onChange={e => setSize(e.target.value)} required placeholder="e.g. 2.25L, 500ml" />
+                <input type="text" className="form-input" value={size} onChange={e => setSize(e.target.value)} placeholder="e.g. 2.25L, 500ml" />
               </div>
               <div className="form-group">
                 <label>{t('case_qty')} (Bottles per Case)</label>
-                <input type="number" className="form-input" value={caseQtyRule} onChange={e => setCaseQtyRule(e.target.value)} required min="1" placeholder="9 or 24" />
+                <input type="number" className="form-input" value={caseQtyRule} onChange={e => setCaseQtyRule(e.target.value)} min="1" placeholder="9 or 24" />
               </div>
               <div className="form-group">
                 <label>{t('purchase_price')} (₹ per Case)</label>
-                <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} required min="0" />
+                <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} min="0" placeholder="0" />
               </div>
               <div className="form-group">
                 <label>{t('wholesale_price')} (₹ per Case)</label>
-                <input type="number" className="form-input" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} required min="0" />
+                <input type="number" className="form-input" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} min="0" placeholder="0" />
               </div>
               <div className="form-group">
                 <label>{t('retail_price')} (₹ per Case)</label>
-                <input type="number" className="form-input" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} required min="0" />
+                <input type="number" className="form-input" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} min="0" placeholder="0" />
               </div>
               <div className="form-group">
                 <label>{t('mrp')}</label>
-                <input type="number" className="form-input" value={mrp} onChange={e => setMrp(e.target.value)} required min="0" step="any" />
+                <input type="number" className="form-input" value={mrp} onChange={e => setMrp(e.target.value)} min="0" step="any" placeholder="0" />
               </div>
               <div className="form-group">
                 <label>{t('gst')}</label>
-                <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} required min="0" max="100" step="any" />
+                <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} min="0" max="100" step="any" placeholder="0" />
               </div>
               <div className="form-group">
                 <label>{lang === 'ta' ? 'சரக்கு இருப்பு (பெட்டிகள்)' : 'Live Stock (Cases)'}</label>
@@ -724,35 +753,35 @@ export default function ProductMgr({ t, lang }) {
                   </div>
                   <div className="form-group">
                     <label>{t('brand')}</label>
-                    <input type="text" className="form-input" value={brand} onChange={e => setBrand(e.target.value)} required placeholder="e.g. Coca Cola" />
+                    <input type="text" className="form-input" value={brand} onChange={e => setBrand(e.target.value)} placeholder="e.g. Coca Cola" />
                   </div>
                   <div className="form-group">
                     <label>{t('size')}</label>
-                    <input type="text" className="form-input" value={size} onChange={e => setSize(e.target.value)} required placeholder="e.g. 2.25L, 500ml" />
+                    <input type="text" className="form-input" value={size} onChange={e => setSize(e.target.value)} placeholder="e.g. 2.25L, 500ml" />
                   </div>
                   <div className="form-group">
                     <label>{t('case_qty')} (Bottles per Case)</label>
-                    <input type="number" className="form-input" value={caseQtyRule} onChange={e => setCaseQtyRule(e.target.value)} required min="1" placeholder="9 or 24" />
+                    <input type="number" className="form-input" value={caseQtyRule} onChange={e => setCaseQtyRule(e.target.value)} min="1" placeholder="9 or 24" />
                   </div>
                   <div className="form-group">
                     <label>{t('purchase_price')} (₹ per Case)</label>
-                    <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} required min="0" />
+                    <input type="number" className="form-input" value={purchasePrice} onChange={e => setPurchasePrice(e.target.value)} min="0" placeholder="0" />
                   </div>
                   <div className="form-group">
                     <label>{t('wholesale_price')} (₹ per Case)</label>
-                    <input type="number" className="form-input" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} required min="0" />
+                    <input type="number" className="form-input" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} min="0" placeholder="0" />
                   </div>
                   <div className="form-group">
                     <label>{t('retail_price')} (₹ per Case)</label>
-                    <input type="number" className="form-input" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} required min="0" />
+                    <input type="number" className="form-input" value={retailPrice} onChange={e => setRetailPrice(e.target.value)} min="0" placeholder="0" />
                   </div>
                   <div className="form-group">
                     <label>{t('mrp')}</label>
-                    <input type="number" className="form-input" value={mrp} onChange={e => setMrp(e.target.value)} required min="0" step="any" />
+                    <input type="number" className="form-input" value={mrp} onChange={e => setMrp(e.target.value)} min="0" step="any" placeholder="0" />
                   </div>
                   <div className="form-group">
                     <label>{t('gst')}</label>
-                    <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} required min="0" max="100" step="any" />
+                    <input type="number" className="form-input" value={gst} onChange={e => setGst(e.target.value)} min="0" max="100" step="any" placeholder="0" />
                   </div>
                   <div className="form-group">
                     <label>{lang === 'ta' ? 'சரக்கு இருப்பு (பெட்டிகள்)' : 'Live Stock (Cases)'}</label>
