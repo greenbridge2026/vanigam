@@ -373,19 +373,23 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
 
                 <div style={{ border: '1.5px solid #1e293b', borderRadius: '4px', overflow: 'hidden', fontSize: isCompact ? '10px' : '11px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '3px 6px' : '5px 8px', borderBottom: '1px solid #cbd5e1' }}>
-                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'துணைத்தொகை:' : 'Subtotal:'}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #cbd5e1' }}>
+                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'மொத்தத் தொகை:' : 'Gross Total:'}</span>
                       <span style={{ fontWeight: '800', color: '#0f172a' }}>₹{order.total_amount}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '3px 6px' : '5px 8px', borderBottom: '1px solid #cbd5e1' }}>
-                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'தள்ளுபடி:' : 'Discount:'}</span>
-                      <span style={{ fontWeight: '800', color: '#ef4444' }}>-₹{order.discount}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #cbd5e1' }}>
+                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'தள்ளுபடி:' : 'Discount (-):'}</span>
+                      <span style={{ fontWeight: '800', color: '#ef4444' }}>-₹{order.discount || 0}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '3px 6px' : '5px 8px', borderBottom: '1px solid #cbd5e1' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #cbd5e1' }}>
+                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'துணைத்தொகை:' : 'Subtotal:'}</span>
+                      <span style={{ fontWeight: '800', color: '#0f172a' }}>₹{(Number(order.total_amount) || 0) - (Number(order.discount) || 0)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #cbd5e1' }}>
                       <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'முந்தைய நிலுவை:' : 'Prev Outstanding:'}</span>
                       <span style={{ fontWeight: '800', color: '#0f172a' }}>₹{outstandingBeforeOrder}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '3px 6px' : '5px 8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px' }}>
                       <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'வசூலிக்கப்பட்ட தொகை:' : 'Amount Collected:'}</span>
                       <span style={{ fontWeight: '800', color: '#10b981' }}>₹{totalCollected}</span>
                     </div>

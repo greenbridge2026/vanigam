@@ -75,6 +75,9 @@ export default function App() {
   const [selectedOrderId, setSelectedOrderId] = useState(() => {
     return localStorage.getItem('selectedOrderId') || null;
   });
+  const [previousTab, setPreviousTab] = useState(() => {
+    return localStorage.getItem('previousTab') || 'deliveries';
+  });
   const [editingOrder, setEditingOrder] = useState(() => {
     const saved = localStorage.getItem('editingOrder');
     return saved ? JSON.parse(saved) : null;
@@ -125,6 +128,10 @@ export default function App() {
   useEffect(() => {
     if (activeTab) localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (previousTab) localStorage.setItem('previousTab', previousTab);
+  }, [previousTab]);
 
   useEffect(() => {
     if (selectedOrderId) {
@@ -461,11 +468,13 @@ export default function App() {
   // Handle invoice display redirection
   const handleOrderCreated = (orderId) => {
     setSelectedOrderId(orderId);
+    setPreviousTab('deliveries');
     setActiveTab('billing');
   };
 
   const handleViewBillFromDelivery = (orderId) => {
     setSelectedOrderId(orderId);
+    setPreviousTab(activeTab && activeTab !== 'billing' ? activeTab : 'deliveries');
     setActiveTab('billing');
   };
 
@@ -505,7 +514,8 @@ export default function App() {
           lang={lang}
           onBack={() => {
             setSelectedOrderId(null);
-            setActiveTab(session.role === 'delivery' ? 'deliveries' : 'dashboard');
+            const returnTarget = (previousTab && previousTab !== 'billing' && previousTab !== 'dashboard') ? previousTab : 'deliveries';
+            setActiveTab(returnTarget);
           }}
         />
       );
