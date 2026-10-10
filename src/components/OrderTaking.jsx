@@ -371,7 +371,6 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           items,
           discount: Number(discount || 0)
         });
-        alert(lang === 'ta' ? 'விலைப்பட்டியல் வெற்றிகரமாக மாற்றப்பட்டது!' : 'Invoice updated successfully!');
         if (onOrderUpdated) {
           onOrderUpdated();
         }
@@ -384,7 +383,6 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           discount: Number(discount || 0)
         };
         const result = await api.createOrder(orderPayload);
-        alert(lang === 'ta' ? 'ஆர்டர் வெற்றிகரமாக சமர்ப்பிக்கப்பட்டது!' : 'Order Placed Successfully!');
         if (onOrderCreated && result && result.order) {
           onOrderCreated(result.order.id);
         }
@@ -982,7 +980,14 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
                   onClick={handlePlaceOrder}
                   disabled={submitting || netTotal === 0}
                 >
-                  {submitting ? '...' : (editingOrder ? `💾 ${lang === 'ta' ? 'மாற்றங்களை சேமி' : 'Update Invoice'}` : `⚡ ${t('place_order')}`)}
+                  {submitting ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                      <span style={{ display: 'inline-block', width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }}></span>
+                      {editingOrder ? (lang === 'ta' ? 'சேமிக்கிறது...' : 'Saving Invoice...') : (lang === 'ta' ? 'பூட்டப்படுகிறது...' : 'Locking Stock & Placing...')}
+                    </span>
+                  ) : (
+                    editingOrder ? `💾 ${lang === 'ta' ? 'மாற்றங்களை சேமி' : 'Update Invoice'}` : `⚡ ${t('place_order')}`
+                  )}
                 </button>
               </div>
             </div>

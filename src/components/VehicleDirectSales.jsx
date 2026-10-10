@@ -27,6 +27,11 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
   // Dispatch Form State
   const [selectedDispatchVehicle, setSelectedDispatchVehicle] = useState('');
   const [dispatchCart, setDispatchCart] = useState({}); // product_id -> { cases, bottles }
+  const [dispatchSearch, setDispatchSearch] = useState('');
+  const [dispatchBrand, setDispatchBrand] = useState('');
+  const [dispatchCategory, setDispatchCategory] = useState('');
+  const [dispatchOnlyInStock, setDispatchOnlyInStock] = useState(true);
+  const [bulkCasesInput, setBulkCasesInput] = useState('');
 
   // Sales Entry Form State
   const [selectedSaleVehicle, setSelectedSaleVehicle] = useState('');
@@ -162,15 +167,184 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
   };
 
   // ---------------- DISPATCH STOCK ACTIONS ----------------
+  const getFilteredDispatchProducts = () => {
+    return products
+      .filter(p => p.status === 'active')
+      .filter(p => !dispatchOnlyInStock || (p.current_stock_bottles || 0) > 0)
+      .filter(p => {
+        if (!dispatchSearch) return true;
+        const s = dispatchSearch.toLowerCase();
+        return (
+          (p.name_en && p.name_en.toLowerCase().includes(s)) ||
+          (p.name_ta && p.name_ta.toLowerCase().includes(s))
+        );
+      })
+      .filter(p => !dispatchBrand || p.brand === dispatchBrand)
+      .filter(p => !dispatchCategory || p.category === dispatchCategory);
+  };
+
   const handleDispatchQtyChange = (prodId, field, val) => {
     const value = Math.max(0, parseInt(val) || 0);
+    const prod = products.find(p => p.id === prodId);
+    if (!prod) return;
+
+    const current = dispatchCart[prodId] || { cases: 0, bottles: 0 };
+    const updated = { ...current, [field]: value };
+    const reqBottles = (Number(updated.cases || 0) * prod.case_qty_rule) + Number(updated.bottles || 0);
+    const availBottles = prod.current_stock_bottles || 0;
+
+    if (reqBottles > availBottles) {
+      if (field === 'cases') {
+        updated.cases = Math.floor(availBottles / prod.case_qty_rule);
+      } else {
+        const remaining = Math.max(0, availBottles - (Number(updated.cases || 0) * prod.case_qty_rule));
+        updated.bottles = remaining;
+      }
+    }
+
     setDispatchCart({
       ...dispatchCart,
-      [prodId]: {
-        ...(dispatchCart[prodId] || { cases: 0, bottles: 0 }),
-        [field]: value
+      [prodId]: updated
+    });
+  };
+
+  // 1. Bulk set all visible products to X cases
+  const handleSetAllVisibleCases = (numCases) => {
+    const qty = Math.max(0, parseInt(numCases) || 0);
+    if (qty <= 0) return;
+    const visible = getFilteredDispatchProducts();
+    const updated = { ...dispatchCart };
+    visible.forEach(p => {
+      const avail = p.current_stock_bottles || 0;
+      const rule = p.case_qty_rule || 1;
+      const maxCases = Math.floor(avail / rule);
+      const applyCases = Math.min(qty, maxCases);
+      if (applyCases > 0 || avail > 0) {
+        updated[p.id] = {
+          cases: applyCases,
+          bottles: updated[p.id]?.bottles || 0
+        };
       }
     });
+    setDispatchCart(updated);
+  };
+
+  // 2. Load max available warehouse stock for all visible products
+  const handleLoadAllMaxVisible = () => {
+    const visible = getFilteredDispatchProducts();
+    const updated = { ...dispatchCart };
+    visible.forEach(p => {
+      const avail = p.current_stock_bottles || 0;
+      const rule = p.case_qty_rule || 1;
+      updated[p.id] = {
+        cases: Math.floor(avail / rule),
+        bottles: avail % rule
+      };
+    });
+    setDispatchCart(updated);
+  };
+
+  // 3. Copy from most recent dispatch of selected vehicle
+  const handleCopyLastDispatch = () => {
+    if (!selectedDispatchVehicle) return;
+    const vehicleDispatches = dispatches
+      .filter(d => d.vehicle_id === selectedDispatchVehicle && Array.isArray(d.items) && d.items.length > 0)
+      .sort((a, b) => new Date(b.dispatch_date || 0) - new Date(a.dispatch_date || 0));
+
+    if (vehicleDispatches.length === 0) {
+      alert(lang === 'ta' ? 'இந்த வாகனத்திற்கு முந்தைய ஏற்றுதல் ஏதும் இல்லை!' : 'No previous dispatch found for this vehicle!');
+      return;
+    }
+
+    const last = vehicleDispatches[0];
+    const updated = { ...dispatchCart };
+    let filledCount = 0;
+
+    last.items.forEach(item => {
+      const p = products.find(prod => prod.id === item.product_id);
+      if (p) {
+        const avail = p.current_stock_bottles || 0;
+        const rule = p.case_qty_rule || 1;
+        const maxCases = Math.floor(avail / rule);
+        const reqCases = Number(item.cases || 0);
+        const reqBottles = Number(item.bottles || 0);
+        const reqTotal = (reqCases * rule) + reqBottles;
+
+        if (reqTotal <= avail) {
+          updated[item.product_id] = { cases: reqCases, bottles: reqBottles };
+        } else {
+          updated[item.product_id] = { cases: maxCases, bottles: avail % rule };
+        }
+        filledCount++;
+      }
+    });
+
+    setDispatchCart(updated);
+    alert(lang === 'ta' 
+      ? `${filledCount} பொருட்கள் முந்தைய ஏற்றுதலிலிருந்து (${new Date(last.dispatch_date).toLocaleDateString()}) ஏற்றப்பட்டன!` 
+      : `Loaded ${filledCount} products from previous dispatch (${new Date(last.dispatch_date).toLocaleDateString()})!`);
+  };
+
+  // 4. Quick row-level actions
+  const handleQuickAddCases = (p, addCount) => {
+    const current = dispatchCart[p.id] || { cases: 0, bottles: 0 };
+    const avail = p.current_stock_bottles || 0;
+    const rule = p.case_qty_rule || 1;
+    const maxCases = Math.floor(avail / rule);
+    const newCases = Math.min(maxCases, (current.cases || 0) + addCount);
+    setDispatchCart({
+      ...dispatchCart,
+      [p.id]: {
+        ...current,
+        cases: newCases
+      }
+    });
+  };
+
+  const handleSetRowMax = (p) => {
+    const avail = p.current_stock_bottles || 0;
+    const rule = p.case_qty_rule || 1;
+    setDispatchCart({
+      ...dispatchCart,
+      [p.id]: {
+        cases: Math.floor(avail / rule),
+        bottles: avail % rule
+      }
+    });
+  };
+
+  const handleClearRow = (prodId) => {
+    const updated = { ...dispatchCart };
+    delete updated[prodId];
+    setDispatchCart(updated);
+  };
+
+  const handleClearDispatchCart = () => {
+    setDispatchCart({});
+  };
+
+  const getDispatchSummary = () => {
+    let totalItems = 0;
+    let totalCases = 0;
+    let totalBottles = 0;
+    let totalEqBottles = 0;
+
+    Object.keys(dispatchCart).forEach(pid => {
+      const item = dispatchCart[pid];
+      const p = products.find(prod => prod.id === pid);
+      const c = Number(item.cases || 0);
+      const b = Number(item.bottles || 0);
+      if (c > 0 || b > 0) {
+        totalItems++;
+        totalCases += c;
+        totalBottles += b;
+        if (p) {
+          totalEqBottles += (c * (p.case_qty_rule || 1)) + b;
+        }
+      }
+    });
+
+    return { totalItems, totalCases, totalBottles, totalEqBottles };
   };
 
   const handleDispatchSubmit = async (e) => {
@@ -194,8 +368,13 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
         items
       });
       alert(lang === 'ta' ? 'சரக்கு வெற்றிகரமாக வாகனத்தில் ஏற்றப்பட்டது!' : 'Stock loaded onto vehicle successfully!');
+      const targetVeh = selectedDispatchVehicle;
       setDispatchCart({});
       loadAllData();
+      setSelectedSaleVehicle(targetVeh);
+      if (window.confirm(lang === 'ta' ? 'நேரடி விற்பனை விலைப்பட்டியல் படிவத்திற்கு செல்ல விரும்புகிறீர்களா?' : 'Do you want to switch to Direct Sales Invoice Form to start billing now?')) {
+        setActiveSubTab('sales');
+      }
     } catch (err) {
       alert(err.message || 'Error executing dispatch');
     } finally {
@@ -466,15 +645,15 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                     </div>
                   </div>
 
-                  <div className="table-container" style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                  <div className="table-container" style={{ maxHeight: '380px', overflowY: 'auto' }}>
                     <table className="custom-table">
-                      <thead>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-table-th)' }}>
                         <tr>
                           <th>Product details</th>
                           <th>Loaded Stock</th>
                           <th>Price Rate (₹ / Case)</th>
-                          <th style={{ width: '120px' }}>Sell Cases</th>
-                          <th style={{ width: '120px' }}>Sell Bottles</th>
+                          <th style={{ minWidth: '135px' }}>Sell Cases (Stock)</th>
+                          <th style={{ minWidth: '135px' }}>Sell Bottles (Stock)</th>
                           <th style={{ textAlign: 'right' }}>Total</th>
                         </tr>
                       </thead>
@@ -488,6 +667,7 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                             const maxBottles = getProductVehicleStock(selectedSaleVehicle, p.id);
                             if (maxBottles === 0) return null;
 
+                            const availCases = Math.floor(maxBottles / (p.case_qty_rule || 1));
                             const item = saleCart[p.id] || { cases: 0, bottles: 0, price: getWholesaleOrRetailPrice(p, selectedSaleShop) };
                             const calculatedItemSub = Math.round(
                               (item.cases * Number(item.price || 0)) +
@@ -513,26 +693,38 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                                   />
                                 </td>
                                 <td>
-                                  <input
-                                    type="number"
-                                    className="form-input"
-                                    style={{ padding: '0.25rem' }}
-                                    value={item.cases || ''}
-                                    onChange={e => handleSaleQtyChange(p.id, 'cases', e.target.value, maxBottles)}
-                                    placeholder="Cases"
-                                    min="0"
-                                  />
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                    <input
+                                      type="number"
+                                      className="form-input"
+                                      style={{ padding: '0.25rem' }}
+                                      value={item.cases || ''}
+                                      onChange={e => handleSaleQtyChange(p.id, 'cases', e.target.value, maxBottles)}
+                                      placeholder={`Cases (${availCases} C)`}
+                                      min="0"
+                                      max={availCases}
+                                    />
+                                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '500' }}>
+                                      ({availCases} C in stock)
+                                    </div>
+                                  </div>
                                 </td>
                                 <td>
-                                  <input
-                                    type="number"
-                                    className="form-input"
-                                    style={{ padding: '0.25rem' }}
-                                    value={item.bottles || ''}
-                                    onChange={e => handleSaleQtyChange(p.id, 'bottles', e.target.value, maxBottles)}
-                                    placeholder="Bottles"
-                                    min="0"
-                                  />
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                    <input
+                                      type="number"
+                                      className="form-input"
+                                      style={{ padding: '0.25rem' }}
+                                      value={item.bottles || ''}
+                                      onChange={e => handleSaleQtyChange(p.id, 'bottles', e.target.value, maxBottles)}
+                                      placeholder={`Bottles (${maxBottles} B)`}
+                                      min="0"
+                                      max={maxBottles}
+                                    />
+                                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '500' }}>
+                                      ({maxBottles} B in stock)
+                                    </div>
+                                  </div>
                                 </td>
                                 <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
                                   ₹{calculatedItemSub || 0}
@@ -787,13 +979,29 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
       )}
 
       {/* -------------------- TAB: LOAD DISPATCH -------------------- */}
-      {activeSubTab === 'dispatch' && (
-        <div className="no-print">
-          <div className="glass-card">
-            <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>Dispatch Warehouse Stock to Vehicle</h2>
-            <form onSubmit={handleDispatchSubmit}>
-              <div className="form-group" style={{ maxWidth: '400px', marginBottom: '1.5rem' }}>
-                <label>Select Destination Vehicle</label>
+      {activeSubTab === 'dispatch' && (() => {
+        const summary = getDispatchSummary();
+        const visibleProducts = getFilteredDispatchProducts();
+        const vehicleDispatches = dispatches
+          .filter(d => d.vehicle_id === selectedDispatchVehicle && Array.isArray(d.items) && d.items.length > 0)
+          .sort((a, b) => new Date(b.dispatch_date || 0) - new Date(a.dispatch_date || 0));
+        const lastDispatch = vehicleDispatches[0];
+
+        return (
+          <div className="no-print">
+            <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.3rem', margin: 0 }}>📥 Dispatch Warehouse Stock to Vehicle</h2>
+                  <p style={{ margin: '0.25rem 0 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    {lang === 'ta' ? 'வாகனத்தில் சரக்குகளை மொத்தமாக ஏற்ற எளிதான வழி' : 'Quickly load products into vehicle with 1-click bulk tools'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Step 1: Vehicle Selector */}
+              <div className="form-group" style={{ maxWidth: '450px', marginBottom: '1.5rem' }}>
+                <label style={{ fontWeight: '600' }}>Select Destination Vehicle / இலக்கு வாகனம்:</label>
                 <select
                   className="form-select"
                   value={selectedDispatchVehicle}
@@ -808,70 +1016,318 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
               </div>
 
               {selectedDispatchVehicle && (
-                <div>
-                  <h3 style={{ fontSize: '1rem', marginBottom: '1rem' }}>Select Quantities to Load</h3>
-                  <div className="table-container">
+                <form onSubmit={handleDispatchSubmit}>
+                  {/* BULK TOOLBOX */}
+                  <div style={{
+                    background: 'rgba(6, 182, 212, 0.06)',
+                    border: '1px solid rgba(6, 182, 212, 0.25)',
+                    borderRadius: '10px',
+                    padding: '1.25rem',
+                    marginBottom: '1.5rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+                      <strong style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-cyan)' }}>
+                        <span>⚡</span> {lang === 'ta' ? 'மொத்தமாக ஏற்றும் கருவிகள் (Bulk Tools)' : 'Bulk Loading Tools'}
+                      </strong>
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                          onClick={handleLoadAllMaxVisible}
+                          title="Fills all visible products with 100% of available warehouse stock"
+                        >
+                          <span>📦</span> {lang === 'ta' ? 'அனைத்து சரக்குகளையும் ஏற்று (Max)' : 'Load All Max Available Stock'}
+                        </button>
+                        {lastDispatch && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                            onClick={handleCopyLastDispatch}
+                            title={`Copies quantities from previous load on ${new Date(lastDispatch.dispatch_date).toLocaleDateString()}`}
+                          >
+                            <span>🔄</span> {lang === 'ta' ? 'முந்தைய ஏற்றுதல் நகல்' : `Copy Previous Load (${new Date(lastDispatch.dispatch_date).toLocaleDateString()})`}
+                          </button>
+                        )}
+                        {summary.totalItems > 0 && (
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                            onClick={handleClearDispatchCart}
+                          >
+                            <span>🧹</span> {lang === 'ta' ? 'அனைத்தும் நீக்கு' : 'Clear All'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quick Fill By Cases Input */}
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', paddingTop: '0.5rem', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: '500', color: 'var(--text-main)' }}>
+                        {lang === 'ta' ? 'காட்டி உள்ள அனைத்து பொருட்களுக்கும் பெட்டிகள் அமைக்க:' : 'Bulk Fill Visible Items with:'}
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <input
+                          type="number"
+                          className="form-input"
+                          style={{ width: '80px', padding: '0.35rem' }}
+                          placeholder="Cases"
+                          min="1"
+                          value={bulkCasesInput}
+                          onChange={e => setBulkCasesInput(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                          onClick={() => {
+                            if (!bulkCasesInput) return alert('Enter number of cases');
+                            handleSetAllVisibleCases(bulkCasesInput);
+                          }}
+                        >
+                          ⚡ {lang === 'ta' ? 'பொருத்து' : 'Apply to Visible'}
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Quick Presets:</span>
+                        {[1, 2, 5, 10, 20].map(cnt => (
+                          <button
+                            key={cnt}
+                            type="button"
+                            onClick={() => handleSetAllVisibleCases(cnt)}
+                            className="language-btn"
+                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                          >
+                            +{cnt} C
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SEARCH & FILTER CONTROLS */}
+                  <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ flex: 2, minWidth: '200px' }}>
+                      <input
+                        type="text"
+                        placeholder="🔍 Filter by Product Name..."
+                        className="form-input"
+                        value={dispatchSearch}
+                        onChange={e => setDispatchSearch(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ width: '160px' }}>
+                      <select className="form-select" value={dispatchBrand} onChange={e => setDispatchBrand(e.target.value)}>
+                        <option value="">All Brands</option>
+                        {Array.from(new Set(products.map(p => p.brand).filter(Boolean))).map(b => (
+                          <option key={b} value={b}>{b}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ width: '160px' }}>
+                      <select className="form-select" value={dispatchCategory} onChange={e => setDispatchCategory(e.target.value)}>
+                        <option value="">All Categories</option>
+                        {Array.from(new Set(products.map(p => p.category).filter(Boolean))).map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={dispatchOnlyInStock}
+                        onChange={e => setDispatchOnlyInStock(e.target.checked)}
+                      />
+                      <span>In-Stock Only ({visibleProducts.length})</span>
+                    </label>
+                  </div>
+
+                  {/* LIVE SUMMARY HEADER BAR */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    padding: '0.75rem 1rem',
+                    marginBottom: '1rem',
+                    flexWrap: 'wrap',
+                    gap: '1rem'
+                  }}>
+                    <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center', flexWrap: 'wrap', fontSize: '0.9rem' }}>
+                      <div>
+                        <span style={{ color: 'var(--text-muted)' }}>Selected: </span>
+                        <strong style={{ color: 'var(--accent-cyan)' }}>{summary.totalItems} Products</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--text-muted)' }}>Total Cases: </span>
+                        <strong style={{ color: 'var(--success)' }}>{summary.totalCases} C</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--text-muted)' }}>Loose Bottles: </span>
+                        <strong>{summary.totalBottles} B</strong>
+                      </div>
+                      <div style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '1rem' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Total Load: </span>
+                        <strong style={{ color: 'var(--warning)' }}>{summary.totalEqBottles} Bottles</strong>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={submitting || summary.totalItems === 0}
+                      style={{ padding: '0.5rem 1.25rem', fontWeight: 'bold' }}
+                    >
+                      {submitting ? 'Processing Dispatch...' : `📥 Dispatch ${summary.totalCases} Cases to Vehicle`}
+                    </button>
+                  </div>
+
+                  {/* PRODUCTS TABLE */}
+                  <div className="table-container" style={{ maxHeight: '420px', overflowY: 'auto' }}>
                     <table className="custom-table">
-                      <thead>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--bg-table-th)' }}>
                         <tr>
                           <th>Product details</th>
                           <th>Warehouse Stock</th>
-                          <th style={{ width: '150px' }}>Load Cases</th>
-                          <th style={{ width: '150px' }}>Load Bottles</th>
+                          <th style={{ width: '180px' }}>Load Cases</th>
+                          <th style={{ width: '110px' }}>Load Bottles</th>
+                          <th style={{ width: '120px', textAlign: 'center' }}>Quick Fill</th>
+                          <th>Remaining Wh</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {products
-                          .filter(p => p.status === 'active')
-                          .map(p => {
+                        {visibleProducts.length === 0 ? (
+                          <tr>
+                            <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                              No products found matching filters.
+                            </td>
+                          </tr>
+                        ) : (
+                          visibleProducts.map(p => {
                             const cartItem = dispatchCart[p.id] || { cases: 0, bottles: 0 };
+                            const maxCases = Math.floor((p.current_stock_bottles || 0) / (p.case_qty_rule || 1));
+                            const rule = p.case_qty_rule || 1;
+                            const loadedTotalBottles = (Number(cartItem.cases || 0) * rule) + Number(cartItem.bottles || 0);
+                            const remainingBottles = Math.max(0, (p.current_stock_bottles || 0) - loadedTotalBottles);
+
                             return (
-                              <tr key={p.id}>
+                              <tr key={p.id} style={{ background: loadedTotalBottles > 0 ? 'rgba(6, 182, 212, 0.05)' : 'inherit' }}>
                                 <td>
                                   <div style={{ fontWeight: '700' }}>{getProductName(p)}</div>
-                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.brand} | {p.size}</div>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    {p.brand} | {p.size} ({p.case_qty_rule} B/Case)
+                                  </div>
                                 </td>
                                 <td>
-                                  <strong>{formatStock(p.current_stock_bottles, p.case_qty_rule)}</strong> ({p.current_stock_bottles} B)
+                                  <strong style={{ color: p.current_stock_bottles > 0 ? 'var(--text-main)' : 'var(--danger)' }}>
+                                    {formatStock(p.current_stock_bottles, p.case_qty_rule)}
+                                  </strong>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>({p.current_stock_bottles} B)</div>
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    <input
+                                      type="number"
+                                      className="form-input"
+                                      style={{ width: '70px', padding: '0.3rem' }}
+                                      value={cartItem.cases || ''}
+                                      placeholder="0"
+                                      onChange={e => handleDispatchQtyChange(p.id, 'cases', e.target.value)}
+                                      min="0"
+                                      max={maxCases}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="language-btn"
+                                      style={{ padding: '0.2rem 0.4rem', fontSize: '0.75rem' }}
+                                      onClick={() => handleQuickAddCases(p, 1)}
+                                      title="Add +1 Case"
+                                    >
+                                      +1
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="language-btn"
+                                      style={{ padding: '0.2rem 0.4rem', fontSize: '0.75rem' }}
+                                      onClick={() => handleQuickAddCases(p, 5)}
+                                      title="Add +5 Cases"
+                                    >
+                                      +5
+                                    </button>
+                                  </div>
                                 </td>
                                 <td>
                                   <input
                                     type="number"
                                     className="form-input"
-                                    value={cartItem.cases || ''}
-                                    placeholder="Cases"
-                                    onChange={e => handleDispatchQtyChange(p.id, 'cases', e.target.value)}
-                                    min="0"
-                                  />
-                                </td>
-                                <td>
-                                  <input
-                                    type="number"
-                                    className="form-input"
+                                    style={{ width: '70px', padding: '0.3rem' }}
                                     value={cartItem.bottles || ''}
-                                    placeholder="Bottles"
+                                    placeholder="0"
                                     onChange={e => handleDispatchQtyChange(p.id, 'bottles', e.target.value)}
                                     min="0"
                                   />
                                 </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'center' }}>
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary"
+                                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                      onClick={() => handleSetRowMax(p)}
+                                      title="Fill max available warehouse stock"
+                                    >
+                                      Max
+                                    </button>
+                                    {loadedTotalBottles > 0 && (
+                                      <button
+                                        type="button"
+                                        className="language-btn"
+                                        style={{ padding: '0.25rem 0.4rem', fontSize: '0.75rem', color: 'var(--danger)' }}
+                                        onClick={() => handleClearRow(p.id)}
+                                        title="Clear this row"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                                <td>
+                                  <span style={{ fontSize: '0.85rem', color: remainingBottles === 0 ? 'var(--text-muted)' : 'var(--success)' }}>
+                                    {formatStock(remainingBottles, p.case_qty_rule)}
+                                  </span>
+                                </td>
                               </tr>
                             );
-                          })}
+                          })
+                        )}
                       </tbody>
                     </table>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
-                    <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {/* BOTTOM SUBMIT BUTTON */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      Ready to load: <strong>{summary.totalCases} Cases, {summary.totalBottles} Loose Bottles</strong> ({summary.totalItems} products selected)
+                    </div>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      disabled={submitting || summary.totalItems === 0}
+                      style={{ padding: '0.65rem 1.75rem', fontSize: '1rem', fontWeight: 'bold' }}
+                    >
                       {submitting ? 'Processing Dispatch...' : '📥 Dispatch Stock to Vehicle'}
                     </button>
                   </div>
-                </div>
+                </form>
               )}
-            </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* -------------------- TAB: REPORTS -------------------- */}
       {activeSubTab === 'reports' && (

@@ -22,7 +22,7 @@
   --bg-sidebar: rgba(15, 23, 42, 0.5);
   --bg-input: rgba(15, 23, 42, 0.6);
   --bg-table-container: rgba(15, 23, 42, 0.3);
-  --bg-table-th: rgba(15, 23, 42, 0.7);
+  --bg-table-th: #1e293b;
   --bg-search: rgba(15, 23, 42, 0.5);
   --bg-role-selector: rgba(15, 23, 42, 0.6);
   --bg-product-card: rgba(15, 23, 42, 0.4);
@@ -499,11 +499,22 @@ h1, h2, h3, h4, h5, h6 {
 
 .custom-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   text-align: left;
 }
 
+.custom-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.custom-table thead th,
 .custom-table th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   background: var(--bg-table-th);
   padding: 1rem;
   font-weight: 600;
@@ -512,6 +523,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-color);
   font-family: var(--font-header);
+  box-shadow: 0 1px 0 var(--border-color);
 }
 
 .custom-table td {

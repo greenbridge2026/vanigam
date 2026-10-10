@@ -26,13 +26,32 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   const [ledgerShopId, setLedgerShopId] = useState('');
   const [ledgerTransactions, setLedgerTransactions] = useState([]);
 
-  // Daily Collection states
-  const [collectionDateFrom, setCollectionDateFrom] = useState(() => {
+  // Local date helper (YYYY-MM-DD)
+  const getTodayLocalStr = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const getYesterdayLocalStr = () => {
     const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
-  });
-  const [collectionDateTo, setCollectionDateTo] = useState(new Date().toISOString().split('T')[0]);
+    d.setDate(d.getDate() - 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dt = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dt}`;
+  };
+
+  // Collection Report states (Detailed Collection Report tab) - Default to Today
+  const [reportCollectionDateFrom, setReportCollectionDateFrom] = useState(getTodayLocalStr);
+  const [reportCollectionDateTo, setReportCollectionDateTo] = useState(getTodayLocalStr);
+  const [reportCollectionModeFilter, setReportCollectionModeFilter] = useState('');
+
+  // Daily Collection states - Default to Today
+  const [collectionDateFrom, setCollectionDateFrom] = useState(getTodayLocalStr);
+  const [collectionDateTo, setCollectionDateTo] = useState(getTodayLocalStr);
   const [collectionSalesmanFilter, setCollectionSalesmanFilter] = useState('');
   const [dailyCollections, setDailyCollections] = useState([]);
   const [users, setUsers] = useState([]);
@@ -326,15 +345,13 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
   // Calculate Daily Collection rows
   useEffect(() => {
-    if (!collectionDateFrom || !collectionDateTo) {
-      setDailyCollections([]);
-      return;
-    }
-
     // Filter payments on selected date range (ignoring time)
     const dayPayments = payments.filter(p => {
+      if (!p.payment_date) return false;
       const pDate = p.payment_date.split('T')[0];
-      return pDate >= collectionDateFrom && pDate <= collectionDateTo;
+      if (collectionDateFrom && pDate < collectionDateFrom) return false;
+      if (collectionDateTo && pDate > collectionDateTo) return false;
+      return true;
     });
 
     const grouped = {};
@@ -1410,9 +1427,20 @@ export default function Reports({ t, lang, onBillSelected, session }) {
         });
 
         const filtered = Array.from(uniquePaymentsMap.values())
-          .filter(p => matchesSearch(p, 'payment'))
+          .filter(p => {
+            if (!p.payment_date) return false;
+            const pDate = p.payment_date.split('T')[0];
+            if (reportCollectionDateFrom && pDate < reportCollectionDateFrom) return false;
+            if (reportCollectionDateTo && pDate > reportCollectionDateTo) return false;
+            if (reportCollectionModeFilter && p.payment_mode?.toLowerCase() !== reportCollectionModeFilter.toLowerCase()) return false;
+            return matchesSearch(p, 'payment');
+          })
           .sort((a, b) => new Date(b.payment_date || 0) - new Date(a.payment_date || 0));
-        const totalCollect = filtered.reduce((sum, p) => sum + p.collected_amount, 0);
+
+        const totalCollect = filtered.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+        const cashTotal = filtered.filter(p => p.payment_mode?.toLowerCase() === 'cash').reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+        const gpayTotal = filtered.filter(p => p.payment_mode?.toLowerCase() === 'gpay').reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
+        const chequeTotal = filtered.filter(p => p.payment_mode?.toLowerCase() === 'cheque').reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
 
         const handleExportExcel = () => {
           const exportData = filtered.map(p => {
@@ -1429,17 +1457,32 @@ export default function Reports({ t, lang, onBillSelected, session }) {
             };
           });
 
+          if (exportData.length > 0) {
+            exportData.push({});
+            exportData.push({
+              'Date': 'SUMMARY TOTAL',
+              'Shop Name': '',
+              'Reference Invoice': '',
+              'Payment Mode': '',
+              'Transaction ID': '',
+              'Reference No': '',
+              'Collected Value (₹)': totalCollect
+            });
+          }
+
           const ws = XLSX.utils.json_to_sheet(exportData);
           const wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, 'Collection Report');
-          XLSX.writeFile(wb, `Collection_Report_${Date.now()}.xlsx`);
+          const dRange = (reportCollectionDateFrom || reportCollectionDateTo) ? `_${reportCollectionDateFrom}_to_${reportCollectionDateTo}` : '';
+          XLSX.writeFile(wb, `Collection_Report${dRange}_${Date.now()}.xlsx`);
         };
 
         const handleExportPDF = () => {
           const element = document.getElementById('printable-collection-report');
+          const dRange = (reportCollectionDateFrom || reportCollectionDateTo) ? `_${reportCollectionDateFrom}_to_${reportCollectionDateTo}` : '';
           const opt = {
             margin:       0.5,
-            filename:     `Collection_Report_${Date.now()}.pdf`,
+            filename:     `Collection_Report${dRange}_${Date.now()}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { scale: 2 },
             jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
@@ -1452,66 +1495,227 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
         return (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }} className="no-print">
-              <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', minWidth: '220px' }}>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Total Amount Collected:</span>
-                <h3 style={{ fontSize: '1.5rem', color: 'var(--success)', fontWeight: '800', margin: 0 }}>₹{totalCollect}</h3>
+            <div className="glass-card no-print" style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'தொடக்க தேதி' : 'From Date'}</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={reportCollectionDateFrom}
+                      onChange={e => setReportCollectionDateFrom(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'முடிவு தேதி' : 'To Date'}</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={reportCollectionDateTo}
+                      onChange={e => setReportCollectionDateTo(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0, minWidth: '160px' }}>
+                    <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'பணம் செலுத்தும் முறை' : 'Payment Mode'}</label>
+                    <select
+                      className="form-select"
+                      value={reportCollectionModeFilter}
+                      onChange={e => setReportCollectionModeFilter(e.target.value)}
+                    >
+                      <option value="">-- {lang === 'ta' ? 'அனைத்து முறைகளும்' : 'All Modes'} --</option>
+                      <option value="cash">CASH</option>
+                      <option value="gpay">GPAY / UPI</option>
+                      <option value="cheque">CHEQUE</option>
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ margin: 0, minWidth: '220px' }}>
+                    <label style={{ fontWeight: '600' }}>Search Collections</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="🔍 Search Shop, Txn ID, Mode..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
+                  <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+                  <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}</button>
+                </div>
               </div>
 
-              <div style={{ position: 'relative', flex: 1, minWidth: '240px', maxWidth: '380px' }}>
-                <input
-                  type="text"
-                  className="form-input"
-                  style={{ fontSize: '0.88rem', padding: '0.45rem 0.75rem', width: '100%' }}
-                  placeholder="🔍 Search Collection Report (Shop, Txn ID, Mode)..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
-                <button type="button" className="btn btn-primary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
-                <button type="button" className="btn btn-primary no-print" onClick={() => window.print()} style={{ fontSize: '0.85rem' }}>🖨️ {lang === 'ta' ? 'அச்சிடுக' : 'Print Report'}</button>
+              {/* Quick Presets Toolbar */}
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, marginRight: '0.25rem' }}>
+                  {lang === 'ta' ? 'விரைவு தேர்வுகள்:' : 'Quick Presets:'}
+                </span>
+                <button
+                  type="button"
+                  className={`btn ${reportCollectionDateFrom === getTodayLocalStr() && reportCollectionDateTo === getTodayLocalStr() ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    const today = getTodayLocalStr();
+                    setReportCollectionDateFrom(today);
+                    setReportCollectionDateTo(today);
+                  }}
+                >
+                  📅 {lang === 'ta' ? 'இன்று (Today)' : 'Today'}
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${reportCollectionDateFrom === getYesterdayLocalStr() && reportCollectionDateTo === getYesterdayLocalStr() ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    const yest = getYesterdayLocalStr();
+                    setReportCollectionDateFrom(yest);
+                    setReportCollectionDateTo(yest);
+                  }}
+                >
+                  ⏪ {lang === 'ta' ? 'நேற்று (Yesterday)' : 'Yesterday'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    const today = getTodayLocalStr();
+                    const d = new Date();
+                    d.setDate(d.getDate() - 6);
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const dt = String(d.getDate()).padStart(2, '0');
+                    setReportCollectionDateFrom(`${y}-${m}-${dt}`);
+                    setReportCollectionDateTo(today);
+                  }}
+                >
+                  🗓️ {lang === 'ta' ? 'கடந்த 7 நாட்கள்' : 'Last 7 Days'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    const today = getTodayLocalStr();
+                    const now = new Date();
+                    const y = now.getFullYear();
+                    const m = String(now.getMonth() + 1).padStart(2, '0');
+                    setReportCollectionDateFrom(`${y}-${m}-01`);
+                    setReportCollectionDateTo(today);
+                  }}
+                >
+                  📆 {lang === 'ta' ? 'இந்த மாதம்' : 'This Month'}
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${!reportCollectionDateFrom && !reportCollectionDateTo ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    setReportCollectionDateFrom('');
+                    setReportCollectionDateTo('');
+                  }}
+                >
+                  🌐 {lang === 'ta' ? 'அனைத்து நாட்களும்' : 'All Time'}
+                </button>
+                {(reportCollectionDateFrom || reportCollectionDateTo) && (
+                  <span style={{ fontSize: '0.78rem', color: 'var(--accent-cyan)', marginLeft: 'auto', fontWeight: 600 }}>
+                    ℹ️ {lang === 'ta' ? 'பழைய தேதிகளைப் பார்க்க மேலே உள்ள தொடக்க/முடிவு தேதியை மாற்றலாம்' : 'Custom date range: modify From/To dates to view older records'}
+                  </span>
+                )}
               </div>
             </div>
 
-            <div className="table-container" id="printable-collection-report">
-              <h2 className="print-only" style={{ marginBottom: '1rem', color: '#000' }}>Collection Report - {new Date().toLocaleDateString()}</h2>
-              <table className="custom-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Shop</th>
-                    <th>Reference Invoice</th>
-                    <th>Payment Mode</th>
-                    <th>Txn ID</th>
-                    <th>Reference No</th>
-                    <th>Collected Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(p => {
-                    const shop = shops.find(s => s.id === p.shop_id);
-                    const ord = orders.find(o => o.id === p.order_id);
-                    return (
-                      <tr key={p.id}>
-                        <td>{new Date(p.payment_date).toLocaleDateString()}</td>
-                        <td><strong>{translateShopName(shop, lang)}</strong></td>
-                        <td>{ord?.invoice_number || 'Outstanding Pay'}</td>
-                        <td>
-                          <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--accent-cyan)', fontWeight: '600', border: '1px solid var(--accent-cyan)', padding: '2px 6px', borderRadius: '4px' }}>
-                            {p.payment_mode}
-                          </span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid var(--success)', background: 'rgba(16, 185, 129, 0.05)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', fontWeight: 'bold' }}>
+                  {lang === 'ta' ? 'மொத்த வசூல்' : 'Total Amount Collected'}
+                </span>
+                <strong style={{ fontSize: '1.25rem', color: 'var(--success)' }}>₹{totalCollect}</strong>
+              </div>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid var(--accent-cyan)' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Cash Total</span>
+                <strong style={{ fontSize: '1.15rem' }}>₹{cashTotal}</strong>
+              </div>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid #10b981' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>GPay / UPI</span>
+                <strong style={{ fontSize: '1.15rem' }}>₹{gpayTotal}</strong>
+              </div>
+              <div className="glass-card" style={{ padding: '0.75rem', borderLeft: '3px solid #f59e0b' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Cheque Total</span>
+                <strong style={{ fontSize: '1.15rem' }}>₹{chequeTotal}</strong>
+              </div>
+            </div>
+
+            <div className="glass-card" id="printable-collection-report">
+              <h3 style={{ marginBottom: '1rem', fontWeight: '700' }}>
+                Collection Report - {
+                  reportCollectionDateFrom === reportCollectionDateTo && reportCollectionDateFrom === getTodayLocalStr()
+                    ? `${lang === 'ta' ? 'இன்று' : 'Today'} (${reportCollectionDateFrom ? new Date(reportCollectionDateFrom).toLocaleDateString() : ''})`
+                    : reportCollectionDateFrom === reportCollectionDateTo && reportCollectionDateFrom === getYesterdayLocalStr()
+                    ? `${lang === 'ta' ? 'நேற்று' : 'Yesterday'} (${reportCollectionDateFrom ? new Date(reportCollectionDateFrom).toLocaleDateString() : ''})`
+                    : `${reportCollectionDateFrom ? new Date(reportCollectionDateFrom).toLocaleDateString() : (lang === 'ta' ? 'ஆரம்பம்' : 'Start')} to ${reportCollectionDateTo ? new Date(reportCollectionDateTo).toLocaleDateString() : (lang === 'ta' ? 'தற்போது' : 'Present')}`
+                }
+                {reportCollectionModeFilter ? ` [${reportCollectionModeFilter.toUpperCase()}]` : ''}
+              </h3>
+              <div className="table-container">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Shop</th>
+                      <th>Reference Invoice</th>
+                      <th>Payment Mode</th>
+                      <th>Txn ID</th>
+                      <th>Reference No</th>
+                      <th style={{ textAlign: 'right' }}>Collected Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
+                          {lang === 'ta' 
+                            ? 'தேர்ந்தெடுக்கப்பட்ட தேதி வரம்பில் வசூல் விவரங்கள் எதுவும் இல்லை. முந்தைய விவரங்களைப் பார்க்க "நேற்று", "கடந்த 7 நாட்கள்" அல்லது தேதியை மாற்றவும்.'
+                            : 'No collection records found for the selected date range. Click "Yesterday", "Last 7 Days", or change dates above to view previous records.'}
                         </td>
-                        <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{p.transaction_number}</td>
-                        <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{p.reference_number || 'N/A'}</td>
-                        <td style={{ color: 'var(--success)', fontWeight: '700' }}>₹{p.collected_amount}</td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    ) : (
+                      filtered.map(p => {
+                        const shop = shops.find(s => s.id === p.shop_id);
+                        const ord = orders.find(o => o.id === p.order_id);
+                        return (
+                          <tr key={p.id}>
+                            <td>{new Date(p.payment_date).toLocaleDateString()}</td>
+                            <td><strong>{translateShopName(shop, lang)}</strong></td>
+                            <td>{ord?.invoice_number || 'Outstanding Pay'}</td>
+                            <td>
+                              <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--accent-cyan)', fontWeight: '600', border: '1px solid var(--accent-cyan)', padding: '2px 6px', borderRadius: '4px' }}>
+                                {p.payment_mode}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{p.transaction_number || '-'}</td>
+                            <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{p.reference_number || 'N/A'}</td>
+                            <td style={{ color: 'var(--success)', fontWeight: '700', textAlign: 'right' }}>₹{p.collected_amount}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                    {filtered.length > 0 && (
+                      <tr style={{ fontWeight: '800', background: 'rgba(16, 185, 129, 0.08)', borderTop: '2px solid var(--border-color)' }}>
+                        <td colSpan="6" style={{ textAlign: 'right', color: 'var(--success)' }}>
+                          {lang === 'ta' ? 'மொத்த வசூல் (GRAND TOTAL):' : 'TOTAL COLLECTED:'}
+                        </td>
+                        <td style={{ color: 'var(--success)', fontWeight: '800', fontSize: '1.05rem', textAlign: 'right' }}>
+                          ₹{totalCollect}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         );
@@ -2221,56 +2425,137 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
         return (
           <div>
-            <div className="glass-card no-print" style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'தொடக்க தேதி' : 'From Date'}</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={collectionDateFrom}
-                    onChange={e => setCollectionDateFrom(e.target.value)}
-                  />
+            <div className="glass-card no-print" style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'தொடக்க தேதி' : 'From Date'}</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={collectionDateFrom}
+                      onChange={e => setCollectionDateFrom(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'முடிவு தேதி' : 'To Date'}</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={collectionDateTo}
+                      onChange={e => setCollectionDateTo(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0, minWidth: '180px' }}>
+                    <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'விற்பனையாளர்' : 'Salesman Filter'}</label>
+                    <select
+                      className="form-select"
+                      value={collectionSalesmanFilter}
+                      onChange={e => setCollectionSalesmanFilter(e.target.value)}
+                    >
+                      <option value="">-- {lang === 'ta' ? 'அனைத்து விற்பனையாளர்களும்' : 'All Salesmen'} --</option>
+                      {users.filter(u => u.role === 'salesman' && u.active).map(u => (
+                        <option key={u.id} value={u.name}>{u.name}</option>
+                      ))}
+                      <option value="N/A">N/A (Unassigned)</option>
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ margin: 0, minWidth: '220px' }}>
+                    <label style={{ fontWeight: '600' }}>Search Collections</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="🔍 Search Shop, Salesman, Txn..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'முடிவு தேதி' : 'To Date'}</label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={collectionDateTo}
-                    onChange={e => setCollectionDateTo(e.target.value)}
-                  />
-                </div>
-                <div className="form-group" style={{ margin: 0, minWidth: '180px' }}>
-                  <label style={{ fontWeight: '600' }}>{lang === 'ta' ? 'விற்பனையாளர்' : 'Salesman Filter'}</label>
-                  <select
-                    className="form-select"
-                    value={collectionSalesmanFilter}
-                    onChange={e => setCollectionSalesmanFilter(e.target.value)}
-                  >
-                    <option value="">-- {lang === 'ta' ? 'அனைத்து விற்பனையாளர்களும்' : 'All Salesmen'} --</option>
-                    {users.filter(u => u.role === 'salesman' && u.active).map(u => (
-                      <option key={u.id} value={u.name}>{u.name}</option>
-                    ))}
-                    <option value="N/A">N/A (Unassigned)</option>
-                  </select>
-                </div>
-                <div className="form-group" style={{ margin: 0, minWidth: '220px' }}>
-                  <label style={{ fontWeight: '600' }}>Search Collections</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="🔍 Search Shop, Salesman, Txn..."
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                  />
+
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
+                  <button type="button" className="btn btn-primary" onClick={handlePrint} style={{ fontSize: '0.85rem' }}>🖨️ Print Report</button>
+                  <button type="button" className="btn btn-secondary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={handleExportExcel} style={{ fontSize: '0.85rem' }}>📊 Export Excel</button>
-                <button type="button" className="btn btn-primary" onClick={handlePrint} style={{ fontSize: '0.85rem' }}>🖨️ Print Report</button>
-                <button type="button" className="btn btn-secondary" onClick={handleExportPDF} style={{ fontSize: '0.85rem' }}>📥 Download PDF</button>
+              {/* Quick Presets Toolbar */}
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, marginRight: '0.25rem' }}>
+                  {lang === 'ta' ? 'விரைவு தேர்வுகள்:' : 'Quick Presets:'}
+                </span>
+                <button
+                  type="button"
+                  className={`btn ${collectionDateFrom === getTodayLocalStr() && collectionDateTo === getTodayLocalStr() ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    const today = getTodayLocalStr();
+                    setCollectionDateFrom(today);
+                    setCollectionDateTo(today);
+                  }}
+                >
+                  📅 {lang === 'ta' ? 'இன்று (Today)' : 'Today'}
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${collectionDateFrom === getYesterdayLocalStr() && collectionDateTo === getYesterdayLocalStr() ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    const yest = getYesterdayLocalStr();
+                    setCollectionDateFrom(yest);
+                    setCollectionDateTo(yest);
+                  }}
+                >
+                  ⏪ {lang === 'ta' ? 'நேற்று (Yesterday)' : 'Yesterday'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    const today = getTodayLocalStr();
+                    const d = new Date();
+                    d.setDate(d.getDate() - 6);
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const dt = String(d.getDate()).padStart(2, '0');
+                    setCollectionDateFrom(`${y}-${m}-${dt}`);
+                    setCollectionDateTo(today);
+                  }}
+                >
+                  🗓️ {lang === 'ta' ? 'கடந்த 7 நாட்கள்' : 'Last 7 Days'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    const today = getTodayLocalStr();
+                    const now = new Date();
+                    const y = now.getFullYear();
+                    const m = String(now.getMonth() + 1).padStart(2, '0');
+                    setCollectionDateFrom(`${y}-${m}-01`);
+                    setCollectionDateTo(today);
+                  }}
+                >
+                  📆 {lang === 'ta' ? 'இந்த மாதம்' : 'This Month'}
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${!collectionDateFrom && !collectionDateTo ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  onClick={() => {
+                    setCollectionDateFrom('');
+                    setCollectionDateTo('');
+                  }}
+                >
+                  🌐 {lang === 'ta' ? 'அனைத்து நாட்களும்' : 'All Time'}
+                </button>
+                {(collectionDateFrom || collectionDateTo) && (
+                  <span style={{ fontSize: '0.78rem', color: 'var(--accent-cyan)', marginLeft: 'auto', fontWeight: 600 }}>
+                    ℹ️ {lang === 'ta' ? 'பழைய தேதிகளைப் பார்க்க மேலே உள்ள தொடக்க/முடிவு தேதியை மாற்றலாம்' : 'Custom date range: modify From/To dates to view any older dates'}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -2295,7 +2580,13 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
             <div className="glass-card" id="printable-daily-collection">
               <h3 style={{ marginBottom: '1rem', fontWeight: '700' }}>
-                Daily Collection Report - {new Date(collectionDateFrom).toLocaleDateString()} to {new Date(collectionDateTo).toLocaleDateString()}
+                Daily Collection Report - {
+                  collectionDateFrom === collectionDateTo && collectionDateFrom === getTodayLocalStr()
+                    ? `${lang === 'ta' ? 'இன்று' : 'Today'} (${collectionDateFrom ? new Date(collectionDateFrom).toLocaleDateString() : ''})`
+                    : collectionDateFrom === collectionDateTo && collectionDateFrom === getYesterdayLocalStr()
+                    ? `${lang === 'ta' ? 'நேற்று' : 'Yesterday'} (${collectionDateFrom ? new Date(collectionDateFrom).toLocaleDateString() : ''})`
+                    : `${collectionDateFrom ? new Date(collectionDateFrom).toLocaleDateString() : (lang === 'ta' ? 'ஆரம்பம்' : 'Start')} to ${collectionDateTo ? new Date(collectionDateTo).toLocaleDateString() : (lang === 'ta' ? 'தற்போது' : 'Present')}`
+                }
                 {collectionSalesmanFilter ? ` (${lang === 'ta' ? 'விற்பனையாளர்' : 'Salesman'}: ${collectionSalesmanFilter})` : ''}
               </h3>
               
@@ -2453,6 +2744,10 @@ export default function Reports({ t, lang, onBillSelected, session }) {
             groupedData[normBrand] = {};
           }
 
+          const prodPct = (p.percentage !== undefined && p.percentage !== null && p.percentage !== '') 
+            ? Number(p.percentage) 
+            : (Number(p.gst) || 0);
+
           if (!groupedData[normBrand][normSize]) {
             groupedData[normBrand][normSize] = {
               brand: normBrand,
@@ -2463,8 +2758,13 @@ export default function Reports({ t, lang, onBillSelected, session }) {
               salesAmount: 0,
               currentStockBottles: 0,
               purchaseTotalBottles: 0,
-              productIds: []
+              productIds: [],
+              percentage: prodPct
             };
+          } else {
+            if (prodPct > 0) {
+              groupedData[normBrand][normSize].percentage = prodPct;
+            }
           }
 
           groupedData[normBrand][normSize].productIds.push(p.id);
@@ -2590,7 +2890,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
             'Cases Sold': '',
             'Total Bottles Sold': '',
             'Sales Amount (₹)': '',
-            'Current Stock (Bottles)': '',
+            'Percentage (%)': '',
             'Purchase Qty (Bottles)': '',
             'Closing Stock (Bottles)': ''
           });
@@ -2604,7 +2904,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                 'Cases Sold': Math.round(r.casesSold * 100) / 100,
                 'Total Bottles Sold': r.bottlesSold,
                 'Sales Amount (₹)': Math.round(r.salesAmount * 100) / 100,
-                'Current Stock (Bottles)': r.currentStockBottles,
+                'Percentage (%)': `${r.percentage || 0}%`,
                 'Purchase Qty (Bottles)': r.purchaseTotalBottles,
                 'Closing Stock (Bottles)': r.currentStockBottles
               });
@@ -2616,7 +2916,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
               'Cases Sold': Math.round(bs.totalCasesSold * 100) / 100,
               'Total Bottles Sold': bs.totalBottlesSold,
               'Sales Amount (₹)': Math.round(bs.totalSalesAmount * 100) / 100,
-              'Current Stock (Bottles)': bs.totalCurrentStockBottles,
+              'Percentage (%)': '-',
               'Purchase Qty (Bottles)': bs.totalPurchaseBottles,
               'Closing Stock (Bottles)': bs.totalCurrentStockBottles
             });
@@ -2630,7 +2930,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
             'Cases Sold': Math.round(grandCasesSold * 100) / 100,
             'Total Bottles Sold': grandBottlesSold,
             'Sales Amount (₹)': Math.round(grandSalesAmount * 100) / 100,
-            'Current Stock (Bottles)': grandCurrentStockBottles,
+            'Percentage (%)': '-',
             'Purchase Qty (Bottles)': grandPurchaseBottles,
             'Closing Stock (Bottles)': grandCurrentStockBottles
           });
@@ -2841,7 +3141,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                               <th style={{ textAlign: 'right' }}>Cases Sold</th>
                               <th style={{ textAlign: 'right' }}>Bottles Sold</th>
                               <th style={{ textAlign: 'right' }}>Sales Amount (₹)</th>
-                              <th style={{ textAlign: 'right' }}>Current Stock</th>
+                              <th style={{ textAlign: 'right' }}>Percentage (%)</th>
                               <th style={{ textAlign: 'right' }}>Purchase Qty</th>
                               <th style={{ textAlign: 'right' }}>Closing Stock</th>
                             </tr>
@@ -2857,7 +3157,9 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                                 <td style={{ textAlign: 'right', color: 'var(--success)', fontWeight: '700' }}>
                                   ₹{Math.round(r.salesAmount).toLocaleString()}
                                 </td>
-                                <td style={{ textAlign: 'right' }}>{r.displayStock}</td>
+                                <td style={{ textAlign: 'right', fontWeight: '700', color: 'var(--accent-cyan)' }}>
+                                  {r.percentage || 0}%
+                                </td>
                                 <td style={{ textAlign: 'right' }}>{r.displayPurchases}</td>
                                 <td style={{ textAlign: 'right', fontWeight: '600' }}>{r.displayStock}</td>
                               </tr>
@@ -2872,7 +3174,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
                               <td style={{ textAlign: 'right', color: 'var(--success)', fontSize: '1rem' }}>
                                 ₹{Math.round(bs.totalSalesAmount).toLocaleString()}
                               </td>
-                              <td style={{ textAlign: 'right' }}>{bs.totalCurrentStockBottles} B</td>
+                              <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>-</td>
                               <td style={{ textAlign: 'right' }}>{bs.totalPurchaseBottles} B</td>
                               <td style={{ textAlign: 'right' }}>{bs.totalCurrentStockBottles} B</td>
                             </tr>

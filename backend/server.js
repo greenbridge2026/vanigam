@@ -169,49 +169,59 @@ async function readDB(tenantId) {
     }
   }
 
-  return JSON.parse(JSON.stringify(dbData));
+  return dbData;
 }
 
-async function writeDB(tenantId, data) {
-  const cleanData = JSON.parse(JSON.stringify(data));
+async function writeDB(tenantId, data, modifiedKeys = null) {
   if (isFirebaseMock) {
+    const cleanData = JSON.parse(JSON.stringify(data));
     await fs.writeFile(getDbPath(tenantId), JSON.stringify(cleanData, null, 2), 'utf8');
     return;
   }
 
   try {
-    const tableKeys = [
-      'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
-      'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
-      'bills', 'notifications', 'vehicles', 'vehicle_stock',
-      'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
-      'delivery_audit_trail', 'settings'
-    ];
-
     const batch = firestoreDb.batch();
     let hasChanges = false;
+    const timestamp = Date.now();
 
-    for (const key of tableKeys) {
-      const oldDataStr = cachedDBs[tenantId] ? JSON.stringify(cachedDBs[tenantId][key] || []) : '';
-      const newDataStr = JSON.stringify(cleanData[key] || []);
+    if (modifiedKeys && Array.isArray(modifiedKeys) && modifiedKeys.length > 0) {
+      for (const key of modifiedKeys) {
+        if (data[key] !== undefined) {
+          const docRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(key);
+          batch.set(docRef, { data: data[key] });
+          hasChanges = true;
+        }
+      }
+    } else {
+      const tableKeys = [
+        'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
+        'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
+        'bills', 'notifications', 'vehicles', 'vehicle_stock',
+        'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
+        'delivery_audit_trail', 'settings'
+      ];
 
-      if (oldDataStr !== newDataStr) {
-        const docRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(key);
-        batch.set(docRef, { data: cleanData[key] || [] });
-        hasChanges = true;
+      for (const key of tableKeys) {
+        const oldDataStr = cachedDBs[tenantId] ? JSON.stringify(cachedDBs[tenantId][key] || []) : '';
+        const newDataStr = JSON.stringify(data[key] || []);
+
+        if (oldDataStr !== newDataStr) {
+          const docRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(key);
+          batch.set(docRef, { data: data[key] || [] });
+          hasChanges = true;
+        }
       }
     }
 
+    // Update in-memory cache immediately so all subsequent reads are instantaneous
+    cachedDBs[tenantId] = data;
+    cachedTimestamps[tenantId] = timestamp;
+
     if (hasChanges) {
-      const timestamp = Date.now();
       const metaRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc('_metadata');
       batch.set(metaRef, { last_updated: timestamp }, { merge: true });
       
       await batch.commit();
-      
-      // Update cache
-      cachedDBs[tenantId] = cleanData;
-      cachedTimestamps[tenantId] = timestamp;
     }
   } catch (err) {
     console.error('Error writing to Firestore:', err);
@@ -1615,7 +1625,17 @@ app.post('/api/orders', async (req, res) => {
       created_at: new Date().toISOString()
     });
 
-    await writeDB(req.tenantId, db);
+    const modifiedTables = [
+      'orders',
+      'order_items',
+      'products',
+      'stock_ledger',
+      'deliveries',
+      'shops',
+      'outstanding_history',
+      'notifications'
+    ];
+    await writeDB(req.tenantId, db, modifiedTables);
     res.status(201).json({ order: newOrder, items: orderItemsToCreate });
   } catch (err) {
     console.error('Error placing order:', err);
@@ -1792,7 +1812,16 @@ app.put('/api/orders/:id', async (req, res) => {
       edited_by: editingUser.name || editingUser.username || 'Admin'
     });
 
-    await writeDB(req.tenantId, db);
+    const modifiedTables = [
+      'orders',
+      'order_items',
+      'products',
+      'stock_ledger',
+      'shops',
+      'outstanding_history',
+      'delivery_audit_trail'
+    ];
+    await writeDB(req.tenantId, db, modifiedTables);
     res.json({ order, items: newOrderItemsToCreate });
   } finally {
     releaseLock();
