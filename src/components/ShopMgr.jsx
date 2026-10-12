@@ -215,35 +215,55 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
 
     const exportData = shops.map((s, index) => {
       const routeObj = routes.find(r => r.id === s.route_id);
-      const routeName = routeObj ? (lang === 'ta' ? routeObj.name_ta : routeObj.name_en) : 'None';
+      const routeName = routeObj ? (routeObj.name_en || routeObj.name_ta) : 'Unassigned';
       return {
         'S.No': index + 1,
         'Shop Name (English)': s.name_en || '',
         'Shop Name (Tamil)': s.name_ta || '',
-        'Mobile No': s.mobile || '',
+        'Mobile Number': s.mobile || '',
         'Address / Location': s.address || '',
-        'Contact Person': s.contact_person || '',
         'Assigned Route': routeName,
+        'Contact Person': s.contact_person || '',
         'Shop Type': s.shop_type || 'retail',
+        'GST Number': s.gst_number || '',
         'Outstanding Amount': s.outstanding_amount || 0,
-        'Status': s.status || 'active',
-        'GSTIN': s.gst_number || ''
+        'Status': s.status || 'active'
       };
     });
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Shops List');
-    XLSX.writeFile(wb, 'shops_list.xlsx');
+    XLSX.writeFile(wb, `shops_list_${Date.now()}.xlsx`);
   };
 
   const handleDownloadTemplate = () => {
     const templateData = [
       {
         'S.No': 1,
-        'Shop Name': 'Sample Shop Name',
-        'Mobile No': '9876543210',
-        'Address / Location': '123, Sample Street, City'
+        'Shop Name (English)': 'Raja Cool Drinks',
+        'Shop Name (Tamil)': 'ராஜா குளிர் பானங்கள்',
+        'Mobile Number': '9876543210',
+        'Address / Location': 'Door No 12, Bazaar Street, Tindivanam',
+        'Assigned Route': routes[0]?.name_en || 'Main Route',
+        'Contact Person': 'Raja',
+        'Shop Type': 'Retail',
+        'GST Number': '33CWRPK4071L1Z2',
+        'Outstanding Amount': 0,
+        'Status': 'Active'
+      },
+      {
+        'S.No': 2,
+        'Shop Name (English)': 'City Wholesale Store',
+        'Shop Name (Tamil)': 'சிட்டி மொத்த விற்பனை கடை',
+        'Mobile Number': '9845123456',
+        'Address / Location': '45, Bus Stand Road',
+        'Assigned Route': routes[1]?.name_en || routes[0]?.name_en || 'Main Route',
+        'Contact Person': 'Kannan',
+        'Shop Type': 'Wholesale',
+        'GST Number': '',
+        'Outstanding Amount': 2500,
+        'Status': 'Active'
       }
     ];
 
@@ -277,30 +297,67 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
             const foundKey = Object.keys(row).find(
               k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === key.toLowerCase().replace(/[^a-z0-9]/g, '')
             );
-            if (foundKey) return row[foundKey];
+            if (foundKey && row[foundKey] !== undefined) return row[foundKey];
           }
           return undefined;
         };
 
         const mapped = data.map((row) => {
-          return {
-            name_en: getVal(row, ['ShopName', 'Name', 'ShopNameEnglish', 'NameEn']) || '',
-            name_ta: getVal(row, ['ShopNameTamil', 'NameTa', 'ShopName']) || '',
-            mobile: String(getVal(row, ['MobileNo', 'Mobile', 'MobileNumber', 'Phone']) || '').trim(),
-            address: getVal(row, ['AddressLocation', 'Address', 'Location']) || '',
-            contact_person: getVal(row, ['ContactPerson', 'Owner']) || 'Owner',
-            shop_type: 'retail',
-            status: 'active',
-            outstanding_amount: 0
-          };
-        });
+          const name_en = String(getVal(row, ['ShopNameEnglish', 'ShopNameEn', 'ShopName', 'Name', 'EnglishName', 'NameEn']) || '').trim();
+          const name_ta = String(getVal(row, ['ShopNameTamil', 'ShopNameTa', 'TamilName', 'NameTa', 'Tamil']) || '').trim();
+          const mobile = String(getVal(row, ['MobileNumber', 'MobileNo', 'Mobile', 'Phone', 'PhoneNumber', 'Cell']) || '').trim();
+          const address = String(getVal(row, ['AddressLocation', 'Address', 'Location', 'Street', 'DoorNo']) || '').trim();
+          const contact_person = String(getVal(row, ['ContactPerson', 'OwnerName', 'Owner', 'Contact', 'Person']) || 'Owner').trim();
+          const gst_number = String(getVal(row, ['GSTNumber', 'GSTIN', 'GST', 'GstNo', 'TaxId']) || '').trim();
 
-        const invalidRows = mapped.filter(s => !s.name_en && !s.name_ta);
-        if (invalidRows.length > 0) {
+          let shop_type = String(getVal(row, ['ShopType', 'Type']) || 'retail').toLowerCase().trim();
+          if (shop_type.includes('wholesale') || shop_type.includes('மொத்த')) {
+            shop_type = 'wholesale';
+          } else {
+            shop_type = 'retail';
+          }
+
+          let status = String(getVal(row, ['Status', 'State']) || 'active').toLowerCase().trim();
+          if (status.includes('inact') || status.includes('செயலற்ற')) {
+            status = 'inactive';
+          } else {
+            status = 'active';
+          }
+
+          const outstanding_amount = Number(getVal(row, ['OutstandingAmount', 'Outstanding', 'Balance', 'OpeningBalance', 'DueAmount']) || 0);
+
+          const routeRaw = String(getVal(row, ['AssignedRoute', 'Route', 'RouteName', 'RouteId']) || '').trim();
+          let matchedRouteId = '';
+          if (routeRaw) {
+            const rLower = routeRaw.toLowerCase();
+            const foundRoute = routes.find(r =>
+              r.id === routeRaw ||
+              (r.name_en && r.name_en.toLowerCase() === rLower) ||
+              (r.name_ta && r.name_ta.toLowerCase() === rLower)
+            );
+            if (foundRoute) matchedRouteId = foundRoute.id;
+          }
+
+          return {
+            name_en,
+            name_ta: name_ta || name_en,
+            mobile,
+            address,
+            contact_person,
+            gst_number,
+            shop_type,
+            status,
+            outstanding_amount,
+            route_id: matchedRouteId,
+            route_name: routeRaw
+          };
+        }).filter(s => s.name_en || s.name_ta);
+
+        if (mapped.length === 0) {
           alert(
             lang === 'ta'
-              ? 'சில வரிசைகளில் கடையின் பெயர் விடுபட்டுள்ளது!'
-              : `Validation Error: ${invalidRows.length} row(s) are missing the Shop Name.`
+              ? 'செல்லுபடியாகும் கடைகள் எதுவும் இல்லை! தயவுசெய்து தலைப்புகளைச் சரிபார்க்கவும்.'
+              : 'No valid shops found in file. Please check column headers.'
           );
           return;
         }
@@ -312,11 +369,13 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
       }
     };
     reader.readAsBinaryString(file);
+    e.target.value = '';
   };
 
   const handleConfirmImport = async () => {
-    if (!importRouteId) {
-      alert(lang === 'ta' ? 'வழித்தடத்தைத் தேர்ந்தெடுக்கவும்!' : 'Please select an assigned route for the imported shops.');
+    const missingRoute = parsedShops.some(s => !s.route_id);
+    if (missingRoute && !importRouteId) {
+      alert(lang === 'ta' ? 'வழித்தடம் இல்லாத கடைகளுக்கு இயல்புநிலை வழித்தடத்தைத் தேர்ந்தெடுக்கவும்!' : 'Please select an assigned route for shops that do not have a route specified in the Excel file.');
       return;
     }
     if (parsedShops.length === 0) return;
@@ -601,45 +660,93 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
               📋 {lang === 'ta' ? `இறக்குமதி செய்ய தயாராக உள்ள கடைகள் (${parsedShops.length})` : `Loaded Shops Ready for Import (${parsedShops.length})`}
             </h3>
 
-            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-              <label style={{ fontWeight: '600', fontSize: '0.9rem' }}>
-                {lang === 'ta' ? 'இறக்குமதி செய்யப்பட வேண்டிய வழித்தடம்:' : 'Assign Route for Imported Shops:'} <span style={{ color: 'var(--danger)' }}>*</span>
-              </label>
-              <select 
-                className="form-select" 
-                value={importRouteId} 
-                onChange={e => setImportRouteId(e.target.value)} 
-                required
-                style={{ width: '250px' }}
-              >
-                <option value="">-- Select Route --</option>
-                {routes.map(r => (
-                  <option key={r.id} value={r.id}>{lang === 'ta' ? r.name_ta : r.name_en}</option>
-                ))}
-              </select>
-            </div>
+            {(() => {
+              const missingCount = parsedShops.filter(s => !s.route_id).length;
+              return (
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                  <label style={{ fontWeight: '600', fontSize: '0.9rem' }}>
+                    {missingCount > 0 
+                      ? (lang === 'ta' 
+                          ? `வழித்தடம் இல்லாத ${missingCount} கடைகளுக்கு வழித்தடத்தைத் தேர்ந்தெடுக்கவும்:` 
+                          : `Assign Default Route (${missingCount} shop(s) without route in Excel):`)
+                      : (lang === 'ta' 
+                          ? 'அனைத்து கடைகளுக்கும் எக்செல் மூலம் வழித்தடம் ஒதுக்கப்பட்டுள்ளது (தேவைப்பட்டால் மாற்றலாம்):' 
+                          : 'All shops have assigned routes from file (optional override):')}
+                    {missingCount > 0 && <span style={{ color: 'var(--danger)', marginLeft: '0.25rem' }}>*</span>}
+                  </label>
+                  <select 
+                    className="form-select" 
+                    value={importRouteId} 
+                    onChange={e => setImportRouteId(e.target.value)} 
+                    style={{ minWidth: '240px' }}
+                  >
+                    <option value="">{missingCount > 0 ? '-- Select Default Route --' : '-- Keep File Routes --'}</option>
+                    {routes.map(r => (
+                      <option key={r.id} value={r.id}>{lang === 'ta' ? r.name_ta : r.name_en}</option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
             
-            <div style={{ maxHeight: '200px', overflowY: 'auto', fontSize: '0.85rem' }} className="table-container">
+            <div style={{ maxHeight: '240px', overflowY: 'auto', fontSize: '0.85rem' }} className="table-container">
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }} className="custom-table">
                 <thead>
                   <tr>
+                    <th>#</th>
                     <th>Shop Name (English)</th>
                     <th>Shop Name (Tamil)</th>
-                    <th>Mobile No</th>
+                    <th>Mobile Number</th>
                     <th>Address / Location</th>
+                    <th>Assigned Route</th>
+                    <th>Contact Person</th>
+                    <th>Shop Type</th>
+                    <th>GST Number</th>
+                    <th>Outstanding (₹)</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {parsedShops.map((s, idx) => (
-                    <tr key={idx}>
-                      <td>{s.name_en}</td>
-                      <td>{s.name_ta}</td>
-                      <td>{s.mobile}</td>
-                      <td>{s.address}</td>
-                    </tr>
-                  ))}
+                  {parsedShops.map((s, idx) => {
+                    const matchedR = routes.find(r => r.id === s.route_id);
+                    const defaultR = routes.find(r => r.id === importRouteId);
+                    const displayRoute = matchedR ? (lang === 'ta' ? matchedR.name_ta : matchedR.name_en) 
+                      : (defaultR ? `⚡ ${(lang === 'ta' ? defaultR.name_ta : defaultR.name_en)}` : (s.route_name || '—'));
+                    return (
+                      <tr key={idx}>
+                        <td style={{ color: 'var(--text-muted)' }}>{idx + 1}</td>
+                        <td><strong>{s.name_en || '-'}</strong></td>
+                        <td>{s.name_ta || '-'}</td>
+                        <td>{s.mobile || '-'}</td>
+                        <td>{s.address || '-'}</td>
+                        <td style={{ color: (matchedR || defaultR) ? 'var(--accent-cyan)' : 'var(--danger)' }}>
+                          {displayRoute}
+                        </td>
+                        <td>{s.contact_person || '-'}</td>
+                        <td><span className="badge" style={{ textTransform: 'capitalize' }}>{s.shop_type || 'retail'}</span></td>
+                        <td>{s.gst_number || '-'}</td>
+                        <td>₹{s.outstanding_amount || 0}</td>
+                        <td><span className={`badge ${s.status === 'active' ? 'badge-success' : 'badge-danger'}`} style={{ textTransform: 'capitalize' }}>{s.status || 'active'}</span></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+            </div>
+
+            <div style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <strong>{lang === 'ta' ? 'ஆதரிக்கப்படும் பத்திகள்:' : 'Supported Column Headers:'}</strong>
+              <span style={{ 
+                display: 'inline-block', 
+                background: 'rgba(255,255,255,0.05)', 
+                padding: '0.1rem 0.4rem', 
+                borderRadius: '3px', 
+                marginLeft: '0.5rem',
+                fontFamily: 'monospace',
+                color: 'var(--accent-cyan)'
+              }}>
+                Shop Name (English), Shop Name (Tamil), Mobile Number, Address / Location, Assigned Route, Contact Person, Shop Type, GST Number, Outstanding Amount, Status
+              </span>
             </div>
 
             <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
@@ -650,8 +757,11 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                 type="button" 
                 className="btn btn-primary" 
                 onClick={handleConfirmImport} 
-                disabled={importing || !importRouteId}
-                style={{ background: 'var(--success)', opacity: (!importRouteId || importing) ? 0.6 : 1 }}
+                disabled={importing || (parsedShops.some(s => !s.route_id) && !importRouteId)}
+                style={{ 
+                  background: 'var(--success)', 
+                  opacity: (importing || (parsedShops.some(s => !s.route_id) && !importRouteId)) ? 0.6 : 1 
+                }}
               >
                 {importing ? (lang === 'ta' ? 'இறக்குமதி செய்யப்படுகிறது...' : 'Importing...') : (lang === 'ta' ? 'இறக்குமதி செய்' : 'Confirm Import')}
               </button>

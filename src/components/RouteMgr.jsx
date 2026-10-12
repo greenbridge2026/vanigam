@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import api from '../api';
 import ConfirmModal from './ConfirmModal';
 
@@ -9,6 +10,11 @@ export default function RouteMgr({ t, lang }) {
   const [editingRoute, setEditingRoute] = useState(null);
   const [selectedRouteForShops, setSelectedRouteForShops] = useState(null);
   
+  // Excel bulk import states
+  const [parsedRoutes, setParsedRoutes] = useState([]);
+  const [importing, setImporting] = useState(false);
+  const [translatingAll, setTranslatingAll] = useState(false);
+
   // Form fields
   const [nameEn, setNameEn] = useState('');
   const [nameTa, setNameTa] = useState('');
@@ -113,12 +119,12 @@ export default function RouteMgr({ t, lang }) {
 
     try {
       if (editingRoute) {
-        const updated = await api.updateRoute(editingRoute.id, payload);
-        setRoutes(routes.map(r => r.id === editingRoute.id ? updated : r));
+        await api.updateRoute(editingRoute.id, payload);
       } else {
-        const added = await api.createRoute(payload);
-        setRoutes([...routes, added]);
+        await api.createRoute(payload);
       }
+      const freshRoutes = await api.getRoutes();
+      setRoutes(freshRoutes);
       resetForm();
     } catch (err) {
       alert(err.message || 'Error saving route data');
@@ -146,12 +152,182 @@ export default function RouteMgr({ t, lang }) {
     if (!deleteTargetId) return;
     try {
       await api.deleteRoute(deleteTargetId);
-      setRoutes(routes.filter(r => r.id !== deleteTargetId));
+      const freshRoutes = await api.getRoutes();
+      setRoutes(freshRoutes);
       alert('Route moved to Recycle Bin. / வழித்தடம் குப்பைத் தொட்டிக்கு நகர்த்தப்பட்டது.');
     } catch (err) {
       alert('Failed to delete route: ' + (err.message || err));
     } finally {
       setDeleteTargetId(null);
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        'S.No': 1,
+        'Route Name (English)': 'Trichy Road Route',
+        'Route Name (Tamil)': 'திருச்சி சாலை வழித்தடம்',
+        'Salesman': salesmanList[0]?.name || 'Salesman Name',
+        'Delivery Person': deliveryList[0]?.name || 'Delivery Person Name'
+      },
+      {
+        'S.No': 2,
+        'Route Name (English)': 'Chennai Highway Route',
+        'Route Name (Tamil)': 'சென்னை நெடுஞ்சாலை வழித்தடம்',
+        'Salesman': '',
+        'Delivery Person': ''
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Routes Template');
+    XLSX.writeFile(wb, 'routes_import_template.xlsx');
+  };
+
+  const handleExportToExcel = () => {
+    if (routes.length === 0) {
+      alert(lang === 'ta' ? 'பதிவிறக்க வழித்தடங்கள் எதுவும் இல்லை!' : 'No routes available to export!');
+      return;
+    }
+
+    const exportData = routes.map((r, idx) => ({
+      'S.No': idx + 1,
+      'Route Name (English)': r.name_en || '',
+      'Route Name (Tamil)': r.name_ta || '',
+      'Salesman': users.find(u => u.id === r.salesman_id)?.name || 'Unassigned',
+      'Delivery Person': users.find(u => u.id === r.delivery_man_id)?.name || 'Unassigned',
+      'Assigned Shops': shops.filter(s => s.route_id === r.id).length
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Routes List');
+    XLSX.writeFile(wb, `routes_list_${Date.now()}.xlsx`);
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        if (data.length === 0) {
+          alert(lang === 'ta' ? 'பதிவேற்றிய கோப்பு காலியாக உள்ளது' : 'Uploaded file is empty.');
+          return;
+        }
+
+        const getVal = (row, keys) => {
+          for (const key of keys) {
+            const foundKey = Object.keys(row).find(
+              k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === key.toLowerCase().replace(/[^a-z0-9]/g, '')
+            );
+            if (foundKey && row[foundKey] !== undefined) return row[foundKey];
+          }
+          return undefined;
+        };
+
+        const mapped = data.map((row) => {
+          const name_en = String(getVal(row, ['RouteNameEnglish', 'RouteNameEn', 'RouteName', 'Route', 'NameEn', 'Name', 'EnglishName']) || '').trim();
+          const name_ta = String(getVal(row, ['RouteNameTamil', 'RouteNameTa', 'TamilName', 'NameTa', 'Tamil']) || '').trim();
+          const salesmanRaw = String(getVal(row, ['Salesman', 'SalesmanName', 'SalesPerson', 'SalesmanId']) || '').trim();
+          const deliveryRaw = String(getVal(row, ['DeliveryPerson', 'DeliveryMan', 'Delivery', 'DeliveryName', 'DeliveryManId']) || '').trim();
+
+          let matchedSalesmanId = '';
+          if (salesmanRaw) {
+            const smLower = salesmanRaw.toLowerCase();
+            const foundSm = users.find(u => 
+              u.role === 'salesman' && 
+              (u.id === salesmanRaw || (u.name && u.name.toLowerCase() === smLower) || (u.username && u.username.toLowerCase() === smLower))
+            );
+            if (foundSm) matchedSalesmanId = foundSm.id;
+          }
+
+          let matchedDeliveryId = '';
+          if (deliveryRaw) {
+            const dmLower = deliveryRaw.toLowerCase();
+            const foundDm = users.find(u => 
+              u.role === 'delivery' && 
+              (u.id === deliveryRaw || (u.name && u.name.toLowerCase() === dmLower) || (u.username && u.username.toLowerCase() === dmLower))
+            );
+            if (foundDm) matchedDeliveryId = foundDm.id;
+          }
+
+          return {
+            name_en,
+            name_ta: name_ta || name_en,
+            salesman_id: matchedSalesmanId,
+            delivery_man_id: matchedDeliveryId,
+            salesman_raw: salesmanRaw,
+            delivery_raw: deliveryRaw
+          };
+        }).filter(r => r.name_en || r.name_ta);
+
+        if (mapped.length === 0) {
+          alert(lang === 'ta' ? 'செல்லுபடியாகும் வழித்தடங்கள் எதுவும் இல்லை!' : 'No valid routes found in file. Please check column headers.');
+          return;
+        }
+
+        setParsedRoutes(mapped);
+      } catch (err) {
+        console.error('File parsing error:', err);
+        alert(lang === 'ta' ? 'கோப்பைப் படிப்பதில் பிழை ஏற்பட்டது!' : 'Error reading file! Please check the structure.');
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = '';
+  };
+
+  const handleAutoTranslateAll = async () => {
+    if (parsedRoutes.length === 0) return;
+    setTranslatingAll(true);
+    try {
+      const updated = await Promise.all(
+        parsedRoutes.map(async (r) => {
+          if (r.name_en && (!r.name_ta || r.name_ta === r.name_en)) {
+            try {
+              const trans = await api.translate(r.name_en, 'en', 'ta');
+              return { ...r, name_ta: trans || r.name_ta };
+            } catch (e) {
+              return r;
+            }
+          }
+          return r;
+        })
+      );
+      setParsedRoutes(updated);
+    } catch (err) {
+      console.error('Auto translate failed:', err);
+    } finally {
+      setTranslatingAll(false);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (parsedRoutes.length === 0) return;
+    setImporting(true);
+    try {
+      const results = await api.importRoutes(parsedRoutes);
+      const freshRoutes = await api.getRoutes();
+      setRoutes(freshRoutes);
+      alert(
+        lang === 'ta'
+          ? `வெற்றிகரமாக ${results.length} வழித்தடங்கள் இறக்குமதி செய்யப்பட்டன!`
+          : `Successfully imported ${results.length} routes!`
+      );
+      setParsedRoutes([]);
+    } catch (err) {
+      alert(err.message || 'Import failed');
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -171,6 +347,136 @@ export default function RouteMgr({ t, lang }) {
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>🗺️ {t('route_mgmt')}</h1>
         <p style={{ color: 'var(--text-muted)' }}>Manage wholesale routes and assign field sales/delivery staff</p>
+      </div>
+
+      {/* Excel Bulk Import Card */}
+      <div className="glass-card" style={{ marginBottom: '2rem' }}>
+        <h2 style={{ marginBottom: '0.5rem', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span>📊</span> {lang === 'ta' ? 'எக்செல் மூலம் மொத்தமாக வழித்தடங்களை இறக்குமதி செய்க' : 'Bulk Import Routes via Excel'}
+        </h2>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+          {lang === 'ta'
+            ? 'வழித்தட பெயர் (ஆங்கிலம், தமிழ்), விற்பனையாளர் மற்றும் டெலிவரி பணியாளர் உள்ளிட்ட வழித்தடங்களை எக்செல் மூலம் சேர்க்கவும் அல்லது தற்போதைய வழித்தடங்களைப் பதிவிறக்கவும்.'
+            : 'Import routes including route names (English, Tamil), assigned salesman, and delivery staff, or download the existing routes list.'}
+        </p>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <button type="button" className="btn btn-secondary" onClick={handleDownloadTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+            📥 {lang === 'ta' ? 'மாதிரி எக்செல் கோப்பை பதிவிறக்கு' : 'Download Excel Template'}
+          </button>
+
+          <button type="button" className="btn btn-secondary" onClick={handleExportToExcel} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+            📤 {lang === 'ta' ? 'தற்போதைய வழித்தடங்களைப் பதிவிறக்கு' : 'Download Routes (Excel)'}
+          </button>
+
+          {parsedRoutes.length > 0 && (
+            <button 
+              type="button" 
+              className="btn btn-secondary" 
+              onClick={handleAutoTranslateAll} 
+              disabled={translatingAll}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: 'var(--accent-cyan)', color: '#000', fontWeight: 'bold' }}
+            >
+              🌐 {translatingAll ? (lang === 'ta' ? 'மொழிபெயர்க்கப்படுகிறது...' : 'Translating...') : (lang === 'ta' ? 'தமிழ் பெயர்களை தானாக புதுப்பி' : 'Auto-Translate Tamil Names')}
+            </button>
+          )}
+
+          <div style={{ position: 'relative', overflow: 'hidden', display: 'inline-block' }}>
+            <button type="button" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+              📁 {lang === 'ta' ? 'கோப்பைத் தேர்ந்தெடு (Excel / CSV)' : 'Select Excel / CSV File'}
+            </button>
+            <input 
+              type="file" 
+              accept=".xlsx,.xls,.csv" 
+              onChange={handleFileUpload} 
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                opacity: 0,
+                fontSize: '100px',
+                cursor: 'pointer'
+              }} 
+            />
+          </div>
+        </div>
+
+        {parsedRoutes.length > 0 && (
+          <div style={{ 
+            background: 'rgba(255,255,255,0.05)', 
+            borderRadius: 'var(--radius)', 
+            padding: '1rem', 
+            border: '1px solid rgba(255,255,255,0.1)',
+            marginBottom: '1.5rem'
+          }}>
+            <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--accent-cyan)' }}>
+              📋 {lang === 'ta' ? `இறக்குமதி செய்ய தயாராக உள்ள வழித்தடங்கள் (${parsedRoutes.length})` : `Loaded Routes Ready for Import (${parsedRoutes.length})`}
+            </h3>
+
+            <div style={{ maxHeight: '240px', overflowY: 'auto', fontSize: '0.85rem' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.2)', color: 'var(--text-muted)' }}>
+                    <th style={{ padding: '0.5rem' }}>#</th>
+                    <th style={{ padding: '0.5rem' }}>Route Name (English)</th>
+                    <th style={{ padding: '0.5rem' }}>Route Name (Tamil)</th>
+                    <th style={{ padding: '0.5rem' }}>Salesman</th>
+                    <th style={{ padding: '0.5rem' }}>Delivery Person</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsedRoutes.map((r, idx) => {
+                    const smUser = users.find(u => u.id === r.salesman_id);
+                    const dmUser = users.find(u => u.id === r.delivery_man_id);
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '0.5rem', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                        <td style={{ padding: '0.5rem', fontWeight: 'bold' }}>{r.name_en || '-'}</td>
+                        <td style={{ padding: '0.5rem' }}>{r.name_ta || '-'}</td>
+                        <td style={{ padding: '0.5rem', color: smUser ? 'var(--accent-cyan)' : 'var(--text-muted)' }}>
+                          {smUser ? `👤 ${smUser.name}` : (r.salesman_raw ? `❓ ${r.salesman_raw}` : '—')}
+                        </td>
+                        <td style={{ padding: '0.5rem', color: dmUser ? 'var(--success)' : 'var(--text-muted)' }}>
+                          {dmUser ? `🚚 ${dmUser.name}` : (r.delivery_raw ? `❓ ${r.delivery_raw}` : '—')}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setParsedRoutes([])}>
+                {t('cancel')}
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                onClick={handleConfirmImport} 
+                disabled={importing}
+                style={{ background: 'var(--success)' }}
+              >
+                {importing ? (lang === 'ta' ? 'இறக்குமதி செய்யப்படுகிறது...' : 'Importing...') : (lang === 'ta' ? 'இறக்குமதி செய்' : 'Confirm Import')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          <strong>{lang === 'ta' ? 'தேவைப்படும் பத்திகள்:' : 'Supported Column Headers:'}</strong>
+          <span style={{ 
+            display: 'inline-block', 
+            background: 'rgba(255,255,255,0.05)', 
+            padding: '0.1rem 0.4rem', 
+            borderRadius: '3px', 
+            marginLeft: '0.5rem',
+            fontFamily: 'monospace',
+            color: 'var(--accent-cyan)'
+          }}>
+            Route Name (English), Route Name (Tamil), Salesman, Delivery Person
+          </span>
+        </div>
       </div>
 
       {/* Add Route Form Card (Normal view) */}

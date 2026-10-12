@@ -116,7 +116,19 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(routeData)
     });
-    return parseJsonResponse(res, 'Failed to create route');
+    const added = await parseJsonResponse(res, 'Failed to create route');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
+        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
+        await setDoc(docRef, { data: freshRoutes }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing created route to Firestore client failed:', e);
+      }
+    }
+    return added;
   },
   async updateRoute(id, routeData) {
     const res = await apiFetch(`${API_BASE}/routes/${id}`, {
@@ -124,13 +136,57 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(routeData)
     });
-    return parseJsonResponse(res, 'Failed to update route');
+    const updated = await parseJsonResponse(res, 'Failed to update route');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
+        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
+        await setDoc(docRef, { data: freshRoutes }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing updated route to Firestore client failed:', e);
+      }
+    }
+    return updated;
   },
   async deleteRoute(id) {
     const res = await apiFetch(`${API_BASE}/routes/${id}`, {
       method: 'DELETE'
     });
-    return parseJsonResponse(res, 'Failed to delete route');
+    const result = await parseJsonResponse(res, 'Failed to delete route');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
+        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
+        await setDoc(docRef, { data: freshRoutes }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing deleted route to Firestore client failed:', e);
+      }
+    }
+    return result;
+  },
+  async importRoutes(routesList) {
+    const res = await apiFetch(`${API_BASE}/routes/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(routesList)
+    });
+    const result = await parseJsonResponse(res, 'Failed to import routes');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
+        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
+        await setDoc(docRef, { data: freshRoutes }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing imported routes to Firestore client failed:', e);
+      }
+    }
+    return result;
   },
 
   // Shops
@@ -271,7 +327,19 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ routeId, shops: shopsList })
     });
-    return parseJsonResponse(res, 'Failed to import shops');
+    const result = await parseJsonResponse(res, 'Failed to import shops');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resShops = await apiFetch(`${API_BASE}/shops`, {}, tenantId);
+        const freshShops = await parseJsonResponse(resShops, 'Failed to sync shops');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
+        await setDoc(docRef, { data: freshShops }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing imported shops to Firestore client failed:', e);
+      }
+    }
+    return result;
   },
 
   // Purchases

@@ -28,6 +28,7 @@ function releaseLock() {
 // Database Helpers
 let cachedDBs = {};        // { [tenantId]: dbData }
 let cachedTimestamps = {}; // { [tenantId]: timestamp }
+let cachedTableSnapshots = {}; // { [tenantId]: { [tableKey]: jsonString } }
 
 function sanitizeAndReindexOrders(dbData) {
   if (!dbData || !Array.isArray(dbData.orders) || dbData.orders.length === 0) return false;
@@ -119,6 +120,19 @@ async function readDB(tenantId) {
 
       if (cachedDBs[tenantId] && cachedTimestamps[tenantId] >= lastUpdated) {
         dbData = cachedDBs[tenantId];
+        if (!cachedTableSnapshots[tenantId]) {
+          cachedTableSnapshots[tenantId] = {};
+          const tableKeys = [
+            'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
+            'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
+            'bills', 'notifications', 'vehicles', 'vehicle_stock',
+            'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
+            'delivery_audit_trail', 'settings'
+          ];
+          for (const key of tableKeys) {
+            cachedTableSnapshots[tenantId][key] = JSON.stringify(dbData[key] || []);
+          }
+        }
       } else {
         const snapshot = await firestoreDb.collection('tenants').doc(tenantId).collection('tables').get();
         dbData = {};
@@ -153,6 +167,10 @@ async function readDB(tenantId) {
 
         cachedDBs[tenantId] = dbData;
         cachedTimestamps[tenantId] = lastUpdated || Date.now();
+        cachedTableSnapshots[tenantId] = {};
+        for (const key of tableKeys) {
+          cachedTableSnapshots[tenantId][key] = JSON.stringify(dbData[key] || []);
+        }
       }
     } catch (err) {
       console.error('Error reading from Firestore:', err);
@@ -184,12 +202,17 @@ async function writeDB(tenantId, data, modifiedKeys = null) {
     let hasChanges = false;
     const timestamp = Date.now();
 
+    if (!cachedTableSnapshots[tenantId]) {
+      cachedTableSnapshots[tenantId] = {};
+    }
+
     if (modifiedKeys && Array.isArray(modifiedKeys) && modifiedKeys.length > 0) {
       for (const key of modifiedKeys) {
         if (data[key] !== undefined) {
           const docRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(key);
           batch.set(docRef, { data: data[key] });
           hasChanges = true;
+          cachedTableSnapshots[tenantId][key] = JSON.stringify(data[key]);
         }
       }
     } else {
@@ -202,13 +225,14 @@ async function writeDB(tenantId, data, modifiedKeys = null) {
       ];
 
       for (const key of tableKeys) {
-        const oldDataStr = cachedDBs[tenantId] ? JSON.stringify(cachedDBs[tenantId][key] || []) : '';
+        const oldDataStr = cachedTableSnapshots[tenantId][key] || '';
         const newDataStr = JSON.stringify(data[key] || []);
 
         if (oldDataStr !== newDataStr) {
           const docRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(key);
           batch.set(docRef, { data: data[key] || [] });
           hasChanges = true;
+          cachedTableSnapshots[tenantId][key] = newDataStr;
         }
       }
     }
@@ -758,7 +782,7 @@ app.post('/api/routes', async (req, res) => {
       delivery_man_id: req.body.delivery_man_id || ''
     };
     db.routes.push(newRoute);
-    await writeDB(req.tenantId, db);
+    await writeDB(req.tenantId, db, ['routes']);
     res.status(201).json(newRoute);
   } finally {
     releaseLock();
@@ -788,7 +812,7 @@ app.put('/api/routes/:id', async (req, res) => {
       }
 
       db.routes[index] = { ...db.routes[index], ...updatedFields };
-      await writeDB(req.tenantId, db);
+      await writeDB(req.tenantId, db, ['routes']);
       res.json(db.routes[index]);
     } else {
       res.status(404).json({ error: 'Route not found' });
@@ -821,8 +845,96 @@ app.delete('/api/routes/:id', async (req, res) => {
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
     });
 
-    await writeDB(req.tenantId, db);
+    await writeDB(req.tenantId, db, ['routes', 'recycle_bin']);
     res.json({ success: true });
+  } finally {
+    releaseLock();
+  }
+});
+
+app.post('/api/routes/import', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const routesList = req.body;
+    if (!Array.isArray(routesList)) {
+      return res.status(400).json({ error: 'Payload must be an array of routes' });
+    }
+
+    const results = [];
+    const now = Date.now();
+
+    for (let i = 0; i < routesList.length; i++) {
+      const item = routesList[i];
+      if (!item) continue;
+      if (!item.name_en && !item.name_ta) continue;
+
+      let name_en = String(item.name_en || '').trim();
+      let name_ta = String(item.name_ta || '').trim();
+
+      if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta === name_en)) {
+        const translated = await translateText(name_en, 'en', 'ta');
+        if (translated) name_ta = translated;
+      } else if (name_ta && !name_en) {
+        const translated = await translateText(name_ta, 'ta', 'en');
+        if (translated) name_en = translated;
+      }
+
+      let salesman_id = item.salesman_id || '';
+      let delivery_man_id = item.delivery_man_id || '';
+
+      if (item.salesman && !salesman_id && Array.isArray(db.users)) {
+        const smStr = String(item.salesman).toLowerCase().trim();
+        const foundSm = db.users.find(u => 
+          u.role === 'salesman' && 
+          ((u.name && u.name.toLowerCase().trim() === smStr) ||
+           (u.username && u.username.toLowerCase().trim() === smStr) ||
+           u.id === item.salesman)
+        );
+        if (foundSm) salesman_id = foundSm.id;
+      }
+
+      if (item.delivery_man && !delivery_man_id && Array.isArray(db.users)) {
+        const dmStr = String(item.delivery_man).toLowerCase().trim();
+        const foundDm = db.users.find(u => 
+          u.role === 'delivery' && 
+          ((u.name && u.name.toLowerCase().trim() === dmStr) ||
+           (u.username && u.username.toLowerCase().trim() === dmStr) ||
+           u.id === item.delivery_man)
+        );
+        if (foundDm) delivery_man_id = foundDm.id;
+      }
+
+      // Check if route exists by English or Tamil name (case-insensitive)
+      const existing = db.routes.find(
+        r => (name_en && (r.name_en || '').toLowerCase().trim() === name_en.toLowerCase().trim()) ||
+             (name_ta && (r.name_ta || '').toLowerCase().trim() === name_ta.toLowerCase().trim())
+      );
+
+      if (existing) {
+        if (name_en) existing.name_en = name_en;
+        if (name_ta) existing.name_ta = name_ta;
+        if (salesman_id) existing.salesman_id = salesman_id;
+        if (delivery_man_id) existing.delivery_man_id = delivery_man_id;
+        results.push(existing);
+      } else {
+        const newRoute = {
+          id: `r_${now}_import_${i}`,
+          name_en,
+          name_ta,
+          salesman_id: salesman_id || '',
+          delivery_man_id: delivery_man_id || ''
+        };
+        db.routes.push(newRoute);
+        results.push(newRoute);
+      }
+    }
+
+    await writeDB(req.tenantId, db, ['routes']);
+    res.status(200).json(results);
+  } catch (err) {
+    console.error('Import routes error:', err);
+    res.status(500).json({ error: err.message || 'Bulk route import failed' });
   } finally {
     releaseLock();
   }
@@ -936,9 +1048,6 @@ app.post('/api/shops/import', async (req, res) => {
   try {
     const db = await readDB(req.tenantId);
     const { routeId, shops } = req.body;
-    if (!routeId) {
-      return res.status(400).json({ error: 'Route ID is required' });
-    }
     if (!Array.isArray(shops)) {
       return res.status(400).json({ error: 'Payload must contain a shops array' });
     }
@@ -948,12 +1057,13 @@ app.post('/api/shops/import', async (req, res) => {
 
     for (let i = 0; i < shops.length; i++) {
       const item = shops[i];
+      if (!item) continue;
       if (!item.name_en && !item.name_ta) continue;
 
-      let name_en = item.name_en || item.name_ta || '';
-      let name_ta = item.name_ta || item.name_en || '';
+      let name_en = String(item.name_en || item.name_ta || '').trim();
+      let name_ta = String(item.name_ta || item.name_en || '').trim();
 
-      if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+      if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta === name_en)) {
         const translated = await translateText(name_en, 'en', 'ta');
         if (translated) name_ta = translated;
       } else if (name_ta && !name_en) {
@@ -961,32 +1071,62 @@ app.post('/api/shops/import', async (req, res) => {
         if (translated) name_en = translated;
       }
 
+      // Determine route for this shop
+      let targetRouteId = item.route_id || '';
+      if (!targetRouteId && item.route_name && Array.isArray(db.routes)) {
+        const rName = String(item.route_name).toLowerCase().trim();
+        const matched = db.routes.find(r => 
+          (r.name_en && r.name_en.toLowerCase().trim() === rName) ||
+          (r.name_ta && r.name_ta.toLowerCase().trim() === rName) ||
+          r.id === item.route_name
+        );
+        if (matched) targetRouteId = matched.id;
+      }
+      if (!targetRouteId) {
+        targetRouteId = routeId || (db.routes[0]?.id || '');
+      }
+
       // Check if shop already exists by name or mobile to avoid duplicates
       const existing = db.shops.find(
-        s => (name_en && s.name_en?.toLowerCase().trim() === name_en.toLowerCase().trim()) ||
-             (item.mobile && s.mobile?.trim() === item.mobile?.trim())
+        s => (name_en && (s.name_en || '').toLowerCase().trim() === name_en.toLowerCase()) ||
+             (item.mobile && s.mobile && String(s.mobile).trim() === String(item.mobile).trim())
       );
 
+      const contact_person = item.contact_person || 'Owner';
+      const mobile = String(item.mobile || '').trim();
+      const gst_number = String(item.gst_number || '').trim();
+      const address = item.address || '';
+      const shop_type = (item.shop_type && String(item.shop_type).toLowerCase() === 'wholesale') ? 'wholesale' : 'retail';
+      const status = (item.status && String(item.status).toLowerCase() === 'inactive') ? 'inactive' : 'active';
+      const outstanding_amount = Number(item.outstanding_amount || 0);
+
       if (existing) {
-        if (item.address) existing.address = item.address;
-        if (item.mobile) existing.mobile = item.mobile;
-        existing.route_id = routeId;
-        existing.name_en = name_en;
-        existing.name_ta = name_ta;
+        if (address) existing.address = address;
+        if (mobile) existing.mobile = mobile;
+        if (targetRouteId) existing.route_id = targetRouteId;
+        if (name_en) existing.name_en = name_en;
+        if (name_ta) existing.name_ta = name_ta;
+        if (item.contact_person) existing.contact_person = contact_person;
+        if (item.gst_number !== undefined) existing.gst_number = gst_number;
+        if (item.shop_type) existing.shop_type = shop_type;
+        if (item.status) existing.status = status;
+        if (item.outstanding_amount !== undefined && item.outstanding_amount !== '') {
+          existing.outstanding_amount = outstanding_amount;
+        }
         results.push(existing);
       } else {
         const newShop = {
           id: `s_${now}_import_${i}`,
           name_en,
           name_ta,
-          contact_person: item.contact_person || 'Owner',
-          mobile: item.mobile || '',
-          gst_number: item.gst_number || '',
-          address: item.address || '',
-          shop_type: item.shop_type || 'retail',
-          route_id: routeId,
-          status: item.status || 'active',
-          outstanding_amount: Number(item.outstanding_amount || 0)
+          contact_person,
+          mobile,
+          gst_number,
+          address,
+          shop_type,
+          route_id: targetRouteId,
+          status,
+          outstanding_amount
         };
         db.shops.push(newShop);
         if (newShop.outstanding_amount > 0) {
@@ -1003,7 +1143,7 @@ app.post('/api/shops/import', async (req, res) => {
       }
     }
 
-    await writeDB(req.tenantId, db);
+    await writeDB(req.tenantId, db, ['shops', 'outstanding_history']);
     res.status(200).json(results);
   } catch (err) {
     console.error('Import shops error:', err);
@@ -1012,6 +1152,7 @@ app.post('/api/shops/import', async (req, res) => {
     releaseLock();
   }
 });
+
 
 function sanitizeProductPackQty(prod) {
   if (!prod) return;
@@ -1130,6 +1271,8 @@ app.post('/api/products/import', async (req, res) => {
     const now = Date.now();
 
     for (let i = 0; i < importedProducts.length; i++) {
+      const item = importedProducts[i];
+      if (!item) continue;
       const sizeStr = (item.size || '').toLowerCase() + (item.name_en || '').toLowerCase();
       let caseQty = Number(item.case_qty_rule || 0);
       if (!caseQty || (caseQty === 24 && sizeStr.includes('2.25'))) {
@@ -1154,9 +1297,9 @@ app.post('/api/products/import', async (req, res) => {
 
       // Check if product already exists (by name_en, brand, and size)
       const existingIndex = db.products.findIndex(
-        p => p.name_en?.toLowerCase().trim() === item.name_en?.toLowerCase().trim() &&
-             p.size?.toLowerCase().trim() === item.size?.toLowerCase().trim() &&
-             p.brand?.toLowerCase().trim() === item.brand?.toLowerCase().trim()
+        p => (p.name_en || '').toLowerCase().trim() === (item.name_en || '').toLowerCase().trim() &&
+             (p.size || '').toLowerCase().trim() === (item.size || '').toLowerCase().trim() &&
+             (p.brand || '').toLowerCase().trim() === (item.brand || '').toLowerCase().trim()
       );
 
       if (existingIndex !== -1) {
