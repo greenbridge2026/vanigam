@@ -155,6 +155,7 @@ try {
       projectId: process.env.FIREBASE_PROJECT_ID || undefined
     });
     db = getFirestore();
+    db.settings({ ignoreUndefinedProperties: true });
     console.log('✅ Firebase Admin: Connected to Firestore database');
   } else {
     console.warn('⚠️ Firebase Admin: Credentials not found. Server will fall back to local db.json database.');

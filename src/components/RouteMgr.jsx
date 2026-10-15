@@ -45,41 +45,33 @@ export default function RouteMgr({ t, lang }) {
 
   // Auto-translate English to Tamil
   useEffect(() => {
-    if (activeField !== 'en') return;
-    if (!nameEn.trim()) {
-      setNameTa('');
-      return;
-    }
+    if (activeField !== 'en' || !nameEn.trim()) return;
     const delayDebounceFn = setTimeout(async () => {
       try {
-        const translated = await api.translate(nameEn, 'en', 'ta');
+        const translated = await api.translate(nameEn.trim(), 'en', 'ta');
         if (translated) setNameTa(translated);
       } catch (err) {
         console.error('Auto-translation to Tamil failed:', err);
       }
-    }, 1000);
+    }, 600);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [nameEn, activeField]);
+  }, [nameEn]);
 
   // Auto-translate Tamil to English
   useEffect(() => {
-    if (activeField !== 'ta') return;
-    if (!nameTa.trim()) {
-      setNameEn('');
-      return;
-    }
+    if (activeField !== 'ta' || !nameTa.trim()) return;
     const delayDebounceFn = setTimeout(async () => {
       try {
-        const translated = await api.translate(nameTa, 'ta', 'en');
+        const translated = await api.translate(nameTa.trim(), 'ta', 'en');
         if (translated) setNameEn(translated);
       } catch (err) {
         console.error('Auto-translation to English failed:', err);
       }
-    }, 1000);
+    }, 600);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [nameTa, activeField]);
+  }, [nameTa]);
 
   const salesmanList = users.filter(u => u.role === 'salesman' && u.active);
   const deliveryList = users.filter(u => u.role === 'delivery' && u.active);
@@ -141,6 +133,53 @@ export default function RouteMgr({ t, lang }) {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [selectedRouteIds, setSelectedRouteIds] = useState([]);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleToggleSelect = (id) => {
+    setSelectedRouteIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (filteredRoutes.length > 0 && selectedRouteIds.length === filteredRoutes.length) {
+      setSelectedRouteIds([]);
+    } else {
+      setSelectedRouteIds(filteredRoutes.map(r => r.id));
+    }
+  };
+
+  const handleSelectAllRoutes = () => {
+    setSelectedRouteIds(routes.map(r => r.id));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedRouteIds([]);
+  };
+
+  const handleBulkDeleteTrigger = () => {
+    if (selectedRouteIds.length === 0) return;
+    setBulkConfirmOpen(true);
+  };
+
+  const executeBulkDelete = async () => {
+    setBulkConfirmOpen(false);
+    if (selectedRouteIds.length === 0) return;
+    try {
+      const res = await api.bulkDeleteRoutes(selectedRouteIds);
+      if (res.success) {
+        const deletedSet = new Set(res.deletedIds);
+        setRoutes(prev => prev.filter(r => !deletedSet.has(r.id)));
+        setSelectedRouteIds([]);
+        const template = t('bulk_deleted_routes_summary') || 'Successfully moved {count} route(s) to the Recycle Bin.';
+        alert(template.replace('{count}', res.deletedCount));
+      }
+    } catch (err) {
+      alert((lang === 'ta' ? 'வழித்தடங்களை நீக்க முடியவில்லை: ' : 'Failed to bulk delete routes: ') + (err.message || err));
+    }
+  };
 
   const handleDeleteTrigger = (id) => {
     setDeleteTargetId(id);
@@ -154,6 +193,7 @@ export default function RouteMgr({ t, lang }) {
       await api.deleteRoute(deleteTargetId);
       const freshRoutes = await api.getRoutes();
       setRoutes(freshRoutes);
+      setSelectedRouteIds(prev => prev.filter(id => id !== deleteTargetId));
       alert('Route moved to Recycle Bin. / வழித்தடம் குப்பைத் தொட்டிக்கு நகர்த்தப்பட்டது.');
     } catch (err) {
       alert('Failed to delete route: ' + (err.message || err));
@@ -161,6 +201,16 @@ export default function RouteMgr({ t, lang }) {
       setDeleteTargetId(null);
     }
   };
+
+  const filteredRoutes = routes.filter(r => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    const nameEn = (r.name_en || '').toLowerCase();
+    const nameTa = (r.name_ta || '').toLowerCase();
+    const sm = (users.find(u => u.id === r.salesman_id)?.name || '').toLowerCase();
+    const dm = (users.find(u => u.id === r.delivery_man_id)?.name || '').toLowerCase();
+    return nameEn.includes(q) || nameTa.includes(q) || sm.includes(q) || dm.includes(q);
+  });
 
   const handleDownloadTemplate = () => {
     const templateData = [
@@ -626,11 +676,113 @@ export default function RouteMgr({ t, lang }) {
 
       {/* Routes List */}
       <div className="glass-card">
-        <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>Active Route Assignments</h2>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          marginBottom: '1.25rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <h2 style={{ fontSize: '1.25rem', margin: 0 }}>
+              {lang === 'ta' ? 'செயலில் உள்ள வழித்தடங்கள்' : 'Active Route Assignments'}
+            </h2>
+            <span style={{
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              background: 'rgba(59, 130, 246, 0.1)',
+              color: 'var(--accent-blue)',
+              padding: '0.2rem 0.6rem',
+              borderRadius: '12px'
+            }}>
+              {routes.length} {lang === 'ta' ? 'வழித்தடங்கள்' : 'routes'}
+            </span>
+            {selectedRouteIds.length > 0 && (
+              <span style={{
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                background: 'rgba(239, 68, 68, 0.12)',
+                color: 'var(--danger)',
+                padding: '0.2rem 0.6rem',
+                borderRadius: '12px'
+              }}>
+                ✓ {selectedRouteIds.length} {lang === 'ta' ? 'தேர்ந்தெடுக்கப்பட்டது' : 'selected'}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              className="form-input"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder={lang === 'ta' ? '🔍 வழித்தடங்களைத் தேடு...' : '🔍 Search routes...'}
+              style={{ width: '220px', padding: '0.45rem 0.75rem', fontSize: '0.9rem', margin: 0 }}
+            />
+
+            {routes.length > 0 && (
+              <>
+                {selectedRouteIds.length === routes.length ? (
+                  <button
+                    type="button"
+                    className="language-btn"
+                    onClick={handleClearSelection}
+                    style={{ fontSize: '0.85rem', padding: '0.45rem 0.75rem' }}
+                  >
+                    ✕ {lang === 'ta' ? 'தேர்வை நீக்கு' : 'Deselect All'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="language-btn"
+                    onClick={handleSelectAllRoutes}
+                    style={{ fontSize: '0.85rem', padding: '0.45rem 0.75rem' }}
+                  >
+                    ☑ {lang === 'ta' ? 'அனைத்தையும் தேர்ந்தெடு' : 'Select All'} ({routes.length})
+                  </button>
+                )}
+              </>
+            )}
+
+            {selectedRouteIds.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={handleBulkDeleteTrigger}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.45rem 0.85rem',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  boxShadow: '0 2px 8px rgba(239, 68, 68, 0.25)'
+                }}
+              >
+                🗑️ {selectedRouteIds.length === routes.length
+                  ? (lang === 'ta' ? 'அனைத்தையும் நீக்கு' : 'Delete All')
+                  : (lang === 'ta' ? 'தேர்ந்தெடுத்தவற்றை நீக்கு' : 'Delete Selected')} ({selectedRouteIds.length})
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="table-container">
           <table className="custom-table">
             <thead>
               <tr>
+                <th style={{ width: '42px', textAlign: 'center', padding: '0.75rem 0.5rem' }}>
+                  <input
+                    type="checkbox"
+                    className="form-checkbox"
+                    checked={filteredRoutes.length > 0 && selectedRouteIds.length === filteredRoutes.length}
+                    onChange={handleToggleSelectAll}
+                    style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
+                    title={lang === 'ta' ? 'அனைத்தையும் தேர்ந்தெடு / நீக்கு' : 'Select / Deselect all'}
+                  />
+                </th>
                 <th>{t('route_name_en')}</th>
                 <th>{t('route_name_ta')}</th>
                 <th>{t('assign_salesman')}</th>
@@ -639,11 +791,27 @@ export default function RouteMgr({ t, lang }) {
               </tr>
             </thead>
             <tbody>
-              {routes.map(r => {
+              {filteredRoutes.map(r => {
+                const isSelected = selectedRouteIds.includes(r.id);
                 const salesmanName = users.find(u => u.id === r.salesman_id)?.name || 'Unassigned';
                 const deliveryName = users.find(u => u.id === r.delivery_man_id)?.name || 'Unassigned';
                 return (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    style={{
+                      background: isSelected ? 'rgba(59, 130, 246, 0.08)' : undefined,
+                      transition: 'background 0.15s ease'
+                    }}
+                  >
+                    <td style={{ textAlign: 'center', padding: '0.75rem 0.5rem' }}>
+                      <input
+                        type="checkbox"
+                        className="form-checkbox"
+                        checked={isSelected}
+                        onChange={() => handleToggleSelect(r.id)}
+                        style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
+                      />
+                    </td>
                     <td><strong>{r.name_en}</strong></td>
                     <td><strong>{r.name_ta}</strong></td>
                     <td style={{ color: r.salesman_id ? 'var(--accent-cyan)' : 'var(--text-muted)' }}>👤 {salesmanName}</td>
@@ -666,8 +834,15 @@ export default function RouteMgr({ t, lang }) {
               })}
               {routes.length === 0 && (
                 <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                  <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                     {t('no_routes')}
+                  </td>
+                </tr>
+              )}
+              {routes.length > 0 && filteredRoutes.length === 0 && (
+                <tr>
+                  <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                    {lang === 'ta' ? 'பொருந்தும் வழித்தடங்கள் எதுவும் காணப்படவில்லை.' : 'No matching routes found.'}
                   </td>
                 </tr>
               )}
@@ -756,6 +931,20 @@ export default function RouteMgr({ t, lang }) {
         cancelText={t('confirm_cancel')}
         onConfirm={executeDelete}
         onCancel={() => setConfirmOpen(false)}
+      />
+
+      <ConfirmModal
+        isOpen={bulkConfirmOpen}
+        title={lang === 'ta' ? 'மொத்தமாக நீக்குவதை உறுதிப்படுத்து' : 'Confirm Bulk Deletion'}
+        message={
+          selectedRouteIds.length === routes.length
+            ? (t('confirm_delete_all_routes_msg') || 'Are you sure you want to move ALL {count} routes to the Recycle Bin?').replace('{count}', selectedRouteIds.length)
+            : (t('confirm_bulk_delete_routes_msg') || 'Are you sure you want to move {count} selected route(s) to the Recycle Bin?').replace('{count}', selectedRouteIds.length)
+        }
+        confirmText={lang === 'ta' ? 'ஆம், நீக்கு' : 'Yes, Delete'}
+        cancelText={t('confirm_cancel')}
+        onConfirm={executeBulkDelete}
+        onCancel={() => setBulkConfirmOpen(false)}
       />
     </div>
   );

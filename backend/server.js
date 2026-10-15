@@ -508,25 +508,72 @@ function sanitizeTamilBeverageTerms(text) {
 
 async function translateText(text, from = 'en', to = 'ta') {
   if (!text || !text.trim()) return '';
+  const cleanText = text.trim();
+
+  // Tier 1: Google Clients5 API with Desktop User-Agent
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Google Translate responded with status: ${response.status}`);
-    }
-    const result = await response.json();
-    if (result && result[0]) {
-      let translated = result[0].map(item => item[0]).join('');
-      if (to === 'ta') {
-        translated = sanitizeTamilBeverageTerms(translated);
+    const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${from}&tl=${to}&q=${encodeURIComponent(cleanText)}`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       }
-      return translated;
+    });
+    if (response.ok) {
+      const data = await response.json();
+      let translated = '';
+      if (Array.isArray(data) && data[0]) {
+        translated = typeof data[0] === 'string' ? data[0] : (Array.isArray(data[0]) ? data[0].join('') : String(data[0]));
+      }
+      if (translated && translated.trim()) {
+        if (to === 'ta') translated = sanitizeTamilBeverageTerms(translated);
+        return translated;
+      }
     }
-    throw new Error('Unexpected translation response structure');
   } catch (err) {
-    console.error('Translation error in helper:', err);
-    return '';
+    // try next tier
   }
+
+  // Tier 2: Google Translate Single with dict-chrome-ex
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(cleanText)}`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+    if (response.ok) {
+      const result = await response.json();
+      if (result && Array.isArray(result[0])) {
+        let translated = result[0].map(item => item[0]).join('');
+        if (translated && translated.trim()) {
+          if (to === 'ta') translated = sanitizeTamilBeverageTerms(translated);
+          return translated;
+        }
+      }
+    }
+  } catch (err) {
+    // try next tier
+  }
+
+  // Tier 3: MyMemory API
+  try {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(cleanText)}&langpair=${from}|${to}`;
+    const response = await fetch(url);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.responseData && data.responseData.translatedText) {
+        let translated = data.responseData.translatedText;
+        if (translated && translated.trim() && !translated.startsWith('MYMEMORY WARNING')) {
+          if (to === 'ta') translated = sanitizeTamilBeverageTerms(translated);
+          return translated;
+        }
+      }
+    }
+  } catch (err) {
+    // fallback
+  }
+
+  return cleanText;
 }
 
 // Translation Endpoint
@@ -537,13 +584,10 @@ app.post('/api/translate', async (req, res) => {
   }
   try {
     const translatedText = await translateText(text, from, to);
-    if (translatedText) {
-      return res.json({ translatedText });
-    }
-    throw new Error('Translation failed');
+    return res.json({ translatedText: translatedText || text });
   } catch (err) {
     console.error('Translation endpoint error:', err);
-    res.status(500).json({ error: 'Failed to translate text' });
+    res.json({ translatedText: text });
   }
 });
 
@@ -766,10 +810,10 @@ app.post('/api/routes', async (req, res) => {
     let name_en = req.body.name_en || '';
     let name_ta = req.body.name_ta || '';
 
-    if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+    if (name_en && (!name_ta || !name_ta.trim() || name_ta.trim() === name_en.trim())) {
       const translated = await translateText(name_en, 'en', 'ta');
       if (translated) name_ta = translated;
-    } else if (name_ta && !name_en) {
+    } else if (name_ta && (!name_en || !name_en.trim())) {
       const translated = await translateText(name_ta, 'ta', 'en');
       if (translated) name_en = translated;
     }
@@ -800,10 +844,10 @@ app.put('/api/routes/:id', async (req, res) => {
       let name_ta = updatedFields.name_ta !== undefined ? updatedFields.name_ta : db.routes[index].name_ta;
 
       if (updatedFields.name_en !== undefined || updatedFields.name_ta !== undefined) {
-        if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+        if (name_en && (!name_ta || !name_ta.trim() || name_ta.trim() === name_en.trim())) {
           const translated = await translateText(name_en, 'en', 'ta');
           if (translated) name_ta = translated;
-        } else if (name_ta && !name_en) {
+        } else if (name_ta && (!name_en || !name_en.trim())) {
           const translated = await translateText(name_ta, 'ta', 'en');
           if (translated) name_en = translated;
         }
@@ -847,6 +891,58 @@ app.delete('/api/routes/:id', async (req, res) => {
 
     await writeDB(req.tenantId, db, ['routes', 'recycle_bin']);
     res.json({ success: true });
+  } finally {
+    releaseLock();
+  }
+});
+
+// Bulk Delete Routes
+app.post('/api/routes/bulk-delete', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty route IDs array' });
+    }
+
+    const deletedIds = [];
+    const skippedIds = [];
+    if (!db.recycle_bin) db.recycle_bin = [];
+
+    const now = Date.now();
+    for (const routeId of ids) {
+      const route = db.routes.find(r => r.id === routeId);
+      if (!route) {
+        skippedIds.push(routeId);
+        continue;
+      }
+
+      db.routes = db.routes.filter(r => r.id !== routeId);
+
+      db.recycle_bin.push({
+        id: `rb_${now}_rt_${routeId}`,
+        table: 'routes',
+        original_id: routeId,
+        data: route,
+        deleted_at: new Date().toISOString(),
+        expires_at: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString()
+      });
+
+      deletedIds.push(routeId);
+    }
+
+    await writeDB(req.tenantId, db, ['routes', 'recycle_bin']);
+    res.json({
+      success: true,
+      deletedCount: deletedIds.length,
+      deletedIds,
+      skippedCount: skippedIds.length,
+      skippedIds
+    });
+  } catch (err) {
+    console.error('Bulk delete routes error:', err);
+    res.status(500).json({ error: err.message || 'Bulk deletion of routes failed' });
   } finally {
     releaseLock();
   }
@@ -953,10 +1049,10 @@ app.post('/api/shops', async (req, res) => {
     let name_en = req.body.name_en || req.body.name || '';
     let name_ta = req.body.name_ta || req.body.name || '';
 
-    if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+    if (name_en && (!name_ta || !name_ta.trim() || name_ta.trim() === name_en.trim())) {
       const translated = await translateText(name_en, 'en', 'ta');
       if (translated) name_ta = translated;
-    } else if (name_ta && !name_en) {
+    } else if (name_ta && (!name_en || !name_en.trim())) {
       const translated = await translateText(name_ta, 'ta', 'en');
       if (translated) name_en = translated;
     }
@@ -965,12 +1061,12 @@ app.post('/api/shops', async (req, res) => {
       id: `s_${Date.now()}`,
       name_en,
       name_ta,
-      contact_person: req.body.contact_person,
-      mobile: req.body.mobile,
+      contact_person: req.body.contact_person || '',
+      mobile: req.body.mobile || '',
       gst_number: req.body.gst_number || '',
-      address: req.body.address,
+      address: req.body.address || '',
       shop_type: req.body.shop_type || 'retail',
-      route_id: req.body.route_id,
+      route_id: req.body.route_id || '',
       status: req.body.status || 'active',
       outstanding_amount: Number(req.body.outstanding_amount || 0)
     };
@@ -1005,10 +1101,10 @@ app.put('/api/shops/:id', async (req, res) => {
       let name_ta = updatedFields.name_ta !== undefined ? updatedFields.name_ta : db.shops[index].name_ta;
 
       if (updatedFields.name_en !== undefined || updatedFields.name_ta !== undefined) {
-        if (name_en && (!name_ta || containsEnglish(name_ta) || name_ta.trim() === name_en.trim())) {
+        if (name_en && (!name_ta || !name_ta.trim() || name_ta.trim() === name_en.trim())) {
           const translated = await translateText(name_en, 'en', 'ta');
           if (translated) name_ta = translated;
-        } else if (name_ta && !name_en) {
+        } else if (name_ta && (!name_en || !name_en.trim())) {
           const translated = await translateText(name_ta, 'ta', 'en');
           if (translated) name_en = translated;
         }
@@ -2459,6 +2555,76 @@ app.delete('/api/shops/:id', async (req, res) => {
 
     await writeDB(req.tenantId, db);
     res.json({ success: true });
+  } finally {
+    releaseLock();
+  }
+});
+
+// 1b. Bulk Delete Shops
+app.post('/api/shops/bulk-delete', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const { ids, force } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty shop IDs array' });
+    }
+
+    const deletedIds = [];
+    const skippedIds = [];
+    const errors = [];
+
+    if (!db.recycle_bin) db.recycle_bin = [];
+
+    const now = Date.now();
+    for (const shopId of ids) {
+      const shop = db.shops.find(s => s.id === shopId);
+      if (!shop) {
+        skippedIds.push(shopId);
+        continue;
+      }
+
+      // Check if shop has orders
+      const hasOrders = Array.isArray(db.orders) && db.orders.some(o => o.shop_id === shopId);
+      if (hasOrders && !force) {
+        skippedIds.push(shopId);
+        const shopLabel = shop.name_ta || shop.name_en || shopId;
+        errors.push(`Shop "${shopLabel}" has existing orders and was skipped.`);
+        continue;
+      }
+
+      db.shops = db.shops.filter(s => s.id !== shopId);
+      const relatedHistory = Array.isArray(db.outstanding_history)
+        ? db.outstanding_history.filter(oh => oh.shop_id === shopId)
+        : [];
+      if (Array.isArray(db.outstanding_history)) {
+        db.outstanding_history = db.outstanding_history.filter(oh => oh.shop_id !== shopId);
+      }
+
+      db.recycle_bin.push({
+        id: `rb_${now}_sp_${shopId}`,
+        table: 'shops',
+        original_id: shopId,
+        data: { shop, relatedHistory },
+        deleted_at: new Date().toISOString(),
+        expires_at: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString()
+      });
+
+      deletedIds.push(shopId);
+    }
+
+    await writeDB(req.tenantId, db, ['shops', 'outstanding_history', 'recycle_bin']);
+    res.json({
+      success: true,
+      deletedCount: deletedIds.length,
+      deletedIds,
+      skippedCount: skippedIds.length,
+      skippedIds,
+      errors
+    });
+  } catch (err) {
+    console.error('Bulk delete shops error:', err);
+    res.status(500).json({ error: err.message || 'Bulk deletion of shops failed' });
   } finally {
     releaseLock();
   }

@@ -56,41 +56,33 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
 
   // Auto-translate English to Tamil
   useEffect(() => {
-    if (activeField !== 'en') return;
-    if (!nameEn.trim()) {
-      setNameTa('');
-      return;
-    }
+    if (activeField !== 'en' || !nameEn.trim()) return;
     const delayDebounceFn = setTimeout(async () => {
       try {
-        const translated = await api.translate(nameEn, 'en', 'ta');
+        const translated = await api.translate(nameEn.trim(), 'en', 'ta');
         if (translated) setNameTa(translated);
       } catch (err) {
         console.error('Auto-translation to Tamil failed:', err);
       }
-    }, 1000);
+    }, 600);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [nameEn, activeField]);
+  }, [nameEn]);
 
   // Auto-translate Tamil to English
   useEffect(() => {
-    if (activeField !== 'ta') return;
-    if (!nameTa.trim()) {
-      setNameEn('');
-      return;
-    }
+    if (activeField !== 'ta' || !nameTa.trim()) return;
     const delayDebounceFn = setTimeout(async () => {
       try {
-        const translated = await api.translate(nameTa, 'ta', 'en');
+        const translated = await api.translate(nameTa.trim(), 'ta', 'en');
         if (translated) setNameEn(translated);
       } catch (err) {
         console.error('Auto-translation to English failed:', err);
       }
-    }, 1000);
+    }, 600);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [nameTa, activeField]);
+  }, [nameTa]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -172,6 +164,61 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState(null);
+  const [selectedShopIds, setSelectedShopIds] = useState([]);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+
+  const handleToggleSelect = (id) => {
+    setSelectedShopIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (filteredShops.length > 0 && selectedShopIds.length === filteredShops.length) {
+      setSelectedShopIds([]);
+    } else {
+      setSelectedShopIds(filteredShops.map(s => s.id));
+    }
+  };
+
+  const handleSelectAllShops = () => {
+    setSelectedShopIds(shops.map(s => s.id));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedShopIds([]);
+  };
+
+  const handleBulkDeleteTrigger = () => {
+    if (selectedShopIds.length === 0) return;
+    setBulkConfirmOpen(true);
+  };
+
+  const executeBulkDelete = async () => {
+    setBulkConfirmOpen(false);
+    if (selectedShopIds.length === 0) return;
+    try {
+      const res = await api.bulkDeleteShops(selectedShopIds);
+      if (res.success) {
+        const deletedSet = new Set(res.deletedIds);
+        setShops(prev => prev.filter(s => !deletedSet.has(s.id)));
+        setSelectedShopIds([]);
+
+        let msg = (t('bulk_deleted_shops_summary') || 'Successfully moved {deleted} shop(s) to the Recycle Bin.')
+          .replace('{deleted}', res.deletedCount);
+
+        if (res.skippedCount > 0) {
+          msg += '\n\n' + (lang === 'ta'
+            ? `${res.skippedCount} கடைகள் செயலில் உள்ள ஆர்டர்கள்/பில்கள் இருப்பதால் தவிர்க்கப்பட்டன.`
+            : `${res.skippedCount} shop(s) skipped because they have existing orders.`);
+        }
+
+        alert(msg);
+      }
+    } catch (err) {
+      alert((lang === 'ta' ? 'கடைகளை நீக்க முடியவில்லை: ' : 'Failed to bulk delete shops: ') + (err.message || err));
+    }
+  };
 
   const handleDeleteTrigger = (id) => {
     setDeleteTargetId(id);
@@ -184,6 +231,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
     try {
       await api.deleteShop(deleteTargetId);
       setShops(shops.filter(s => s.id !== deleteTargetId));
+      setSelectedShopIds(prev => prev.filter(id => id !== deleteTargetId));
       alert('Shop moved to Recycle Bin. / கடை குப்பைத் தொட்டிக்கு நகர்த்தப்பட்டது.');
     } catch (err) {
       alert(err.message || 'Failed to delete shop');
@@ -600,19 +648,33 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
       {/* Filter and List Section */}
       <div className="glass-card">
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ fontSize: '1.25rem' }}>Registered Shops ({filteredShops.length})</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <h2 style={{ fontSize: '1.25rem', margin: 0 }}>Registered Shops ({filteredShops.length})</h2>
+            {selectedShopIds.length > 0 && (
+              <span style={{
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                background: 'rgba(239, 68, 68, 0.12)',
+                color: 'var(--danger)',
+                padding: '0.2rem 0.6rem',
+                borderRadius: '12px'
+              }}>
+                ✓ {selectedShopIds.length} {lang === 'ta' ? 'தேர்ந்தெடுக்கப்பட்டது' : 'selected'}
+              </span>
+            )}
+          </div>
           
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <button type="button" className="btn btn-secondary" onClick={handleDownloadTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}>
+          <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" className="btn btn-secondary" onClick={handleDownloadTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}>
               📥 {lang === 'ta' ? 'வார்ப்புருவைப் பதிவிறக்கு' : 'Download Template'}
             </button>
 
-            <button type="button" className="btn btn-secondary" onClick={handleExportToExcel} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}>
+            <button type="button" className="btn btn-secondary" onClick={handleExportToExcel} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}>
               📤 {lang === 'ta' ? 'கடைகளைப் பதிவிறக்கு (Excel)' : 'Download Shops (Excel)'}
             </button>
             
             <div style={{ position: 'relative', overflow: 'hidden', display: 'inline-block' }}>
-              <button type="button" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}>
+              <button type="button" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}>
                 📁 {lang === 'ta' ? 'கோப்பைத் தேர்ந்தெடு (Excel / CSV)' : 'Select Excel / CSV'}
               </button>
               <input 
@@ -643,8 +705,67 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Search shops..."
-              style={{ width: '220px', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}
+              style={{ width: '180px', padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}
             />
+
+            {filteredShops.length > 0 && (
+              <>
+                {selectedShopIds.length === filteredShops.length ? (
+                  <button
+                    type="button"
+                    className="language-btn"
+                    onClick={handleClearSelection}
+                    style={{ fontSize: '0.85rem', padding: '0.4rem 0.75rem' }}
+                  >
+                    ✕ {lang === 'ta' ? 'தேர்வை நீக்கு' : 'Deselect All'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="language-btn"
+                    onClick={handleToggleSelectAll}
+                    style={{ fontSize: '0.85rem', padding: '0.4rem 0.75rem' }}
+                  >
+                    ☑ {filterRoute ? (lang === 'ta' ? 'வழித்தடக் கடைகளைத் தேர்ந்தெடு' : 'Select All in Route') : (lang === 'ta' ? 'அனைத்தையும் தேர்ந்தெடு' : 'Select All')} ({filteredShops.length})
+                  </button>
+                )}
+              </>
+            )}
+
+            {filterRoute && selectedShopIds.length !== shops.length && shops.length > filteredShops.length && (
+              <button
+                type="button"
+                className="language-btn"
+                onClick={handleSelectAllShops}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 0.75rem' }}
+                title={lang === 'ta' ? 'அனைத்து வழித்தடக் கடைகளையும் தேர்ந்தெடு' : 'Select all shops across all routes'}
+              >
+                ☑ {lang === 'ta' ? 'அனைத்து கடைகளும்' : 'All Shops'} ({shops.length})
+              </button>
+            )}
+
+            {selectedShopIds.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={handleBulkDeleteTrigger}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.4rem 0.85rem',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  boxShadow: '0 2px 8px rgba(239, 68, 68, 0.25)'
+                }}
+              >
+                🗑️ {selectedShopIds.length === shops.length
+                  ? (lang === 'ta' ? 'அனைத்து கடைகளையும் நீக்கு' : 'Delete All Shops')
+                  : (filterRoute && selectedShopIds.length === filteredShops.length
+                      ? (lang === 'ta' ? 'வழித்தடக் கடைகளை நீக்கு' : 'Delete Route Shops')
+                      : (lang === 'ta' ? 'தேர்ந்தெடுத்தவற்றை நீக்கு' : 'Delete Selected'))} ({selectedShopIds.length})
+              </button>
+            )}
           </div>
         </div>
 
@@ -773,6 +894,16 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
           <table className="custom-table">
             <thead>
               <tr>
+                <th style={{ width: '42px', textAlign: 'center', padding: '0.75rem 0.5rem' }}>
+                  <input
+                    type="checkbox"
+                    className="form-checkbox"
+                    checked={filteredShops.length > 0 && selectedShopIds.length === filteredShops.length}
+                    onChange={handleToggleSelectAll}
+                    style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
+                    title={lang === 'ta' ? 'அனைத்தையும் தேர்ந்தெடு / நீக்கு' : 'Select / Deselect all'}
+                  />
+                </th>
                 <th>{t('shop_name')}</th>
                 <th>{t('mobile_number')}</th>
                 <th>Address / Location</th>
@@ -786,10 +917,26 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
             </thead>
             <tbody>
               {filteredShops.map(s => {
+                const isSelected = selectedShopIds.includes(s.id);
                 const routeObj = routes.find(r => r.id === s.route_id);
                 const routeName = routeObj ? (lang === 'ta' ? routeObj.name_ta : routeObj.name_en) : 'None';
                 return (
-                  <tr key={s.id}>
+                  <tr
+                    key={s.id}
+                    style={{
+                      background: isSelected ? 'rgba(59, 130, 246, 0.08)' : undefined,
+                      transition: 'background 0.15s ease'
+                    }}
+                  >
+                    <td style={{ textAlign: 'center', padding: '0.75rem 0.5rem' }}>
+                      <input
+                        type="checkbox"
+                        className="form-checkbox"
+                        checked={isSelected}
+                        onChange={() => handleToggleSelect(s.id)}
+                        style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
+                      />
+                    </td>
                     <td>
                       <div style={{ fontWeight: '700' }}>{translateShopName(s, lang)}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>GSTIN: {s.gst_number || 'N/A'}</div>
@@ -861,7 +1008,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
               })}
               {filteredShops.length === 0 && (
                 <tr>
-                  <td colSpan="9" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
+                  <td colSpan="10" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>
                     No shops found.
                   </td>
                 </tr>
@@ -1094,6 +1241,22 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
         cancelText={t('confirm_cancel')}
         onConfirm={executeDelete}
         onCancel={() => setConfirmOpen(false)}
+      />
+
+      <ConfirmModal
+        isOpen={bulkConfirmOpen}
+        title={lang === 'ta' ? 'மொத்தமாக நீக்குவதை உறுதிப்படுத்து' : 'Confirm Bulk Deletion'}
+        message={
+          selectedShopIds.length === shops.length
+            ? (t('confirm_delete_all_shops_msg') || 'Are you sure you want to move ALL {count} shops to the Recycle Bin? (Shops with existing orders will be automatically skipped)').replace('{count}', selectedShopIds.length)
+            : (filterRoute && selectedShopIds.length === filteredShops.length
+                ? (t('confirm_delete_route_shops_msg') || 'Are you sure you want to move all {count} shop(s) in this route to the Recycle Bin? (Shops with existing orders will be automatically skipped)').replace('{count}', selectedShopIds.length)
+                : (t('confirm_bulk_delete_shops_msg') || 'Are you sure you want to move {count} selected shop(s) to the Recycle Bin? (Shops with existing orders will be automatically skipped)').replace('{count}', selectedShopIds.length))
+        }
+        confirmText={lang === 'ta' ? 'ஆம், நீக்கு' : 'Yes, Delete'}
+        cancelText={t('confirm_cancel')}
+        onConfirm={executeBulkDelete}
+        onCancel={() => setBulkConfirmOpen(false)}
       />
     </div>
   );

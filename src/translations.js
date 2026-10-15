@@ -46,6 +46,12 @@ export const translations = {
     assign_salesman: "Assign Salesman",
     assign_delivery: "Assign Delivery Man",
     no_routes: "No routes found. Please add a route.",
+    bulk_delete_routes: "Bulk Delete Routes",
+    delete_all_routes: "Delete All Routes",
+    delete_selected_routes: "Delete Selected",
+    confirm_bulk_delete_routes_msg: "Are you sure you want to move {count} selected route(s) to the Recycle Bin?",
+    confirm_delete_all_routes_msg: "Are you sure you want to move ALL {count} routes to the Recycle Bin?",
+    bulk_deleted_routes_summary: "Successfully moved {count} route(s) to the Recycle Bin.",
 
     // Shop Module
     add_shop: "Add Shop",
@@ -64,6 +70,14 @@ export const translations = {
     inactive: "Inactive",
     save: "Save",
     cancel: "Cancel",
+    bulk_delete_shops: "Bulk Delete Shops",
+    delete_all_shops: "Delete All Shops",
+    delete_route_shops: "Delete Route Shops",
+    delete_selected_shops: "Delete Selected",
+    confirm_bulk_delete_shops_msg: "Are you sure you want to move {count} selected shop(s) to the Recycle Bin? (Shops with existing orders will be automatically skipped)",
+    confirm_delete_all_shops_msg: "Are you sure you want to move ALL {count} shops to the Recycle Bin? (Shops with existing orders will be automatically skipped)",
+    confirm_delete_route_shops_msg: "Are you sure you want to move all {count} shop(s) in this route to the Recycle Bin? (Shops with existing orders will be automatically skipped)",
+    bulk_deleted_shops_summary: "Successfully moved {deleted} shop(s) to the Recycle Bin.",
 
     // Product Module
     add_product: "Add Product",
@@ -282,6 +296,12 @@ export const translations = {
     assign_salesman: "விற்பனையாளரை நியமி",
     assign_delivery: "டெலிவரி மேனை நியமி",
     no_routes: "வழித்தடங்கள் இல்லை. வழித்தடத்தை சேர்க்கவும்.",
+    bulk_delete_routes: "மொத்தமாக வழித்தடங்களை நீக்கு",
+    delete_all_routes: "அனைத்து வழித்தடங்களையும் நீக்கு",
+    delete_selected_routes: "தேர்ந்தெடுத்தவற்றை நீக்கு",
+    confirm_bulk_delete_routes_msg: "தேர்ந்தெடுக்கப்பட்ட {count} வழித்தடங்களை குப்பைத் தொட்டிக்கு நகர்த்த விரும்புகிறீர்களா?",
+    confirm_delete_all_routes_msg: "அனைத்து {count} வழித்தடங்களையும் குப்பைத் தொட்டிக்கு நகர்த்த விரும்புகிறீர்களா?",
+    bulk_deleted_routes_summary: "{count} வழித்தடங்கள் வெற்றிகரமாக குப்பைத் தொட்டிக்கு நகர்த்தப்பட்டன.",
 
     // Shop Module
     add_shop: "கடை சேர்",
@@ -300,6 +320,14 @@ export const translations = {
     inactive: "செயலற்றது",
     save: "சேமி",
     cancel: "ரத்து செய்",
+    bulk_delete_shops: "மொத்தமாக கடைகளை நீக்கு",
+    delete_all_shops: "அனைத்து கடைகளையும் நீக்கு",
+    delete_route_shops: "இந்த வழித்தடக் கடைகளை நீக்கு",
+    delete_selected_shops: "தேர்ந்தெடுத்தவற்றை நீக்கு",
+    confirm_bulk_delete_shops_msg: "தேர்ந்தெடுக்கப்பட்ட {count} கடைகளை குப்பைத் தொட்டிக்கு நகர்த்த விரும்புகிறீர்களா? (செயலில் உள்ள ஆர்டர்களைக் கொண்ட கடைகள் தவிர்க்கப்படும்)",
+    confirm_delete_all_shops_msg: "அனைத்து {count} கடைகளையும் குப்பைத் தொட்டிக்கு நகர்த்த விரும்புகிறீர்களா? (செயலில் உள்ள ஆர்டர்களைக் கொண்ட கடைகள் தவிர்க்கப்படும்)",
+    confirm_delete_route_shops_msg: "இந்த வழித்தடத்தில் உள்ள அனைத்து {count} கடைகளையும் குப்பைத் தொட்டிக்கு நகர்த்த விரும்புகிறீர்களா? (செயலில் உள்ள ஆர்டர்களைக் கொண்ட கடைகள் தவிர்க்கப்படும்)",
+    bulk_deleted_shops_summary: "வெற்றிகரமாக {deleted} கடை(கள்) குப்பைத் தொட்டிக்கு நகர்த்தப்பட்டன.",
 
     // Product Module
     add_product: "தயாரிப்பு சேர்",

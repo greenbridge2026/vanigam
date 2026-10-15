@@ -45,41 +45,33 @@ export default function ProductMgr({ t, lang }) {
 
   // Auto-translate English to Tamil
   useEffect(() => {
-    if (activeField !== 'en') return;
-    if (!nameEn.trim()) {
-      setNameTa('');
-      return;
-    }
+    if (activeField !== 'en' || !nameEn.trim()) return;
     const delayDebounceFn = setTimeout(async () => {
       try {
-        const translated = await api.translate(nameEn, 'en', 'ta');
+        const translated = await api.translate(nameEn.trim(), 'en', 'ta');
         if (translated) setNameTa(sanitizeTamilBeverageTerms(translated));
       } catch (err) {
         console.error('Auto-translation to Tamil failed:', err);
       }
-    }, 1000);
+    }, 600);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [nameEn, activeField]);
+  }, [nameEn]);
 
   // Auto-translate Tamil to English
   useEffect(() => {
-    if (activeField !== 'ta') return;
-    if (!nameTa.trim()) {
-      setNameEn('');
-      return;
-    }
+    if (activeField !== 'ta' || !nameTa.trim()) return;
     const delayDebounceFn = setTimeout(async () => {
       try {
-        const translated = await api.translate(nameTa, 'ta', 'en');
+        const translated = await api.translate(nameTa.trim(), 'ta', 'en');
         if (translated) setNameEn(translated);
       } catch (err) {
         console.error('Auto-translation to English failed:', err);
       }
-    }, 1000);
+    }, 600);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [nameTa, activeField]);
+  }, [nameTa]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

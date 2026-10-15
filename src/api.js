@@ -168,6 +168,26 @@ export const api = {
     }
     return result;
   },
+  async bulkDeleteRoutes(ids) {
+    const res = await apiFetch(`${API_BASE}/routes/bulk-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    const result = await parseJsonResponse(res, 'Failed to bulk delete routes');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
+        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
+        await setDoc(docRef, { data: freshRoutes }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing bulk deleted routes to Firestore client failed:', e);
+      }
+    }
+    return result;
+  },
   async importRoutes(routesList) {
     const res = await apiFetch(`${API_BASE}/routes/import`, {
       method: 'POST',
@@ -495,6 +515,26 @@ export const api = {
         await setDoc(docRef, { data: updatedShops }, { merge: true });
       } catch (e) {
         console.warn('Syncing deleted shop to Firestore client failed:', e);
+      }
+    }
+    return result;
+  },
+  async bulkDeleteShops(ids, force = false) {
+    const res = await apiFetch(`${API_BASE}/shops/bulk-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, force })
+    });
+    const result = await parseJsonResponse(res, 'Failed to bulk delete shops');
+    if (isFirebaseConfigured && db) {
+      try {
+        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
+        const resShops = await apiFetch(`${API_BASE}/shops`, {}, tenantId);
+        const freshShops = await parseJsonResponse(resShops, 'Failed to sync shops');
+        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
+        await setDoc(docRef, { data: freshShops }, { merge: true });
+      } catch (e) {
+        console.warn('Syncing bulk deleted shops to Firestore client failed:', e);
       }
     }
     return result;
