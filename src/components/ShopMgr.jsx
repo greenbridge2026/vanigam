@@ -31,6 +31,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
   const [status, setStatus] = useState('active');
   const [outstanding, setOutstanding] = useState(0);
   const [deliveries, setDeliveries] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -86,12 +87,14 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
 
     if (!nameEn.trim() && !nameTa.trim()) {
       alert(lang === 'ta' ? 'கடையின் பெயர் தேவை' : 'Shop name is required');
       return;
     }
 
+    setSubmitting(true);
     let finalEn = nameEn.trim();
     let finalTa = nameTa.trim();
 
@@ -135,6 +138,8 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
       resetForm();
     } catch (err) {
       alert(err.message || 'Error saving shop details');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -540,8 +545,8 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
               </div>
             </div>
             <div className="btn-group">
-              <button type="submit" className="btn btn-primary">
-                💾 {t('save')}
+              <button type="submit" className="btn btn-primary" disabled={submitting}>
+                {submitting ? (lang === 'ta' ? '⏳ சேமிக்கிறது...' : '⏳ Saving...') : `💾 ${t('save')}`}
               </button>
             </div>
           </form>
@@ -636,8 +641,8 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                 <button type="button" className="btn btn-secondary" onClick={resetForm}>
                   {t('cancel')}
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  💾 {t('save')}
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? (lang === 'ta' ? '⏳ சேமிக்கிறது...' : '⏳ Saving...') : `💾 ${t('save')}`}
                 </button>
               </div>
             </form>

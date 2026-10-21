@@ -397,8 +397,8 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
     const updatedItem = { ...currentItem, [field]: value };
     const totalRequested = (updatedItem.cases * prod.case_qty_rule) + updatedItem.bottles;
 
-    if (totalRequested > maxBottles && (field === 'cases' || field === 'bottles')) {
-      alert(`Cannot exceed vehicle stock! Available: ${formatStock(maxBottles, prod.case_qty_rule)}`);
+    if (maxBottles !== undefined && maxBottles !== null && totalRequested > maxBottles && (field === 'cases' || field === 'bottles')) {
+      alert(`Cannot exceed available stock! Available: ${formatStock(maxBottles, prod.case_qty_rule)} (${maxBottles} B)`);
       return;
     }
 
@@ -664,10 +664,12 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                           .filter(p => !brandFilter || p.brand === brandFilter)
                           .filter(p => !categoryFilter || p.category === categoryFilter)
                           .map(p => {
-                            const maxBottles = getProductVehicleStock(selectedSaleVehicle, p.id);
-                            if (maxBottles === 0) return null;
+                            const vehicleBottles = getProductVehicleStock(selectedSaleVehicle, p.id);
+                            const whBottles = p.current_stock_bottles || 0;
+                            const totalAvailBottles = Math.max(0, vehicleBottles + whBottles);
+                            if (totalAvailBottles === 0 && vehicleBottles === 0) return null;
 
-                            const availCases = Math.floor(maxBottles / (p.case_qty_rule || 1));
+                            const availCases = Math.floor(totalAvailBottles / (p.case_qty_rule || 1));
                             const item = saleCart[p.id] || { cases: 0, bottles: 0, price: getWholesaleOrRetailPrice(p, selectedSaleShop) };
                             const calculatedItemSub = Math.round(
                               (item.cases * Number(item.price || 0)) +
@@ -680,8 +682,15 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                                   <div style={{ fontWeight: '700' }}>{getProductName(p)}</div>
                                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.brand} | {p.category || 'N/A'} | {p.size}</div>
                                 </td>
-                                <td style={{ color: 'var(--success)', fontWeight: 'bold' }}>
-                                  {formatStock(maxBottles, p.case_qty_rule)} ({maxBottles} B)
+                                <td>
+                                  <div style={{ color: vehicleBottles > 0 ? 'var(--success)' : 'var(--text-muted)', fontWeight: 'bold' }}>
+                                    {formatStock(vehicleBottles, p.case_qty_rule)} ({vehicleBottles} B)
+                                  </div>
+                                  {whBottles > 0 && (
+                                    <div style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)', fontWeight: '500' }}>
+                                      Avail: {formatStock(totalAvailBottles, p.case_qty_rule)}
+                                    </div>
+                                  )}
                                 </td>
                                 <td>
                                   <input
@@ -689,7 +698,7 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                                     className="form-input"
                                     style={{ width: '90px', padding: '0.25rem' }}
                                     value={item.price}
-                                    onChange={e => handleSaleQtyChange(p.id, 'price', e.target.value, maxBottles)}
+                                    onChange={e => handleSaleQtyChange(p.id, 'price', e.target.value, totalAvailBottles)}
                                   />
                                 </td>
                                 <td>
@@ -699,10 +708,9 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                                       className="form-input"
                                       style={{ padding: '0.25rem' }}
                                       value={item.cases || ''}
-                                      onChange={e => handleSaleQtyChange(p.id, 'cases', e.target.value, maxBottles)}
+                                      onChange={e => handleSaleQtyChange(p.id, 'cases', e.target.value, totalAvailBottles)}
                                       placeholder={`Cases (${availCases} C)`}
                                       min="0"
-                                      max={availCases}
                                     />
                                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '500' }}>
                                       ({availCases} C in stock)
@@ -716,13 +724,12 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                                       className="form-input"
                                       style={{ padding: '0.25rem' }}
                                       value={item.bottles || ''}
-                                      onChange={e => handleSaleQtyChange(p.id, 'bottles', e.target.value, maxBottles)}
-                                      placeholder={`Bottles (${maxBottles} B)`}
+                                      onChange={e => handleSaleQtyChange(p.id, 'bottles', e.target.value, totalAvailBottles)}
+                                      placeholder={`Bottles (${totalAvailBottles} B)`}
                                       min="0"
-                                      max={maxBottles}
                                     />
                                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '500' }}>
-                                      ({maxBottles} B in stock)
+                                      ({totalAvailBottles} B in stock)
                                     </div>
                                   </div>
                                 </td>

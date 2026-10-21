@@ -29,6 +29,8 @@ function releaseLock() {
 let cachedDBs = {};        // { [tenantId]: dbData }
 let cachedTimestamps = {}; // { [tenantId]: timestamp }
 let cachedTableSnapshots = {}; // { [tenantId]: { [tableKey]: jsonString } }
+let lastMetaCheck = {}; // { [tenantId]: number }
+let firestoreWriteQueues = {}; // { [tenantId]: Promise }
 
 function sanitizeAndReindexOrders(dbData) {
   if (!dbData || !Array.isArray(dbData.orders) || dbData.orders.length === 0) return false;
@@ -110,15 +112,20 @@ async function readDB(tenantId) {
     }
   } else {
     try {
-      const metaRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc('_metadata');
-      const metaSnap = await metaRef.get();
+      const now = Date.now();
+      const hasFreshCache = cachedDBs[tenantId] && (now - (lastMetaCheck[tenantId] || 0) < 15000);
       
       let lastUpdated = 0;
-      if (metaSnap.exists) {
-        lastUpdated = metaSnap.data().last_updated || 0;
+      if (!hasFreshCache) {
+        const metaRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc('_metadata');
+        const metaSnap = await metaRef.get();
+        if (metaSnap.exists) {
+          lastUpdated = metaSnap.data().last_updated || 0;
+        }
+        lastMetaCheck[tenantId] = now;
       }
 
-      if (cachedDBs[tenantId] && cachedTimestamps[tenantId] >= lastUpdated) {
+      if (cachedDBs[tenantId] && (hasFreshCache || cachedTimestamps[tenantId] >= lastUpdated)) {
         dbData = cachedDBs[tenantId];
         if (!cachedTableSnapshots[tenantId]) {
           cachedTableSnapshots[tenantId] = {};
@@ -251,6 +258,19 @@ async function writeDB(tenantId, data, modifiedKeys = null) {
     console.error('Error writing to Firestore:', err);
     throw err;
   }
+}
+
+function queueFirestoreWrite(tenantId, data, modifiedKeys = null) {
+  const prev = firestoreWriteQueues[tenantId] || Promise.resolve();
+  const next = prev.then(async () => {
+    try {
+      await writeDB(tenantId, data, modifiedKeys);
+    } catch (err) {
+      console.error(`[BACKGROUND FIRESTORE WRITE ERROR for ${tenantId}]:`, err);
+    }
+  });
+  firestoreWriteQueues[tenantId] = next;
+  return next;
 }
 
 // System DB Helpers
@@ -1055,6 +1075,32 @@ app.post('/api/shops', async (req, res) => {
     } else if (name_ta && (!name_en || !name_en.trim())) {
       const translated = await translateText(name_ta, 'ta', 'en');
       if (translated) name_en = translated;
+    }
+
+    // Check for duplicate shop on the same route or same mobile
+    const trimmedEn = name_en.trim().toLowerCase();
+    const trimmedTa = name_ta.trim().toLowerCase();
+    const reqMobile = (req.body.mobile || '').trim();
+    const reqRoute = req.body.route_id || '';
+
+    const existingShop = db.shops.find(s => {
+      const sEn = (s.name_en || s.name || '').trim().toLowerCase();
+      const sTa = (s.name_ta || s.name || '').trim().toLowerCase();
+      const sMobile = (s.mobile || '').trim();
+      const sRoute = s.route_id || '';
+
+      const sameName = (trimmedEn && sEn === trimmedEn) || (trimmedTa && sTa === trimmedTa);
+      if (!sameName) return false;
+
+      const sameRoute = reqRoute && sRoute && sRoute === reqRoute;
+      const sameMobile = reqMobile && sMobile && sMobile === reqMobile && !/^0+$/.test(reqMobile);
+      return sameRoute || sameMobile;
+    });
+
+    if (existingShop) {
+      return res.status(409).json({
+        error: `Shop already exists / கடை ஏற்கனவே உள்ளது: "${existingShop.name_en || existingShop.name_ta}"`
+      });
     }
 
     const newShop = {
@@ -1874,7 +1920,14 @@ app.post('/api/orders', async (req, res) => {
       'outstanding_history',
       'notifications'
     ];
-    await writeDB(req.tenantId, db, modifiedTables);
+    // Immediate in-memory commit for sub-10ms response
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
+
+    // Persist to Firestore asynchronously in background queue
+    queueFirestoreWrite(req.tenantId, db, modifiedTables);
+
     res.status(201).json({ order: newOrder, items: orderItemsToCreate });
   } catch (err) {
     console.error('Error placing order:', err);
@@ -2060,7 +2113,14 @@ app.put('/api/orders/:id', async (req, res) => {
       'outstanding_history',
       'delivery_audit_trail'
     ];
-    await writeDB(req.tenantId, db, modifiedTables);
+    // Immediate in-memory commit for sub-10ms response
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
+
+    // Persist to Firestore asynchronously in background queue
+    queueFirestoreWrite(req.tenantId, db, modifiedTables);
+
     res.json({ order, items: newOrderItemsToCreate });
   } finally {
     releaseLock();
@@ -3234,7 +3294,7 @@ app.post('/api/vehicles/sales', async (req, res) => {
       return res.status(400).json({ error: 'Shop not found' });
     }
 
-    // Verify vehicle stock
+    // Verify stock availability (vehicle stock + warehouse stock)
     for (const item of items) {
       const product = db.products.find(p => p.id === item.product_id);
       if (!product) {
@@ -3243,9 +3303,11 @@ app.post('/api/vehicles/sales', async (req, res) => {
       const totalReq = (Number(item.cases || 0) * product.case_qty_rule) + Number(item.bottles || 0);
       const vStock = db.vehicle_stock.find(s => s.vehicle_id === vehicle_id && s.product_id === item.product_id);
       const vStockQty = vStock ? vStock.current_stock_bottles : 0;
-      if (vStockQty < totalReq) {
+      const totalAvail = vStockQty + (product.current_stock_bottles || 0);
+
+      if (totalAvail < totalReq) {
         return res.status(400).json({
-          error: `Insufficient stock on vehicle for ${product.name_en}. Requested: ${totalReq} bottles, On Vehicle: ${vStockQty} bottles`
+          error: `Insufficient stock for ${product.name_en}. Requested: ${totalReq} bottles, Total Available: ${totalAvail} bottles`
         });
       }
     }
@@ -3259,17 +3321,39 @@ app.post('/api/vehicles/sales', async (req, res) => {
       const totalBottles = (Number(item.cases || 0) * product.case_qty_rule) + Number(item.bottles || 0);
       if (totalBottles === 0) continue;
 
-      const vStock = db.vehicle_stock.find(s => s.vehicle_id === vehicle_id && s.product_id === item.product_id);
-      vStock.current_stock_bottles -= totalBottles;
+      let vStock = db.vehicle_stock.find(s => s.vehicle_id === vehicle_id && s.product_id === item.product_id);
+      const vStockQty = vStock ? vStock.current_stock_bottles : 0;
 
-      const subtotal = totalBottles * (item.price || 0);
+      // Deduct from vehicle stock first, excess from warehouse
+      const deductVehicle = Math.min(vStockQty, totalBottles);
+      const deductWh = totalBottles - deductVehicle;
+
+      if (vStock && deductVehicle > 0) {
+        vStock.current_stock_bottles -= deductVehicle;
+      }
+      if (deductWh > 0) {
+        product.current_stock_bottles = Math.max(0, (product.current_stock_bottles || 0) - deductWh);
+        db.stock_ledger.push({
+          id: `sl_${Date.now()}_ds_${item.product_id}`,
+          product_id: item.product_id,
+          transaction_type: 'vehicle_direct_sale',
+          cases_change: -Math.floor(deductWh / product.case_qty_rule),
+          bottles_change: -(deductWh % product.case_qty_rule),
+          running_stock_bottles: product.current_stock_bottles,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const rate = Number(item.price || 0);
+      const bottlesRate = rate / product.case_qty_rule;
+      const subtotal = Math.round((Number(item.cases || 0) * rate) + (Number(item.bottles || 0) * bottlesRate));
       totalAmount += subtotal;
 
       saleItems.push({
         product_id: item.product_id,
         cases: Number(item.cases || 0),
         bottles: Number(item.bottles || 0),
-        price: Number(item.price || 0),
+        price: rate,
         total_bottles: totalBottles,
         subtotal
       });
