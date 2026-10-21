@@ -38,7 +38,7 @@ export function calculateOrderPaymentInfo(order, shop, allShopOrders, allPayment
   }, 0);
 
   const shopBal = shop ? Number(shop.outstanding_amount || 0) : 0;
-  const ledgerBalance = Math.max(0, shopBal - totalUnpaidInvoicesNet);
+  const ledgerBalance = Math.max(0, shopBal + unassignedPool - totalUnpaidInvoicesNet);
   unassignedPool = Math.max(0, unassignedPool - ledgerBalance);
 
   // Allocate unassigned pool to pending orders FIFO

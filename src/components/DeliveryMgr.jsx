@@ -956,11 +956,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   
                   let statusBg = 'rgba(245, 158, 11, 0.1)';
                   let statusColor = 'var(--warning)';
-                  let statusLabel = totalPaidSoFar > 0
-                    ? (lang === 'ta' ? 'பகுதியளவு நிலுவை (Open)' : 'Pending (Partially Paid)')
-                    : t('pending');
+                  let statusLabel = t('pending');
+                  if (remainingInvoiceDue <= 0 && totalPaidSoFar > 0) {
+                    statusLabel = lang === 'ta' ? 'விநியோகம் நிலுவை (செலுத்தப்பட்டது)' : 'Pending (Paid)';
+                  } else if (totalPaidSoFar > 0) {
+                    statusLabel = lang === 'ta' ? 'பகுதியளவு நிலுவை (Open)' : 'Pending (Partially Paid)';
+                  }
 
-                  const isDeliveredStatus = d.status === 'delivered' || order.status === 'delivered' || remainingInvoiceDue <= 0;
+                  const isDeliveredStatus = d.status === 'delivered' || order.status === 'delivered';
 
                   if (isDeliveredStatus) {
                     statusBg = 'rgba(16, 185, 129, 0.1)';
