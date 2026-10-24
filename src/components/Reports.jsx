@@ -3429,8 +3429,8 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>Daily Collection Reports</h1>
+      <div style={{ marginBottom: '2rem' }} className="no-print">
+        <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }} className="no-print">Daily Collection Reports</h1>
       </div>
 
       {/* Global Search Bar */}

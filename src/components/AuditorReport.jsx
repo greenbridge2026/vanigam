@@ -341,8 +341,7 @@ export default function AuditorReport({
         'SGST Amount (₹)',
         ...(hasInterstate ? ['IGST Amount (₹)'] : []),
         'Total GST (₹)',
-        'Grand Total (₹)',
-        '% Share'
+        'Grand Total (₹)'
       ]
     ];
 
@@ -356,7 +355,7 @@ export default function AuditorReport({
         item.sgstAmount
       ];
       if (hasInterstate) row.push(item.igstAmount);
-      row.push(item.totalGst, item.grandTotal, `${item.percentageOfTotal}%`);
+      row.push(item.totalGst, item.grandTotal);
       sheetData.push(row);
     });
 
@@ -370,14 +369,14 @@ export default function AuditorReport({
       reportTotals.totalSgst
     ];
     if (hasInterstate) totalRow.push(reportTotals.totalIgst);
-    totalRow.push(reportTotals.totalGst, reportTotals.grandTotal, '100%');
+    totalRow.push(reportTotals.totalGst, reportTotals.grandTotal);
     sheetData.push(totalRow);
 
     const ws = XLSX.utils.aoa_to_sheet(sheetData);
     ws['!cols'] = [
       { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 22 }, { wch: 18 }, { wch: 18 },
       ...(hasInterstate ? [{ wch: 18 }] : []),
-      { wch: 18 }, { wch: 22 }, { wch: 12 }
+      { wch: 18 }, { wch: 22 }
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'GST Rate Breakdown');
 
@@ -401,8 +400,7 @@ export default function AuditorReport({
       'SGST Amount (INR)',
       ...(hasInterstate ? ['IGST Amount (INR)'] : []),
       'Total GST (INR)',
-      'Grand Total (INR)',
-      'Share (%)'
+      'Grand Total (INR)'
     ];
 
     const csvRows = [headers.join(',')];
@@ -417,7 +415,7 @@ export default function AuditorReport({
         r.sgstAmount
       ];
       if (hasInterstate) row.push(r.igstAmount);
-      row.push(r.totalGst, r.grandTotal, `"${r.percentageOfTotal}%"`);
+      row.push(r.totalGst, r.grandTotal);
       csvRows.push(row.join(','));
     });
 
@@ -430,7 +428,7 @@ export default function AuditorReport({
       reportTotals.totalSgst
     ];
     if (hasInterstate) totalRow.push(reportTotals.totalIgst);
-    totalRow.push(reportTotals.totalGst, reportTotals.grandTotal, '"100%"');
+    totalRow.push(reportTotals.totalGst, reportTotals.grandTotal);
     csvRows.push(totalRow.join(','));
 
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -710,6 +708,53 @@ export default function AuditorReport({
         </div>
       </div>
 
+      <style>{`
+        @media print {
+          .auditor-company-address {
+            color: #000000 !important;
+            font-weight: 700 !important;
+            font-size: 0.95rem !important;
+          }
+          .auditor-gst-badge {
+            color: #000000 !important;
+            font-weight: 900 !important;
+            font-size: 0.95rem !important;
+            background: transparent !important;
+            border: none !important;
+            padding: 0 !important;
+          }
+          #printable-auditor-report {
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #111111 !important;
+            box-shadow: none !important;
+            padding: 1rem !important;
+          }
+          #printable-auditor-report * {
+            color: #000000 !important;
+          }
+          #printable-auditor-report th {
+            background: #f3f4f6 !important;
+            color: #000000 !important;
+            font-weight: 800 !important;
+            border: 1px solid #333333 !important;
+          }
+          #printable-auditor-report td {
+            color: #000000 !important;
+            border: 1px solid #cccccc !important;
+          }
+          #printable-auditor-report tfoot tr {
+            border-top: 2px solid #000000 !important;
+            border-bottom: 2px solid #000000 !important;
+          }
+          #printable-auditor-report tfoot td {
+            background: #f9fafb !important;
+            color: #000000 !important;
+            font-weight: 900 !important;
+          }
+        }
+      `}</style>
+
       {/* ------------------------------------------------------------- */}
       {/* FORMAL PRINTABLE AUDITOR STATEMENT WRAPPER                    */}
       {/* ------------------------------------------------------------- */}
@@ -736,7 +781,7 @@ export default function AuditorReport({
             <h1 style={{ fontSize: '1.6rem', fontWeight: 900, color: 'var(--text-main)', margin: '0 0 0.25rem 0', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               {settings?.company_name || 'GSK Agency'}
             </h1>
-            <p style={{ margin: '0 0 0.2rem 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            <p className="auditor-company-address" style={{ margin: '0 0 0.2rem 0', fontSize: '0.88rem', color: 'var(--text-main)', fontWeight: 600 }}>
               {settings?.company_address || 'Cooldrinks Shop - Tindivanam'}
             </p>
             <div style={{ display: 'flex', gap: '1rem', fontSize: '0.82rem', color: 'var(--text-main)' }}>
@@ -761,25 +806,13 @@ export default function AuditorReport({
             <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
               Period: <strong style={{ color: 'var(--text-main)' }}>{appliedFromDate || 'Beginning'}</strong> to <strong style={{ color: 'var(--text-main)' }}>{appliedToDate || 'Today'}</strong>
             </p>
-            <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              Generated: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}
-            </p>
           </div>
         </div>
 
         {/* ------------------------------------------------------------- */}
-        {/* GST RATE-WISE SUMMARY BREAKDOWN TABLE (EXACT USER REQUIREMENT) */}
+        {/* GST RATE-WISE SUMMARY BREAKDOWN TABLE                         */}
         {/* ------------------------------------------------------------- */}
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)' }}>
-              🏷️ {lang === 'ta' ? 'ஜிஎஸ்டி விகித சுருக்கம் (GST Rate-Wise Breakdown)' : 'GST Rate-Wise Summary Breakdown'}
-            </h3>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              Intra-state sales split equally between CGST (50%) and SGST (50%)
-            </span>
-          </div>
-
           <div style={{
             overflowX: 'auto',
             background: 'var(--bg-table-container)',
@@ -800,13 +833,12 @@ export default function AuditorReport({
                   )}
                   <th style={{ padding: '0.75rem 0.85rem', color: '#f59e0b', fontWeight: 800 }}>Total GST (₹)</th>
                   <th style={{ padding: '0.75rem 0.85rem', color: 'var(--text-main)', fontWeight: 900 }}>Grand Total (₹)</th>
-                  <th style={{ padding: '0.75rem 0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>% Share</th>
                 </tr>
               </thead>
               <tbody>
                 {gstRateBreakdown.length === 0 ? (
                   <tr>
-                    <td colSpan={hasInterstate ? 10 : 9} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={hasInterstate ? 9 : 8} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                       {lang === 'ta' ? 'தேர்ந்தெடுக்கப்பட்ட காலத்திற்கு விற்பனை எதுவும் இல்லை' : 'No sales records found for the selected period.'}
                     </td>
                   </tr>
@@ -832,7 +864,7 @@ export default function AuditorReport({
                         textAlign: 'right'
                       }}>
                         <td style={{ padding: '0.75rem 0.85rem', textAlign: 'left', fontWeight: 800, color: 'var(--text-main)' }}>
-                          <span style={{
+                          <span className="auditor-gst-badge" style={{
                             display: 'inline-block',
                             padding: '3px 9px',
                             borderRadius: '4px',
@@ -869,9 +901,6 @@ export default function AuditorReport({
                         </td>
                         <td style={{ padding: '0.75rem 0.85rem', fontWeight: 900, color: 'var(--text-main)' }}>
                           ₹{item.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '0.75rem 0.85rem', color: 'var(--text-muted)' }}>
-                          {item.percentageOfTotal}%
                         </td>
                       </tr>
                     );
@@ -912,33 +941,10 @@ export default function AuditorReport({
                     <td style={{ padding: '0.85rem', color: 'var(--text-main)', fontSize: '1rem', fontWeight: 900 }}>
                       ₹{reportTotals.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </td>
-                    <td style={{ padding: '0.85rem', color: 'var(--text-muted)' }}>100%</td>
                   </tr>
                 </tfoot>
               )}
             </table>
-          </div>
-        </div>
-
-        {/* Auditor Verification Note Footer */}
-        <div style={{
-          marginTop: '1.5rem',
-          paddingTop: '1rem',
-          borderTop: '1px dashed var(--border-color)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '0.75rem',
-          fontSize: '0.78rem',
-          color: 'var(--text-muted)'
-        }}>
-          <div>
-            <span>Verified Source Modules: <strong>Order Taking</strong> &amp; <strong>Vehicle Direct Sales</strong>.</span>
-            <span style={{ marginLeft: '0.5rem' }}>Selling prices are tax-inclusive; taxable value reflects base sales before tax.</span>
-          </div>
-          <div>
-            <span>Prepared for: <strong>Auditor / Tax Filing Verification</strong></span>
           </div>
         </div>
 

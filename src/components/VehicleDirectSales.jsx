@@ -1855,15 +1855,11 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                   {/* Row 1: GST Breakdown (Horizontal) */}
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: invGstBreakdown.discount > 0 ? 'repeat(7, 1fr)' : 'repeat(6, 1fr)',
+                    gridTemplateColumns: invGstBreakdown.discount > 0 ? 'repeat(6, 1fr)' : 'repeat(5, 1fr)',
                     background: '#f8fafc',
                     borderBottom: '1px solid #cbd5e1',
                     textAlign: 'center'
                   }}>
-                    <div style={{ padding: '4px 6px', borderRight: '1px solid #cbd5e1' }}>
-                      <span style={{ color: '#475569', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>Gross Amount</span>
-                      <strong style={{ color: '#0f172a' }}>₹{invGstBreakdown.grossTotal}</strong>
-                    </div>
                     {invGstBreakdown.discount > 0 && (
                       <div style={{ padding: '4px 6px', borderRight: '1px solid #cbd5e1' }}>
                         <span style={{ color: '#ef4444', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>Discount (-)</span>

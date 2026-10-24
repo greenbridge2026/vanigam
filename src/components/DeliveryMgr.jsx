@@ -1510,7 +1510,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                       Number(prevOutstandingAmount) > 0 ? `📱 GPay: ₹${prevOutstandingAmount}` : null
                                     ].filter(Boolean).join(' + ') : [
                                       Number(orderPaymentAmount) > 0 ? `Invoice: ₹${orderPaymentAmount}` : null,
-                                      Number(prevOutstandingAmount) > 0 ? `Prev Outstanding: ₹${prevOutstandingAmount}` : null
+                                      Number(prevOutstandingAmount) > 0 ? `Old Balance: ₹${prevOutstandingAmount}` : null
                                     ].filter(Boolean).join(' + ')})
                                   </div>
                                 )}

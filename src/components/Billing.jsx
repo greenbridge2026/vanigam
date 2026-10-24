@@ -306,14 +306,13 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
 
     rows.push(['']);
     rows.push(['--- FINANCIAL SUMMARY ---']);
-    rows.push(['Gross Amount (₹):', gstBreakdown.grossTotal]);
-    rows.push(['Discount (-):', -gstBreakdown.discount]);
+    if (gstBreakdown.discount > 0) rows.push(['Discount (-):', -gstBreakdown.discount]);
     rows.push(['Taxable Amount Before GST (₹):', gstBreakdown.taxableAmount]);
     rows.push(['Total CGST (₹):', gstBreakdown.totalCgst]);
     rows.push(['Total SGST (₹):', gstBreakdown.totalSgst]);
     rows.push(['Total GST (₹):', gstBreakdown.totalGst]);
     rows.push(['Grand Total Including GST (₹):', gstBreakdown.grandTotalIncGst]);
-    rows.push(['Previous Outstanding (₹):', outstandingBeforeOrder]);
+    rows.push(['Old Balance (₹):', outstandingBeforeOrder]);
     rows.push(['Amount Collected (₹):', totalCollected]);
     rows.push(['Total Balance Due (₹):', remainingOutstanding]);
 
@@ -365,14 +364,13 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
     ].join(','));
 
     csvRows.push('');
-    csvRows.push(`"Gross Amount:","${gstBreakdown.grossTotal}"`);
-    csvRows.push(`"Discount:","-${gstBreakdown.discount}"`);
+    if (gstBreakdown.discount > 0) csvRows.push(`"Discount:","-${gstBreakdown.discount}"`);
     csvRows.push(`"Taxable Amount:","${gstBreakdown.taxableAmount}"`);
     csvRows.push(`"Total CGST:","${gstBreakdown.totalCgst}"`);
     csvRows.push(`"Total SGST:","${gstBreakdown.totalSgst}"`);
     csvRows.push(`"Total GST:","${gstBreakdown.totalGst}"`);
     csvRows.push(`"Grand Total Inc. GST:","${gstBreakdown.grandTotalIncGst}"`);
-    csvRows.push(`"Previous Outstanding:","${outstandingBeforeOrder}"`);
+    csvRows.push(`"Old Balance:","${outstandingBeforeOrder}"`);
     csvRows.push(`"Amount Collected:","${totalCollected}"`);
     csvRows.push(`"Amount Due:","${remainingOutstanding}"`);
 
@@ -716,19 +714,12 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                       <div style={{
                         display: 'grid',
                         gridTemplateColumns: gstBreakdown.discount > 0 
-                          ? (gstBreakdown.totalIgst > 0 ? 'repeat(8, 1fr)' : 'repeat(7, 1fr)') 
-                          : (gstBreakdown.totalIgst > 0 ? 'repeat(7, 1fr)' : 'repeat(6, 1fr)'),
+                          ? (gstBreakdown.totalIgst > 0 ? 'repeat(7, 1fr)' : 'repeat(6, 1fr)') 
+                          : (gstBreakdown.totalIgst > 0 ? 'repeat(6, 1fr)' : 'repeat(5, 1fr)'),
                         background: '#f8fafc',
                         borderBottom: '1px solid #cbd5e1',
                         textAlign: 'center'
                       }}>
-                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #cbd5e1' }}>
-                          <span style={{ color: '#475569', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
-                            {lang === 'ta' ? 'மொத்தம்' : 'Gross Amount'}
-                          </span>
-                          <strong style={{ color: '#0f172a', fontSize: isCompact ? '9.5px' : '10.5px' }}>₹{gstBreakdown.grossTotal}</strong>
-                        </div>
-
                         {gstBreakdown.discount > 0 && (
                           <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #cbd5e1' }}>
                             <span style={{ color: '#ef4444', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
@@ -793,7 +784,7 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                       }}>
                         <div style={{ padding: isCompact ? '4px 6px' : '6px 8px', borderRight: '1px solid #cbd5e1' }}>
                           <span style={{ color: '#475569', fontSize: '8.5px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
-                            {lang === 'ta' ? 'முந்தைய நிலுவை' : 'Prev Outstanding'}
+                            {lang === 'ta' ? 'பழைய நிலுவை' : 'Old Balance'}
                           </span>
                           <strong style={{ color: '#0f172a', fontSize: isCompact ? '10px' : '11px' }}>₹{outstandingBeforeOrder}</strong>
                         </div>
