@@ -268,6 +268,17 @@ export default function OutstandingCollection({ t, lang, onBillSelected }) {
     }
   };
 
+  const handleSelectInvoiceToPay = (inv) => {
+    if (!inv) return;
+    setAllocationTarget('invoice');
+    setTargetInvoiceId(inv.id);
+    setCashAmount(Number(inv.remaining_outstanding) || 0);
+    setGpayAmount(0);
+    setGpayTxn('');
+    setChequeAmount(0);
+    setChequeNo('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedShopId) {
@@ -462,19 +473,30 @@ export default function OutstandingCollection({ t, lang, onBillSelected }) {
           {/* Sub-selector when Fulfill Invoice is selected */}
           {allocationTarget === 'invoice' && (
             <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--accent-cyan)' }}>
-                {lang === 'ta' ? 'குறிப்பிட்ட பில் தேர்ந்தெடுக்கவும்:' : 'Select Sales Invoice to Pay & Close:'}
+              <label style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--accent-cyan)' }}>
+                {lang === 'ta' ? 'குறிப்பிட்ட பில் தேர்ந்தெடுத்து கட்டணம் செலுத்தவும்:' : 'Select Sales Invoice to Pay & Close:'}
               </label>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <select
                   className="form-select"
-                  style={{ fontSize: '0.85rem', flex: 1 }}
+                  style={{ fontSize: '0.85rem', flex: 1, borderColor: targetInvoiceId ? 'var(--accent-cyan)' : 'var(--border-color)' }}
                   value={targetInvoiceId}
                   onChange={e => {
-                    setTargetInvoiceId(e.target.value);
+                    const invId = e.target.value;
+                    if (invId) {
+                      const chosen = shopInvoices.find(inv => inv.id === invId);
+                      if (chosen) {
+                        handleSelectInvoiceToPay(chosen);
+                      }
+                    } else {
+                      setTargetInvoiceId('');
+                      setCashAmount(0);
+                      setGpayAmount(0);
+                      setChequeAmount(0);
+                    }
                   }}
                 >
-                  <option value="">⚡ Auto (FIFO - Oldest Invoice First)</option>
+                  <option value="">⚡ {lang === 'ta' ? 'தானியங்கி (FIFO - பழைய பில்கள் முதலில்)' : 'Auto (FIFO - Oldest Invoice First)'}</option>
                   {shopInvoices.map(inv => (
                     <option key={inv.id} value={inv.id}>
                       {inv.invoice_number} ({new Date(inv.order_date).toLocaleDateString()}) - Due: ₹{inv.remaining_outstanding.toLocaleString()} (Net: ₹{(inv.net_amount || 0).toLocaleString()})
@@ -494,53 +516,122 @@ export default function OutstandingCollection({ t, lang, onBillSelected }) {
                 )}
               </div>
               
-              {/* Open Invoices Breakdown Table with Print Bill Buttons */}
+              {/* Open Invoices Breakdown Table with Click-to-Select and Auto-Fill */}
               {shopInvoices.length > 0 && (
                 <div style={{ marginTop: '0.65rem', border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
-                  <div style={{ padding: '0.35rem 0.65rem', background: 'rgba(6, 182, 212, 0.1)', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--accent-cyan)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>{lang === 'ta' ? 'திறந்த பில்களின் விபரம் (' + shopInvoices.length + ' பில்கள்)' : 'Open Sales Invoices (' + shopInvoices.length + ' Bills)'}</span>
+                  <div style={{ padding: '0.4rem 0.65rem', background: 'rgba(6, 182, 212, 0.1)', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--accent-cyan)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>{lang === 'ta' ? 'திறந்த பில்கள் (' + shopInvoices.length + ' பில்கள்) - பில்லைத் தேர்வு செய்து கட்டணம் செலுத்த கிளிக் செய்யவும்:' : 'Open Sales Invoices (' + shopInvoices.length + ' Bills) - Click any bill to pay & close:'}</span>
                   </div>
-                  <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
-                    {shopInvoices.map(inv => (
-                      <div key={inv.id} style={{ padding: '0.45rem 0.65rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', background: targetInvoiceId === inv.id ? 'rgba(6, 182, 212, 0.08)' : 'transparent' }}>
-                        <div>
-                          <strong style={{ color: 'var(--accent-cyan)' }}>{inv.invoice_number}</strong>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-                            {new Date(inv.order_date).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                          <span style={{ color: 'var(--danger)', fontWeight: 'bold' }}>
-                            Due: ₹{inv.remaining_outstanding.toLocaleString()}
-                          </span>
-                          {onBillSelected && (
+                  <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                    {shopInvoices.map(inv => {
+                      const isTarget = targetInvoiceId === inv.id;
+                      return (
+                        <div
+                          key={inv.id}
+                          onClick={() => handleSelectInvoiceToPay(inv)}
+                          style={{
+                            padding: '0.5rem 0.65rem',
+                            borderBottom: '1px solid var(--border-color)',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontSize: '0.78rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            background: isTarget ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+                            borderLeft: isTarget ? '4px solid var(--accent-cyan)' : '4px solid transparent'
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <strong style={{ color: isTarget ? 'var(--accent-cyan)' : 'var(--text-main)', fontSize: '0.84rem' }}>
+                                {inv.invoice_number}
+                              </strong>
+                              {isTarget && (
+                                <span style={{ fontSize: '0.68rem', background: 'var(--accent-cyan)', color: '#0f172a', padding: '1px 5px', borderRadius: '3px', fontWeight: '700' }}>
+                                  ✓ Selected
+                                </span>
+                              )}
+                            </div>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              📅 {new Date(inv.order_date).toLocaleDateString()} | Net: ₹{(inv.net_amount || 0).toLocaleString()}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ color: 'var(--danger)', fontWeight: 'bold' }}>
+                              Due: ₹{inv.remaining_outstanding.toLocaleString()}
+                            </span>
                             <button
                               type="button"
-                              className="language-btn"
-                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }}
-                              onClick={() => onBillSelected(inv.id)}
+                              className="btn"
+                              style={{
+                                padding: '0.25rem 0.55rem',
+                                fontSize: '0.72rem',
+                                fontWeight: '700',
+                                background: isTarget ? 'var(--accent-cyan)' : 'rgba(6, 182, 212, 0.15)',
+                                color: isTarget ? '#0f172a' : 'var(--accent-cyan)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectInvoiceToPay(inv);
+                              }}
                             >
-                              📄 {lang === 'ta' ? 'பில் அச்சிடு' : 'Print Bill'}
+                              {isTarget ? '✓ Selected' : '⚡ Select to Pay'}
                             </button>
-                          )}
+                            {onBillSelected && (
+                              <button
+                                type="button"
+                                className="language-btn"
+                                style={{ padding: '0.2rem 0.45rem', fontSize: '0.7rem' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onBillSelected(inv.id);
+                                }}
+                                title="Print Invoice"
+                              >
+                                📄
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
               {targetInvoiceId ? (
-                <div style={{ marginTop: '0.4rem', padding: '0.4rem 0.65rem', background: 'rgba(6, 182, 212, 0.1)', border: '1px solid var(--accent-cyan)', borderRadius: '4px', fontSize: '0.75rem', color: 'var(--accent-cyan)', fontWeight: '600' }}>
-                  🎯 Selected Target: Invoice #{shopInvoices.find(inv => inv.id === targetInvoiceId)?.invoice_number} — Amount Due: ₹{shopInvoices.find(inv => inv.id === targetInvoiceId)?.remaining_outstanding.toLocaleString()}
-                  <span style={{ display: 'block', fontSize: '0.68rem', fontWeight: 'normal', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    Full payment will fulfill & close this invoice and mark its delivery as Completed. Partial payment keeps it Open.
+                <div style={{ marginTop: '0.45rem', padding: '0.5rem 0.75rem', background: 'rgba(6, 182, 212, 0.12)', border: '1px solid var(--accent-cyan)', borderRadius: '6px', fontSize: '0.78rem', color: 'var(--accent-cyan)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>
+                      🎯 <strong>Selected: Invoice #{shopInvoices.find(inv => inv.id === targetInvoiceId)?.invoice_number}</strong> — Due Amount <strong>₹{shopInvoices.find(inv => inv.id === targetInvoiceId)?.remaining_outstanding.toLocaleString()}</strong> has been filled in <strong>Cash (₹)</strong>.
+                    </span>
+                    <button
+                      type="button"
+                      className="language-btn"
+                      style={{ fontSize: '0.68rem', padding: '0.15rem 0.45rem', color: 'var(--text-muted)', cursor: 'pointer' }}
+                      onClick={() => {
+                        setTargetInvoiceId('');
+                        setCashAmount(0);
+                      }}
+                    >
+                      ✕ {lang === 'ta' ? 'தேர்வை நீக்கு' : 'Deselect'}
+                    </button>
+                  </div>
+                  <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                    {lang === 'ta'
+                      ? 'கீழே உள்ள கட்டண முறையை (GPay / Cheque) விரும்பினால் மாற்றலாம், அல்லது தொகையை மாற்றி "வசூலைப் பதிவு செய்" அழுத்தினால் இந்த பில் மூடப்படும்.'
+                      : 'You can adjust or move the amount below to GPay/Cheque, then click "Record Collection" to fulfill and close this invoice.'}
                   </span>
                 </div>
               ) : (
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.25rem' }}>
                   {shopInvoices.length > 0 
-                    ? 'Payment will apply chronologically to open invoices (FIFO). Only fully paid invoices will close.'
+                    ? (lang === 'ta' ? 'பில் மீது கிளிக் செய்து பணத்தை நிரப்பவும். அல்லது FIFO முறையில் பழைய பில்களை செலுத்தலாம்.' : 'Click any bill above to auto-fill its due amount into Cash (₹) and pay & close it, or use Auto (FIFO).')
                     : 'No open sales invoices. Payment will reduce shop ledger balance.'}
                 </span>
               )}
@@ -558,7 +649,11 @@ export default function OutstandingCollection({ t, lang, onBillSelected }) {
       {/* Payment Collection Options (Cash, GPay, Cheque) */}
       <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
         <label style={{ fontWeight: '700', fontSize: '0.9rem', display: 'block', marginBottom: '0.75rem' }}>
-          💰 {t('payment_collection')}
+          {targetInvoiceId 
+            ? `💰 ${lang === 'ta' ? 'பில் #' + (shopInvoices.find(i => i.id === targetInvoiceId)?.invoice_number || '') + ' கட்டணம் செலுத்த' : 'Pay Invoice #' + (shopInvoices.find(i => i.id === targetInvoiceId)?.invoice_number || '') + ' (Due: ₹' + (shopInvoices.find(i => i.id === targetInvoiceId)?.remaining_outstanding.toLocaleString() || 0) + ')'}` 
+            : (allocationTarget === 'outstanding' 
+                ? `🏛️ ${lang === 'ta' ? 'பழைய கடை நிலுவை வசூல்' : 'Collect Previous Outstanding (Ledger)'}` 
+                : `💰 ${lang === 'ta' ? 'கட்டண பதிவு' : 'Payment Collection'}`)}
         </label>
 
         <div className="collection-payment-modes-grid" style={{ display: 'grid', gap: '0.75rem', marginBottom: '0.75rem' }}>
@@ -1183,13 +1278,7 @@ export default function OutstandingCollection({ t, lang, onBillSelected }) {
                   return (
                     <div 
                       key={inv.id} 
-                      onClick={() => {
-                        setAllocationTarget('invoice');
-                        setTargetInvoiceId(inv.id);
-                        setCashAmount(inv.remaining_outstanding);
-                        setGpayAmount(0);
-                        setChequeAmount(0);
-                      }}
+                      onClick={() => handleSelectInvoiceToPay(inv)}
                       style={{
                         padding: '0.75rem 0.85rem',
                         background: isInvTarget ? 'rgba(6, 182, 212, 0.12)' : 'rgba(255,255,255,0.02)',

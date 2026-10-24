@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
+import * as XLSX from 'xlsx';
+import { calculateOrderGstBreakdown } from '../utils/gstUtils';
 import { translateShopName, translateRouteName, translateProductName } from '../translations';
 
 export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onOrderUpdated, onCancelEdit }) {
@@ -16,6 +18,7 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
   const [discount, setDiscount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [orderPlacedPopupInfo, setOrderPlacedPopupInfo] = useState(null);
 
   // Route dropdown & keyboard navigation states
   const [routeSearchQuery, setRouteSearchQuery] = useState('');
@@ -371,9 +374,19 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           items,
           discount: Number(discount || 0)
         });
-        if (onOrderUpdated) {
-          onOrderUpdated();
-        }
+        const invNum = editingOrder.invoice_number || `ORD-${editingOrder.id}`;
+        setOrderPlacedPopupInfo({
+          title: lang === 'ta' ? 'ஆர்டர் புதுப்பிக்கப்பட்டது' : 'Order Updated',
+          message: lang === 'ta'
+            ? `விலைப்பட்டியல் #${invNum} வெற்றிகரமாக புதுப்பிக்கப்பட்டது!`
+            : `Order #${invNum} updated successfully!`,
+          onConfirm: () => {
+            setOrderPlacedPopupInfo(null);
+            if (onOrderUpdated) {
+              onOrderUpdated();
+            }
+          }
+        });
       } else {
         const orderPayload = {
           shop_id: selectedShop,
@@ -383,9 +396,22 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           discount: Number(discount || 0)
         };
         const result = await api.createOrder(orderPayload);
-        if (onOrderCreated && result && result.order) {
-          onOrderCreated(result.order.id, result.order, result.items);
-        }
+        const invNum = result?.order?.invoice_number || `ORD-${result?.order?.id}`;
+        setOrderPlacedPopupInfo({
+          title: lang === 'ta' ? 'ஆர்டர் பதிவு செய்யப்பட்டது' : 'Order Placed',
+          message: lang === 'ta'
+            ? `விலைப்பட்டியல் #${invNum} வெற்றிகரமாக பதிவு செய்யப்பட்டது!`
+            : `Order #${invNum} placed successfully!`,
+          onConfirm: () => {
+            setOrderPlacedPopupInfo(null);
+            if (onOrderCreated && result && result.order) {
+              onOrderCreated(result.order.id, result.order, result.items);
+            } else {
+              setCart({});
+              setDiscount(0);
+            }
+          }
+        });
       }
     } catch (err) {
       alert(err.message || (lang === 'ta' ? 'ஆர்டர் சமர்ப்பிப்பதில் பிழை' : 'Error processing order transaction'));
@@ -409,6 +435,141 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
   const subtotal = calculateSubtotal();
   const netTotal = Math.max(0, subtotal - Number(discount));
 
+  // Compute live GST breakdown for current order cart
+  const cartItemsArray = Object.keys(cart).map(id => {
+    const prod = products.find(p => p.id === id);
+    const item = cart[id];
+    const rate = prod ? getProductPrice(prod) : 0;
+    return {
+      product_id: id,
+      cases: Number(item?.cases || 0),
+      bottles: Number(item?.bottles || 0),
+      rate
+    };
+  }).filter(it => it.cases > 0 || it.bottles > 0);
+
+  const gstBreakdown = calculateOrderGstBreakdown({
+    items: cartItemsArray,
+    products,
+    discount: Number(discount || 0),
+    customerGstin: shopObj?.gst_number || '',
+    companyGstin: '33CWRPK4071L1Z2'
+  });
+
+  const handleExportCartExcel = () => {
+    if (gstBreakdown.items.length === 0) return alert('No items in cart to export');
+    const wb = XLSX.utils.book_new();
+    const rows = [
+      ['ORDER CART / ESTIMATE - GSK AGENCY'],
+      ['Shop:', shopObj ? (lang === 'ta' ? shopObj.name_ta || shopObj.name_en : shopObj.name_en) : 'Not selected'],
+      ['Route:', selectedRouteDisplayName],
+      ['Date:', new Date().toLocaleDateString()],
+      [''],
+      ['S.No', 'Product Name', 'Size', 'Cases', 'Bottles', 'Rate (₹)', 'Taxable (₹)', 'GST %', 'CGST (₹)', 'SGST (₹)', 'Total (₹)']
+    ];
+
+    gstBreakdown.items.forEach((it, idx) => {
+      const p = it.product;
+      rows.push([
+        idx + 1,
+        p ? (lang === 'ta' ? p.name_ta || p.name_en : p.name_en) : 'Product',
+        p?.size || '-',
+        it.cases,
+        it.bottles,
+        it.rate,
+        it.taxableAmount,
+        `${it.gstRate}%`,
+        it.cgstAmount,
+        it.sgstAmount,
+        it.grandTotal
+      ]);
+    });
+
+    rows.push([
+      'TOTAL', '', '',
+      gstBreakdown.items.reduce((s, it) => s + it.cases, 0),
+      gstBreakdown.items.reduce((s, it) => s + it.bottles, 0),
+      '',
+      gstBreakdown.taxableAmount,
+      '',
+      gstBreakdown.totalCgst,
+      gstBreakdown.totalSgst,
+      gstBreakdown.grandTotalIncGst
+    ]);
+
+    rows.push(['']);
+    rows.push(['Gross Amount (₹):', gstBreakdown.grossTotal]);
+    rows.push(['Discount (-):', -gstBreakdown.discount]);
+    rows.push(['Taxable Amount (₹):', gstBreakdown.taxableAmount]);
+    rows.push(['Total CGST (₹):', gstBreakdown.totalCgst]);
+    rows.push(['Total SGST (₹):', gstBreakdown.totalSgst]);
+    rows.push(['Total GST (₹):', gstBreakdown.totalGst]);
+    rows.push(['Grand Total Inc. GST (₹):', gstBreakdown.grandTotalIncGst]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 6 }, { wch: 28 }, { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Order_Estimate');
+    XLSX.writeFile(wb, `Order_Estimate_${shopObj ? shopObj.name_en.replace(/\s+/g, '_') : 'Cart'}.xlsx`);
+  };
+
+  const handleExportCartCSV = () => {
+    if (gstBreakdown.items.length === 0) return alert('No items in cart to export');
+    const csvRows = [
+      `"ORDER ESTIMATE - GSK AGENCY"`,
+      `"Shop:","${shopObj ? shopObj.name_en.replace(/"/g, '""') : ''}"`,
+      `"Date:","${new Date().toLocaleDateString()}"`,
+      '',
+      'S.No,Product_Name,Size,Cases,Bottles,Rate,Taxable_Amount,GST_Rate,CGST_Amount,SGST_Amount,Total_Amount'
+    ];
+
+    gstBreakdown.items.forEach((it, idx) => {
+      const p = it.product;
+      csvRows.push([
+        idx + 1,
+        `"${p ? p.name_en.replace(/"/g, '""') : 'Product'}"`,
+        `"${p?.size || ''}"`,
+        it.cases,
+        it.bottles,
+        it.rate,
+        it.taxableAmount,
+        `${it.gstRate}%`,
+        it.cgstAmount,
+        it.sgstAmount,
+        it.grandTotal
+      ].join(','));
+    });
+
+    csvRows.push([
+      '"TOTAL"', '""', '""',
+      gstBreakdown.items.reduce((s, it) => s + it.cases, 0),
+      gstBreakdown.items.reduce((s, it) => s + it.bottles, 0),
+      '""',
+      gstBreakdown.taxableAmount,
+      '""',
+      gstBreakdown.totalCgst,
+      gstBreakdown.totalSgst,
+      gstBreakdown.grandTotalIncGst
+    ].join(','));
+
+    csvRows.push('');
+    csvRows.push(`"Gross Amount:","${gstBreakdown.grossTotal}"`);
+    csvRows.push(`"Discount:","-${gstBreakdown.discount}"`);
+    csvRows.push(`"Taxable Amount:","${gstBreakdown.taxableAmount}"`);
+    csvRows.push(`"Total CGST:","${gstBreakdown.totalCgst}"`);
+    csvRows.push(`"Total SGST:","${gstBreakdown.totalSgst}"`);
+    csvRows.push(`"Total GST:","${gstBreakdown.totalGst}"`);
+    csvRows.push(`"Grand Total Inc. GST:","${gstBreakdown.grandTotalIncGst}"`);
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Order_Estimate_${shopObj ? shopObj.name_en.replace(/\s+/g, '_') : 'Cart'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const brandTabsList = [
     { id: 'all', label: lang === 'ta' ? 'அனைத்தும்' : 'All Products' },
     { id: 'pepsi', label: 'Pepsi' },
@@ -422,6 +583,79 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
 
   return (
     <div>
+      {/* Top Modal / Popup: Order Placed with OK */}
+      {orderPlacedPopupInfo && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 99999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'flex-start',
+          paddingTop: '40px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card, #0f172a)',
+            border: '2px solid var(--accent-cyan, #06b6d4)',
+            borderRadius: '14px',
+            boxShadow: '0 20px 45px rgba(0, 0, 0, 0.7), 0 0 25px rgba(6, 182, 212, 0.35)',
+            padding: '1.5rem 2rem',
+            width: '90%',
+            maxWidth: '440px',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            animation: 'fadeInDown 0.25s ease-out'
+          }}>
+            <div style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              background: 'rgba(6, 182, 212, 0.15)',
+              border: '2px solid var(--accent-cyan, #06b6d4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.8rem',
+              marginBottom: '0.85rem'
+            }}>
+              ✅
+            </div>
+            <h3 style={{ margin: '0 0 0.4rem 0', fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-main, #ffffff)' }}>
+              {orderPlacedPopupInfo.title}
+            </h3>
+            <p style={{ margin: '0 0 1.25rem 0', fontSize: '0.92rem', color: 'var(--text-muted, #94a3b8)', lineHeight: 1.4 }}>
+              {orderPlacedPopupInfo.message}
+            </p>
+            <button
+              type="button"
+              onClick={orderPlacedPopupInfo.onConfirm}
+              className="btn btn-primary"
+              style={{
+                minWidth: '130px',
+                padding: '0.55rem 2rem',
+                fontSize: '0.95rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                borderRadius: '8px',
+                background: 'var(--accent-cyan, #06b6d4)',
+                borderColor: 'var(--accent-cyan, #06b6d4)',
+                color: '#0f172a'
+              }}
+              autoFocus
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
       {editingOrder && (
         <div style={{
           background: 'rgba(6, 182, 212, 0.12)',
@@ -939,15 +1173,15 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
                 )}
               </div>
 
-              {/* Price Details & Place Order */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Subtotal:</span>
-                  <strong>₹{subtotal}</strong>
+              {/* Complete Price Details & GST Breakdown */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Gross Amount:</span>
+                  <strong>₹{gstBreakdown.grossTotal}</strong>
                 </div>
 
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label style={{ fontSize: '0.8rem', fontWeight: '600' }}>{t('discount')} (Rs)</label>
+                  <label style={{ fontSize: '0.78rem', fontWeight: '600' }}>{t('discount')} (Rs)</label>
                   <input
                     type="number"
                     className="form-input"
@@ -955,28 +1189,85 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
                     onChange={e => setDiscount(Math.max(0, parseInt(e.target.value) || 0))}
                     min="0"
                     placeholder="0"
-                    style={{ padding: '0.5rem 0.75rem' }}
+                    style={{ padding: '0.35rem 0.6rem', fontSize: '0.85rem' }}
                     onWheel={(e) => e.target.blur()}
                   />
                 </div>
 
+                {/* Taxable Amount Before GST */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#0284c7', background: 'rgba(2, 132, 199, 0.08)', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
+                  <span>Taxable Amount Before GST:</span>
+                  <strong>₹{gstBreakdown.taxableAmount}</strong>
+                </div>
+
+                {/* CGST & SGST Split Display */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--accent-cyan)' }}>
+                  <span>CGST:</span>
+                  <strong>₹{gstBreakdown.totalCgst}</strong>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--success)' }}>
+                  <span>SGST:</span>
+                  <strong>₹{gstBreakdown.totalSgst}</strong>
+                </div>
+
+                {gstBreakdown.totalIgst > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--warning)' }}>
+                    <span>IGST:</span>
+                    <strong>₹{gstBreakdown.totalIgst}</strong>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#f59e0b', borderTop: '1px dashed var(--border-color)', paddingTop: '0.35rem' }}>
+                  <span>Total GST:</span>
+                  <strong>₹{gstBreakdown.totalGst}</strong>
+                </div>
+
+                {/* Grand Total Including GST */}
                 <div style={{ 
                   display: 'flex', 
                   justify: 'space-between', 
                   fontSize: '1.25rem', 
                   color: 'var(--success)', 
-                  borderTop: '1px solid var(--border-color)', 
-                  paddingTop: '0.75rem', 
-                  marginTop: '0.5rem' 
+                  borderTop: '2px solid var(--border-color)', 
+                  paddingTop: '0.6rem', 
+                  marginTop: '0.25rem' 
                 }}>
-                  <strong>{t('net_total')}:</strong>
-                  <strong>₹{netTotal}</strong>
+                  <strong>Grand Total (Inc. GST):</strong>
+                  <strong>₹{gstBreakdown.grandTotalIncGst}</strong>
                 </div>
+
+                {/* Order Exports Toolstrip */}
+                {cartItemsArray.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                    <button
+                      type="button"
+                      onClick={handleExportCartExcel}
+                      style={{ flex: 1, padding: '0.3rem', fontSize: '0.72rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid var(--success)', color: 'var(--success)', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      📊 Excel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportCartCSV}
+                      style={{ flex: 1, padding: '0.3rem', fontSize: '0.72rem', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', color: 'var(--text-main)', borderRadius: '4px', cursor: 'pointer' }}
+                    >
+                      📑 CSV
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      style={{ flex: 1, padding: '0.3rem', fontSize: '0.72rem', background: 'rgba(6, 182, 212, 0.1)', border: '1px solid var(--accent-cyan)', color: 'var(--accent-cyan)', borderRadius: '4px', cursor: 'pointer' }}
+                    >
+                      🖨️ Print
+                    </button>
+                  </div>
+                )}
 
                 <button
                   type="button"
                   className="btn btn-primary"
-                  style={{ width: '100%', marginTop: '1rem', padding: '0.85rem' }}
+                  style={{ width: '100%', marginTop: '0.6rem', padding: '0.85rem' }}
                   onClick={handlePlaceOrder}
                   disabled={submitting || netTotal === 0}
                 >

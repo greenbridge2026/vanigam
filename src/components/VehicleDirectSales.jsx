@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
+import * as XLSX from 'xlsx';
+import { calculateOrderGstBreakdown } from '../utils/gstUtils';
 import { translateShopName } from '../translations';
 
 export default function VehicleDirectSales({ t, lang, onBillSelected, session }) {
@@ -12,6 +14,7 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
   const [vehicleStock, setVehicleStock] = useState([]);
   const [products, setProducts] = useState([]);
   const [shops, setShops] = useState([]);
+  const [routes, setRoutes] = useState([]);
   const [dispatches, setDispatches] = useState([]);
   const [reconciliations, setReconciliations] = useState([]);
   const [sales, setSales] = useState([]);
@@ -35,6 +38,7 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
 
   // Sales Entry Form State
   const [selectedSaleVehicle, setSelectedSaleVehicle] = useState('');
+  const [selectedSaleRoute, setSelectedSaleRoute] = useState('');
   const [selectedSaleShop, setSelectedSaleShop] = useState('');
   const [saleCart, setSaleCart] = useState({}); // product_id -> { cases, bottles, price }
   const [saleDiscount, setSaleDiscount] = useState(0);
@@ -69,7 +73,8 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
         dispData,
         reconData,
         saleData,
-        userData
+        userData,
+        rData
       ] = await Promise.all([
         api.getVehicles(),
         api.getVehicleStock(),
@@ -78,17 +83,19 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
         api.getVehicleDispatches(),
         api.getVehicleReconciliations(),
         api.getVehicleSales(),
-        api.getUsers()
+        api.getUsers(),
+        api.getRoutes()
       ]);
 
-      setVehicles(vData);
-      setVehicleStock(vsData);
-      setProducts(pData);
-      setShops(sData);
-      setDispatches(dispData);
-      setReconciliations(reconData);
-      setSales(saleData);
-      setUsers(userData);
+      setVehicles(vData || []);
+      setVehicleStock(vsData || []);
+      setProducts(pData || []);
+      setShops(sData || []);
+      setDispatches(dispData || []);
+      setReconciliations(reconData || []);
+      setSales(saleData || []);
+      setUsers(userData || []);
+      setRoutes(rData || []);
     } catch (err) {
       console.error('Failed to load vehicle direct sales data', err);
     } finally {
@@ -444,6 +451,23 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
     return Math.round(subtotal);
   };
 
+  // Compute live GST breakdown for direct sales cart
+  const directSaleCartItemsArray = Object.keys(saleCart).map(pid => ({
+    product_id: pid,
+    cases: Number(saleCart[pid].cases || 0),
+    bottles: Number(saleCart[pid].bottles || 0),
+    price: Number(saleCart[pid].price || 0)
+  })).filter(it => it.cases > 0 || it.bottles > 0);
+
+  const directSaleShopObj = shops.find(s => s.id === selectedSaleShop);
+  const directSaleGstBreakdown = calculateOrderGstBreakdown({
+    items: directSaleCartItemsArray,
+    products,
+    discount: Number(saleDiscount || 0),
+    customerGstin: directSaleShopObj?.gst_number || '',
+    companyGstin: '33CWRPK4071L1Z2'
+  });
+
   const handleSaleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedSaleVehicle) return alert('Select vehicle / வாகனத்தைத் தேர்ந்தெடுக்கவும்');
@@ -462,8 +486,10 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
 
     setSubmitting(true);
     try {
+      const selectedShopObj = shops.find(s => s.id === selectedSaleShop);
       const result = await api.createVehicleSale({
         vehicle_id: selectedSaleVehicle,
+        route_id: selectedSaleRoute || (selectedShopObj ? selectedShopObj.route_id : ''),
         shop_id: selectedSaleShop,
         salesman_id: currentUser ? currentUser.id : 'u2',
         items,
@@ -517,6 +543,134 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
 
   const printActiveInvoice = () => {
     window.print();
+  };
+
+  const downloadActiveInvoicePdf = async () => {
+    if (!activeInvoice) return;
+    const element = document.getElementById('printable-direct-invoice');
+    if (!element) return;
+    try {
+      const html2pdfModule = await import('html2pdf.js');
+      const html2pdf = html2pdfModule.default || html2pdfModule;
+      const opt = {
+        margin: 5,
+        filename: `Invoice_${activeInvoice.invoice_number}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a5', orientation: 'portrait' }
+      };
+      html2pdf().set(opt).from(element).save();
+    } catch (e) {
+      console.error('PDF generation error:', e);
+      window.print();
+    }
+  };
+
+  const exportActiveInvoiceExcel = (inv, gstData) => {
+    if (!inv || !gstData) return;
+    const shop = shops.find(s => s.id === inv.shop_id);
+    const veh = vehicles.find(v => v.id === inv.vehicle_id);
+    const wb = XLSX.utils.book_new();
+    const rows = [
+      [`VEHICLE DIRECT SALE INVOICE - ${inv.invoice_number}`],
+      ['Company:', t('company_name') || 'GSK Agency', 'GSTIN:', t('company_gst') || '33CWRPK4071L1Z2'],
+      ['Date:', new Date(inv.sale_date).toLocaleString(), 'Vehicle:', veh?.vehicle_number || ''],
+      ['Customer:', shop ? getShopName(shop) : '-', 'Customer GSTIN:', shop?.gst_number || 'N/A'],
+      ['Payment Mode:', String(inv.payment_mode || 'cash').toUpperCase(), 'UPI Ref:', inv.upi_reference || '-'],
+      [''],
+      ['S.No', 'Item Details', 'Size', 'Cases', 'Bottles', 'Rate (₹)', 'Taxable (₹)', 'GST %', 'CGST (₹)', 'SGST (₹)', 'Total (₹)']
+    ];
+
+    gstData.items.forEach((it, idx) => {
+      const p = it.product;
+      rows.push([
+        idx + 1,
+        p ? getProductName(p) : 'Product',
+        p?.size || '-',
+        it.cases,
+        it.bottles,
+        it.rate,
+        it.taxableAmount,
+        `${it.gstRate}%`,
+        it.cgstAmount,
+        it.sgstAmount,
+        it.grandTotal
+      ]);
+    });
+
+    rows.push([
+      'TOTAL', '', '',
+      gstData.items.reduce((s, it) => s + it.cases, 0),
+      gstData.items.reduce((s, it) => s + it.bottles, 0),
+      '',
+      gstData.taxableAmount,
+      '',
+      gstData.totalCgst,
+      gstData.totalSgst,
+      gstData.grandTotalIncGst
+    ]);
+
+    rows.push(['']);
+    rows.push(['Gross Amount (₹):', gstData.grossTotal]);
+    rows.push(['Discount (-):', -gstData.discount]);
+    rows.push(['Taxable Amount Before GST (₹):', gstData.taxableAmount]);
+    rows.push(['Total CGST (₹):', gstData.totalCgst]);
+    rows.push(['Total SGST (₹):', gstData.totalSgst]);
+    rows.push(['Total GST (₹):', gstData.totalGst]);
+    rows.push(['Grand Total Including GST (₹):', gstData.grandTotalIncGst]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 6 }, { wch: 28 }, { wch: 12 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Direct_Invoice');
+    XLSX.writeFile(wb, `Direct_Invoice_${inv.invoice_number}.xlsx`);
+  };
+
+  const exportAllDirectSalesExcel = () => {
+    if (sales.length === 0) return alert('No direct sales to export');
+    const wb = XLSX.utils.book_new();
+    const rows = [
+      ['DIRECT SALES LOG WITH COMPLETE GST BREAKDOWN'],
+      ['Generated On:', new Date().toLocaleString()],
+      [''],
+      ['Invoice No', 'Date', 'Vehicle', 'Shop Name', 'GSTIN', 'Product', 'Cases', 'Bottles', 'Rate (₹)', 'Taxable (₹)', 'GST %', 'CGST (₹)', 'SGST (₹)', 'Line Total (₹)']
+    ];
+
+    sales.forEach(sale => {
+      const veh = vehicles.find(v => v.id === sale.vehicle_id);
+      const shop = shops.find(s => s.id === sale.shop_id);
+      const saleGst = calculateOrderGstBreakdown({
+        items: sale.items || [],
+        products,
+        discount: Number(sale.discount || 0),
+        customerGstin: shop?.gst_number || '',
+        companyGstin: '33CWRPK4071L1Z2'
+      });
+
+      saleGst.items.forEach(it => {
+        const p = it.product;
+        rows.push([
+          sale.invoice_number,
+          new Date(sale.sale_date).toLocaleDateString(),
+          veh ? veh.vehicle_number : '-',
+          shop ? getShopName(shop) : '-',
+          shop?.gst_number || 'N/A',
+          p ? getProductName(p) : 'Product',
+          it.cases,
+          it.bottles,
+          it.rate,
+          it.taxableAmount,
+          `${it.gstRate}%`,
+          it.cgstAmount,
+          it.sgstAmount,
+          it.grandTotal
+        ]);
+      });
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 25 }, { wch: 18 }, { wch: 25 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 14 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Direct_Sales_Log');
+    XLSX.writeFile(wb, `Direct_Sales_Log_GST_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>Loading Vehicle Module...</div>;
@@ -578,9 +732,9 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
           <div className="glass-card">
             <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>Direct Sales Invoice Form</h2>
             <form onSubmit={handleSaleSubmit}>
-              <div className="form-grid">
+              <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
                 <div className="form-group">
-                  <label>{t('select_vehicle')}</label>
+                  <label>{t('select_vehicle') || (lang === 'ta' ? 'வாகனத்தைத் தேர்ந்தெடுக்கவும்' : 'Select Vehicle')}</label>
                   <select
                     className="form-select"
                     value={selectedSaleVehicle}
@@ -590,26 +744,56 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                     }}
                     required
                   >
-                    <option value="">-- Choose --</option>
+                    <option value="">-- {lang === 'ta' ? 'வாகனம் தேர்வு' : 'Choose Vehicle'} --</option>
                     {vehicles.filter(v => v.status === 'active').map(v => (
                       <option key={v.id} value={v.id}>{v.vehicle_number} ({v.driver_name})</option>
                     ))}
                   </select>
                 </div>
 
+                {/* SELECT ROUTE HEADER & SELECTOR */}
                 <div className="form-group">
-                  <label>{t('select_shop')}</label>
+                  <label>{lang === 'ta' ? 'வழியைத் தேர்ந்தெடுக்கவும்' : 'Select Route'}</label>
+                  <select
+                    className="form-select"
+                    value={selectedSaleRoute}
+                    onChange={e => {
+                      setSelectedSaleRoute(e.target.value);
+                      setSelectedSaleShop(''); // Reset shop when route changes
+                    }}
+                  >
+                    <option value="">-- {lang === 'ta' ? 'அனைத்து வழிகள் / வழியைத் தேர்ந்தெடுக்கவும்' : 'All Routes / Select Route'} --</option>
+                    {routes.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {lang === 'ta' ? (r.name_ta || r.name_en) : (r.name_en || r.name_ta)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* SELECT SHOP (FILTERED BY SELECTED ROUTE) */}
+                <div className="form-group">
+                  <label>{t('select_shop') || (lang === 'ta' ? 'கடையைத் தேர்ந்தெடுக்கவும்' : 'Select Shop')}</label>
                   <select
                     className="form-select"
                     value={selectedSaleShop}
                     onChange={e => setSelectedSaleShop(e.target.value)}
                     required
                   >
-                    <option value="">-- Choose --</option>
-                    {shops.filter(s => s.status === 'active').map(s => (
-                      <option key={s.id} value={s.id}>{getShopName(s)} ({s.shop_type})</option>
-                    ))}
+                    <option value="">-- {lang === 'ta' ? 'கடையைத் தேர்வு செய்க' : 'Choose Shop'} --</option>
+                    {shops
+                      .filter(s => s.status === 'active' && (!selectedSaleRoute || s.route_id === selectedSaleRoute))
+                      .map(s => (
+                        <option key={s.id} value={s.id}>{getShopName(s)} ({s.shop_type})</option>
+                      ))}
                   </select>
+                  {selectedSaleRoute && (
+                    <span style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)', marginTop: '0.25rem', display: 'block' }}>
+                      {lang === 'ta'
+                        ? `இந்த வழியில் உள்ள கடைகள்: ${shops.filter(s => s.status === 'active' && s.route_id === selectedSaleRoute).length}`
+                        : `Showing ${shops.filter(s => s.status === 'active' && s.route_id === selectedSaleRoute).length} shop(s) on this route`}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -744,13 +928,13 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
-                    <div style={{ width: '320px', display: 'flex', flexDirection: 'column', gap: '0.75rem' }} className="glass-card">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem' }}>
-                        <span>Subtotal:</span>
-                        <strong>₹{calculateSaleSubtotal()}</strong>
+                    <div style={{ width: '340px', display: 'flex', flexDirection: 'column', gap: '0.55rem' }} className="glass-card">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Gross Amount:</span>
+                        <strong>₹{directSaleGstBreakdown.grossTotal}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>Discount:</span>
+                        <span style={{ fontSize: '0.85rem' }}>Discount:</span>
                         <input
                           type="number"
                           className="form-input"
@@ -759,12 +943,39 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                           onChange={e => setSaleDiscount(Math.max(0, Number(e.target.value)))}
                         />
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
-                        <span>Net Total:</span>
-                        <strong style={{ fontSize: '1.2rem', color: 'var(--accent-cyan)' }}>₹{Math.max(0, calculateSaleSubtotal() - saleDiscount)}</strong>
+
+                      {/* Taxable Amount Before GST */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#0284c7', background: 'rgba(2, 132, 199, 0.08)', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
+                        <span>Taxable Amount Before GST:</span>
+                        <strong>₹{directSaleGstBreakdown.taxableAmount}</strong>
                       </div>
 
-                      <div className="form-group">
+                      {/* CGST & SGST Split */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--accent-cyan)' }}>
+                        <span>CGST:</span>
+                        <strong>₹{directSaleGstBreakdown.totalCgst}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--success)' }}>
+                        <span>SGST:</span>
+                        <strong>₹{directSaleGstBreakdown.totalSgst}</strong>
+                      </div>
+                      {directSaleGstBreakdown.totalIgst > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--warning)' }}>
+                          <span>IGST:</span>
+                          <strong>₹{directSaleGstBreakdown.totalIgst}</strong>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#f59e0b', borderTop: '1px dashed var(--border-color)', paddingTop: '0.35rem' }}>
+                        <span>Total GST:</span>
+                        <strong>₹{directSaleGstBreakdown.totalGst}</strong>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid var(--border-color)', paddingTop: '0.5rem' }}>
+                        <strong style={{ fontSize: '1rem', color: 'var(--text-main)' }}>Grand Total (Inc. GST):</strong>
+                        <strong style={{ fontSize: '1.25rem', color: 'var(--accent-cyan)' }}>₹{directSaleGstBreakdown.grandTotalIncGst}</strong>
+                      </div>
+
+                      <div className="form-group" style={{ marginTop: '0.25rem' }}>
                         <label>{t('payment_mode')}</label>
                         <select className="form-select" value={paymentMode} onChange={e => setPaymentMode(e.target.value)}>
                           <option value="cash">{t('cash')}</option>
@@ -1381,7 +1592,17 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
           </div>
 
           <div className="glass-card" style={{ marginBottom: '2rem' }}>
-            <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }}>Direct Sales Log (Invoices)</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Direct Sales Log (Invoices)</h2>
+              <button
+                type="button"
+                onClick={exportAllDirectSalesExcel}
+                className="btn btn-secondary"
+                style={{ fontSize: '0.82rem', padding: '0.4rem 0.85rem', color: 'var(--success)', borderColor: 'var(--success)', cursor: 'pointer' }}
+              >
+                📊 Export Direct Sales to Excel (Full GST)
+              </button>
+            </div>
             <div className="table-container">
               <table className="custom-table">
                 <thead>
@@ -1518,113 +1739,186 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
       )}
 
       {/* -------------------- INVOICE PRINT PREVIEW MODAL -------------------- */}
-      {activeInvoice && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          background: 'rgba(0,0,0,0.65)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'flex-start',
-          zIndex: 9999,
-          padding: '2rem 1rem',
-          overflowY: 'auto'
-        }} className="modal-overlay">
-          <div className="glass-card" style={{ maxWidth: '580px', width: '100%', background: 'var(--background-card)', padding: '2rem' }}>
-            
-            <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
-              <h3 style={{ fontSize: '1.1rem', margin: 0, color: '#fff' }}>📄 Direct Invoice Receipt</h3>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button className="btn btn-primary" onClick={printActiveInvoice} style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
-                  🖨️ Print
-                </button>
-                <button className="btn btn-secondary" onClick={() => setActiveInvoice(null)} style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem', color: '#fff' }}>
-                  ❌ Close
-                </button>
-              </div>
-            </div>
+      {activeInvoice && (() => {
+        const invShop = shops.find(s => s.id === activeInvoice.shop_id);
+        const invVeh = vehicles.find(v => v.id === activeInvoice.vehicle_id);
+        const invGstBreakdown = calculateOrderGstBreakdown({
+          items: activeInvoice.items || [],
+          products,
+          discount: Number(activeInvoice.discount || 0),
+          customerGstin: invShop?.gst_number || '',
+          companyGstin: '33CWRPK4071L1Z2'
+        });
 
-            <div className="invoice-card" style={{ border: '1px solid var(--border-color)', padding: '1.5rem', background: '#fff', color: '#000', borderRadius: '8px' }}>
+        return (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            background: 'rgba(0,0,0,0.65)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'flex-start',
+            zIndex: 9999,
+            padding: '2rem 1rem',
+            overflowY: 'auto'
+          }} className="modal-overlay">
+            <div className="glass-card" style={{ maxWidth: '680px', width: '100%', background: 'var(--background-card)', padding: '1.5rem' }}>
               
-              <div style={{ textAlign: 'center', marginBottom: '1.25rem', borderBottom: '1.5px dashed #000', paddingBottom: '0.75rem' }}>
-                <h2 style={{ margin: '0 0 0.25rem 0', fontSize: '1.4rem', letterSpacing: '1px', fontWeight: '800' }}>{t('company_name')}</h2>
-                <p style={{ margin: '0 0 0.25rem 0', fontSize: '10px', color: '#334155' }}>{t('company_address')}</p>
-                <p style={{ margin: 0, fontSize: '11px', fontWeight: 'bold' }}>{t('company_gst')}</p>
+              <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h3 style={{ fontSize: '1.1rem', margin: 0, color: '#fff' }}>📄 Direct Invoice Bill ({activeInvoice.invoice_number})</h3>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary" onClick={printActiveInvoice} style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>
+                    🖨️ Print
+                  </button>
+                  <button className="btn btn-secondary" onClick={downloadActiveInvoicePdf} style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}>
+                    📥 PDF
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => exportActiveInvoiceExcel(activeInvoice, invGstBreakdown)} style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', color: 'var(--success)', borderColor: 'var(--success)' }}>
+                    📊 Excel
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => setActiveInvoice(null)} style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', color: '#fff' }}>
+                    ✕ Close
+                  </button>
+                </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '1.25rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
-                <div>
-                  <p style={{ margin: '0 0 0.25rem 0' }}><strong>Invoice No:</strong> {activeInvoice.invoice_number}</p>
-                  <p style={{ margin: '0 0 0.25rem 0' }}><strong>Date:</strong> {new Date(activeInvoice.sale_date).toLocaleString()}</p>
-                  <p style={{ margin: 0 }}><strong>Vehicle:</strong> {vehicles.find(v => v.id === activeInvoice.vehicle_id)?.vehicle_number || ''}</p>
+              <div id="printable-direct-invoice" className="invoice-card" style={{ border: '1px solid var(--border-color)', padding: '1.5rem', background: '#fff', color: '#000', borderRadius: '8px' }}>
+                
+                <div style={{ textAlign: 'center', marginBottom: '1rem', borderBottom: '1.5px dashed #000', paddingBottom: '0.65rem' }}>
+                  <h2 style={{ margin: '0 0 0.2rem 0', fontSize: '1.35rem', letterSpacing: '1px', fontWeight: '800' }}>{t('company_name') || 'GSK Agency'}</h2>
+                  <p style={{ margin: '0 0 0.2rem 0', fontSize: '10px', color: '#334155' }}>{t('company_address') || 'Cooldrinks Shop - Tindivanam'}</p>
+                  <p style={{ margin: 0, fontSize: '11px', fontWeight: 'bold' }}>GSTIN: {t('company_gst') || '33CWRPK4071L1Z2'}</p>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <p style={{ margin: '0 0 0.25rem 0' }}><strong>Customer:</strong> {getShopName(shops.find(s => s.id === activeInvoice.shop_id))}</p>
-                  <p style={{ margin: '0 0 0.25rem 0' }}><strong>Contact:</strong> {shops.find(s => s.id === activeInvoice.shop_id)?.mobile || ''}</p>
-                  <p style={{ margin: 0 }}><strong>GSTIN:</strong> {shops.find(s => s.id === activeInvoice.shop_id)?.gst_number || 'N/A'}</p>
-                </div>
-              </div>
 
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginBottom: '1.25rem' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1.5px solid #000' }}>
-                    <th style={{ textAlign: 'left', padding: '4px 0' }}>Item Details</th>
-                    <th style={{ textAlign: 'center', padding: '4px 0', width: '50px' }}>Cases</th>
-                    <th style={{ textAlign: 'center', padding: '4px 0', width: '50px' }}>Bottles</th>
-                    <th style={{ textAlign: 'right', padding: '4px 0', width: '80px' }}>Rate/C</th>
-                    <th style={{ textAlign: 'right', padding: '4px 0', width: '80px' }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeInvoice.items.map((item, idx) => {
-                    const prod = products.find(p => p.id === item.product_id);
-                    return (
-                      <tr key={idx} style={{ borderBottom: '1px dashed #e2e8f0' }}>
-                        <td style={{ padding: '6px 0' }}>{getProductName(prod)} ({prod?.size})</td>
-                        <td style={{ textAlign: 'center', padding: '6px 0' }}>{item.cases || 0}</td>
-                        <td style={{ textAlign: 'center', padding: '6px 0' }}>{item.bottles || 0}</td>
-                        <td style={{ textAlign: 'right', padding: '6px 0' }}>₹{item.price}</td>
-                        <td style={{ textAlign: 'right', padding: '6px 0', fontWeight: 'bold' }}>₹{item.subtotal}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1.5px solid #000', paddingTop: '8px', fontSize: '11px' }}>
-                <div>
-                  <p style={{ margin: '0 0 4px 0' }}>Payment Mode: <strong style={{ textTransform: 'uppercase' }}>{activeInvoice.payment_mode}</strong></p>
-                  {activeInvoice.upi_reference && <p style={{ margin: 0 }}>UPI Ref: <strong>{activeInvoice.upi_reference}</strong></p>}
-                </div>
-                <div style={{ width: '160px', textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Subtotal:</span>
-                    <span>₹{activeInvoice.net_amount + (activeInvoice.discount || 0)}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', marginBottom: '1rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
+                  <div>
+                    <p style={{ margin: '0 0 0.2rem 0' }}><strong>Invoice No:</strong> {activeInvoice.invoice_number}</p>
+                    <p style={{ margin: '0 0 0.2rem 0' }}><strong>Date:</strong> {new Date(activeInvoice.sale_date).toLocaleString()}</p>
+                    <p style={{ margin: 0 }}><strong>Vehicle:</strong> {invVeh?.vehicle_number || ''}</p>
                   </div>
-                  {activeInvoice.discount > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Discount:</span>
-                      <span>-₹{activeInvoice.discount}</span>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ margin: '0 0 0.2rem 0' }}><strong>Customer:</strong> {getShopName(invShop)}</p>
+                    <p style={{ margin: '0 0 0.2rem 0' }}><strong>Contact:</strong> {invShop?.mobile || ''}</p>
+                    <p style={{ margin: 0 }}><strong>GSTIN:</strong> {invShop?.gst_number || 'N/A'}</p>
+                  </div>
+                </div>
+
+                {/* Complete Tabular Product Details with GST Columns */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', marginBottom: '1rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1.5px solid #000', background: '#f8fafc' }}>
+                      <th style={{ textAlign: 'left', padding: '4px 3px' }}>Item Details</th>
+                      <th style={{ textAlign: 'center', padding: '4px 3px', width: '45px' }}>Size</th>
+                      <th style={{ textAlign: 'center', padding: '4px 3px', width: '35px' }}>C</th>
+                      <th style={{ textAlign: 'center', padding: '4px 3px', width: '35px' }}>B</th>
+                      <th style={{ textAlign: 'right', padding: '4px 3px', width: '55px' }}>Rate</th>
+                      <th style={{ textAlign: 'right', padding: '4px 3px', width: '65px' }}>Taxable</th>
+                      <th style={{ textAlign: 'center', padding: '4px 3px', width: '40px' }}>GST</th>
+                      <th style={{ textAlign: 'right', padding: '4px 3px', width: '55px' }}>CGST</th>
+                      <th style={{ textAlign: 'right', padding: '4px 3px', width: '55px' }}>SGST</th>
+                      <th style={{ textAlign: 'right', padding: '4px 3px', width: '65px' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invGstBreakdown.items.map((item, idx) => {
+                      const prod = item.product;
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px dashed #e2e8f0' }}>
+                          <td style={{ padding: '4px 3px', fontWeight: 600 }}>{getProductName(prod)}</td>
+                          <td style={{ textAlign: 'center', padding: '4px 3px', color: '#475569' }}>{prod?.size || '-'}</td>
+                          <td style={{ textAlign: 'center', padding: '4px 3px' }}>{item.cases || 0}</td>
+                          <td style={{ textAlign: 'center', padding: '4px 3px' }}>{item.bottles || 0}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 3px' }}>₹{item.rate}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 3px', fontWeight: 600, color: '#0284c7' }}>₹{item.taxableAmount}</td>
+                          <td style={{ textAlign: 'center', padding: '4px 3px' }}>{item.gstRate}%</td>
+                          <td style={{ textAlign: 'right', padding: '4px 3px' }}>₹{item.cgstAmount}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 3px' }}>₹{item.sgstAmount}</td>
+                          <td style={{ textAlign: 'right', padding: '4px 3px', fontWeight: 'bold' }}>₹{item.grandTotal}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {/* Horizontal Bottom Summary */}
+                <div style={{
+                  border: '1.5px solid #1e293b',
+                  borderRadius: '4px',
+                  overflow: 'hidden',
+                  background: '#ffffff',
+                  marginTop: '8px',
+                  fontSize: '10px'
+                }}>
+                  {/* Row 1: GST Breakdown (Horizontal) */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: invGstBreakdown.discount > 0 ? 'repeat(7, 1fr)' : 'repeat(6, 1fr)',
+                    background: '#f8fafc',
+                    borderBottom: '1px solid #cbd5e1',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ padding: '4px 6px', borderRight: '1px solid #cbd5e1' }}>
+                      <span style={{ color: '#475569', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>Gross Amount</span>
+                      <strong style={{ color: '#0f172a' }}>₹{invGstBreakdown.grossTotal}</strong>
                     </div>
-                  )}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px', borderTop: '1px double #000', paddingTop: '4px' }}>
-                    <span>Net Total:</span>
-                    <span>₹{activeInvoice.net_amount}</span>
+                    {invGstBreakdown.discount > 0 && (
+                      <div style={{ padding: '4px 6px', borderRight: '1px solid #cbd5e1' }}>
+                        <span style={{ color: '#ef4444', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>Discount (-)</span>
+                        <strong style={{ color: '#ef4444' }}>-₹{invGstBreakdown.discount}</strong>
+                      </div>
+                    )}
+                    <div style={{ padding: '4px 6px', borderRight: '1px solid #cbd5e1', background: 'rgba(2, 132, 199, 0.08)' }}>
+                      <span style={{ color: '#0284c7', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>Taxable Amount</span>
+                      <strong style={{ color: '#0284c7' }}>₹{invGstBreakdown.taxableAmount}</strong>
+                    </div>
+                    <div style={{ padding: '4px 6px', borderRight: '1px solid #cbd5e1' }}>
+                      <span style={{ color: '#0891b2', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>Total CGST</span>
+                      <strong style={{ color: '#0891b2' }}>₹{invGstBreakdown.totalCgst}</strong>
+                    </div>
+                    <div style={{ padding: '4px 6px', borderRight: '1px solid #cbd5e1' }}>
+                      <span style={{ color: '#16a34a', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>Total SGST</span>
+                      <strong style={{ color: '#16a34a' }}>₹{invGstBreakdown.totalSgst}</strong>
+                    </div>
+                    <div style={{ padding: '4px 6px', borderRight: '1px solid #cbd5e1' }}>
+                      <span style={{ color: '#d97706', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>Total GST</span>
+                      <strong style={{ color: '#d97706' }}>₹{invGstBreakdown.totalGst}</strong>
+                    </div>
+                    <div style={{ padding: '4px 6px', background: 'rgba(15, 23, 42, 0.05)' }}>
+                      <span style={{ color: '#0f172a', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>Grand Total</span>
+                      <strong style={{ color: '#0f172a', fontSize: '11px' }}>₹{invGstBreakdown.grandTotalIncGst}</strong>
+                    </div>
                   </div>
+
+                  {/* Row 2: Payment Settlement */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '6px 10px',
+                    background: '#ffffff'
+                  }}>
+                    <div style={{ fontSize: '9.5px', color: '#475569' }}>
+                      Payment Mode: <strong style={{ textTransform: 'uppercase', color: '#0f172a' }}>{activeInvoice.payment_mode}</strong>
+                      {activeInvoice.upi_reference && <span style={{ marginLeft: '12px' }}>UPI Ref: <strong style={{ color: '#0f172a' }}>{activeInvoice.upi_reference}</strong></span>}
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: '900', color: '#0f172a' }}>
+                      AMOUNT PAID: <strong style={{ color: '#16a34a', marginLeft: '6px' }}>₹{invGstBreakdown.grandTotalIncGst}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'center', marginTop: '1.5rem', borderTop: '1px dashed #000', paddingTop: '8px', fontSize: '9px', color: '#475569' }}>
+                  Thank you for your business! / வரவுக்கு நன்றி!
                 </div>
               </div>
 
-              <div style={{ textAlign: 'center', marginTop: '2rem', borderTop: '1px dashed #000', paddingTop: '10px', fontSize: '9px', color: '#475569' }}>
-                Thank you for your business! / வரவுக்கு நன்றி!
-              </div>
             </div>
-
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

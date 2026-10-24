@@ -32,6 +32,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
   const [outstanding, setOutstanding] = useState(0);
   const [deliveries, setDeliveries] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [saveSuccessInfo, setSaveSuccessInfo] = useState(null);
 
   useEffect(() => {
     async function loadData() {
@@ -135,7 +136,13 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
       const [sData, oData] = await Promise.all([api.getShops(), api.getOrders()]);
       setShops(sData);
       setOrders(oData);
+      const savedName = finalEn || finalTa || 'Shop';
       resetForm();
+      setSaveSuccessInfo({
+        message: lang === 'ta' 
+          ? `கடை "${savedName}" விவரங்கள் வெற்றிகரமாக சேமிக்கப்பட்டது!` 
+          : `Shop "${savedName}" saved successfully!`
+      });
     } catch (err) {
       alert(err.message || 'Error saving shop details');
     } finally {
@@ -469,6 +476,79 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
 
   return (
     <div>
+      {/* Top Modal / Popup: Saved with OK */}
+      {saveSuccessInfo && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 99999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'flex-start',
+          paddingTop: '40px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card, #0f172a)',
+            border: '2px solid var(--success, #10b981)',
+            borderRadius: '14px',
+            boxShadow: '0 20px 45px rgba(0, 0, 0, 0.7), 0 0 25px rgba(16, 185, 129, 0.3)',
+            padding: '1.5rem 2rem',
+            width: '90%',
+            maxWidth: '440px',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            animation: 'fadeInDown 0.25s ease-out'
+          }}>
+            <div style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              background: 'rgba(16, 185, 129, 0.15)',
+              border: '2px solid var(--success, #10b981)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.8rem',
+              marginBottom: '0.85rem'
+            }}>
+              ✅
+            </div>
+            <h3 style={{ margin: '0 0 0.4rem 0', fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-main, #ffffff)' }}>
+              {lang === 'ta' ? 'சேமிக்கப்பட்டது' : 'Saved'}
+            </h3>
+            <p style={{ margin: '0 0 1.25rem 0', fontSize: '0.92rem', color: 'var(--text-muted, #94a3b8)', lineHeight: 1.4 }}>
+              {saveSuccessInfo.message}
+            </p>
+            <button
+              type="button"
+              onClick={() => setSaveSuccessInfo(null)}
+              className="btn btn-primary"
+              style={{
+                minWidth: '130px',
+                padding: '0.55rem 2rem',
+                fontSize: '0.95rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                borderRadius: '8px',
+                background: 'var(--success, #10b981)',
+                borderColor: 'var(--success, #10b981)',
+                color: '#ffffff'
+              }}
+              autoFocus
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>🏢 {t('shop_mgmt')}</h1>
         <p style={{ color: 'var(--text-muted)' }}>Register and coordinate retail and wholesale shops across routes</p>
@@ -502,9 +582,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                   value={mobile}
                   onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   maxLength={10}
-                  pattern="[0-9]{10}"
                   inputMode="numeric"
-                  required
                   placeholder="e.g. 9876543210"
                 />
               </div>
@@ -593,9 +671,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                       value={mobile}
                       onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
                       maxLength={10}
-                      pattern="[0-9]{10}"
                       inputMode="numeric"
-                      required
                       placeholder="e.g. 9876543210"
                     />
                   </div>

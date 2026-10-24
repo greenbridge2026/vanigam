@@ -3,6 +3,7 @@ import api from '../api';
 import ConfirmModal from './ConfirmModal';
 import { translateShopName } from '../translations';
 import * as XLSX from 'xlsx';
+import AuditorReport from './AuditorReport';
 
 export default function Reports({ t, lang, onBillSelected, session }) {
   const [activeTab, setActiveTab] = useState('daily_sales');
@@ -21,6 +22,8 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   // Expandable shop outstanding details
   const [expandedShopId, setExpandedShopId] = useState(null);
   const [outstandingRouteFilter, setOutstandingRouteFilter] = useState('');
+  const [outstandingDateFrom, setOutstandingDateFrom] = useState('');
+  const [outstandingDateTo, setOutstandingDateTo] = useState('');
 
   // Customer Ledger states
   const [ledgerShopId, setLedgerShopId] = useState('');
@@ -38,6 +41,15 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   const getYesterdayLocalStr = () => {
     const d = new Date();
     d.setDate(d.getDate() - 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dt = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dt}`;
+  };
+
+  const getDaysAgoStr = (days) => {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const dt = String(d.getDate()).padStart(2, '0');
@@ -584,6 +596,22 @@ export default function Reports({ t, lang, onBillSelected, session }) {
   const renderReportContent = () => {
     switch (activeTab) {
       
+      // Auditor Report (Consolidated Order Taking & Vehicle Direct Sales with GST)
+      case 'auditor_report':
+        return (
+          <AuditorReport
+            t={t}
+            lang={lang}
+            orders={orders}
+            orderItems={orderItems}
+            products={products}
+            shops={shops}
+            routes={routes}
+            users={users}
+            onBillSelected={onBillSelected}
+          />
+        );
+
       // 1. Daily Sales
       case 'daily_sales': {
         const filtered = orders.filter(o => {
@@ -1722,44 +1750,82 @@ export default function Reports({ t, lang, onBillSelected, session }) {
       }
 
       case 'outstanding_report': {
+        const isDateFiltered = Boolean(outstandingDateFrom || outstandingDateTo);
+
+        // Precompute per-shop unpaid invoices and calculated balance
+        const shopInvoicesMap = {};
+        const shopOutstandingMap = {};
+
+        shops.forEach(s => {
+          const shopInvsAll = orders
+            .filter(o => o.shop_id === s.id && (o.status === 'delivered' || o.status === 'pending' || o.status === 'completed') && o.status !== 'cancelled' && o.status !== 'returned')
+            .map(order => {
+              const orderPayments = payments.filter(p => p.order_id === order.id);
+              const totalCollected = orderPayments.reduce((sum, p) => sum + Number(p.collected_amount || 0), 0);
+              const remaining = Number(Math.max(0, Number(order.net_amount || 0) - totalCollected).toFixed(2));
+              return {
+                ...order,
+                total_collected: totalCollected,
+                remaining_outstanding: remaining,
+                paymentsList: orderPayments
+              };
+            })
+            .filter(o => o.remaining_outstanding > 0);
+
+          if (isDateFiltered) {
+            const filteredInvs = shopInvsAll.filter(inv => {
+              const invDate = (inv.order_date || inv.created_at || '').slice(0, 10);
+              if (outstandingDateFrom && invDate && invDate < outstandingDateFrom) return false;
+              if (outstandingDateTo && invDate && invDate > outstandingDateTo) return false;
+              if (!invDate && (outstandingDateFrom || outstandingDateTo)) return false;
+              return true;
+            });
+            const pendingSum = filteredInvs.reduce((sum, inv) => sum + inv.remaining_outstanding, 0);
+            shopInvoicesMap[s.id] = filteredInvs;
+            shopOutstandingMap[s.id] = Number(pendingSum.toFixed(2));
+          } else {
+            shopInvoicesMap[s.id] = shopInvsAll;
+            shopOutstandingMap[s.id] = Number(s.outstanding_amount || 0);
+          }
+        });
+
         const filtered = shops.filter(s => {
-          if (s.outstanding_amount <= 0) return false;
+          const bal = shopOutstandingMap[s.id] || 0;
+          if (bal <= 0) return false;
           if (!matchesSearch(s, 'shop')) return false;
           if (outstandingRouteFilter && s.route_id !== outstandingRouteFilter) return false;
           return true;
         });
-        const sumOutstanding = filtered.reduce((sum, s) => sum + s.outstanding_amount, 0);
+
+        const sumOutstanding = Number(filtered.reduce((sum, s) => sum + (shopOutstandingMap[s.id] || 0), 0).toFixed(2));
 
         const handleExportExcel = () => {
           const exportData = [];
+          const dateLabel = isDateFiltered ? ` (${outstandingDateFrom || 'Start'} to ${outstandingDateTo || 'Today'})` : '';
+
           filtered.forEach(s => {
+            const currentPeriodPending = shopOutstandingMap[s.id] || 0;
             exportData.push({
               'Shop Name': lang === 'ta' ? s.name_ta : s.name_en,
               'Contact Person': s.contact_person || '',
               'Mobile': s.mobile || '',
-              'Shop Type': s.shop_type.toUpperCase(),
-              'Total Outstanding (₹)': s.outstanding_amount
+              'Shop Type': (s.shop_type || '').toUpperCase(),
+              'Pending Amount (₹)': currentPeriodPending,
+              'Total Outstanding (₹)': s.outstanding_amount || 0
             });
 
-            // Find all unpaid invoices for this shop
-            const shopInvoices = orders
-              .filter(o => o.shop_id === s.id && (o.status === 'delivered' || o.status === 'pending'))
-              .map(order => {
-                const orderPayments = payments.filter(p => p.order_id === order.id);
-                const totalCollected = orderPayments.reduce((sum, p) => sum + p.collected_amount, 0);
-                const remaining = order.net_amount - totalCollected;
-                return { ...order, total_collected: totalCollected, remaining_outstanding: remaining, paymentsList: orderPayments };
-              })
-              .filter(o => o.remaining_outstanding > 0);
+            // Find unpaid invoices for this shop (filtered by date if date filter active)
+            const shopInvoices = shopInvoicesMap[s.id] || [];
 
             if (shopInvoices.length > 0) {
               shopInvoices.forEach(inv => {
                 exportData.push({
-                  'Shop Name': `  -> Invoice: ${inv.invoice_number} (${new Date(inv.order_date).toLocaleDateString()})`,
+                  'Shop Name': `  -> Invoice: ${inv.invoice_number} (${inv.order_date ? new Date(inv.order_date).toLocaleDateString() : 'N/A'})`,
                   'Contact Person': `Total Amount: ₹${inv.net_amount}`,
                   'Mobile': `Collected: ₹${inv.total_collected}`,
-                  'Shop Type': `Breakdown: ${inv.paymentsList.map(p => `${p.payment_mode.toUpperCase()}(₹${p.collected_amount})`).join(', ')}`,
-                  'Total Outstanding (₹)': inv.remaining_outstanding
+                  'Shop Type': `Breakdown: ${inv.paymentsList.map(p => `${(p.payment_mode || '').toUpperCase()}(₹${p.collected_amount})`).join(', ')}`,
+                  'Pending Amount (₹)': inv.remaining_outstanding,
+                  'Total Outstanding (₹)': ''
                 });
               });
             }
@@ -1768,14 +1834,14 @@ export default function Reports({ t, lang, onBillSelected, session }) {
           const ws = XLSX.utils.json_to_sheet(exportData);
           const wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, 'Outstanding Report');
-          XLSX.writeFile(wb, `Outstanding_Report_${Date.now()}.xlsx`);
+          XLSX.writeFile(wb, `Outstanding_Report${dateLabel ? '_' + (outstandingDateFrom || '') + '_to_' + (outstandingDateTo || '') : ''}_${Date.now()}.xlsx`);
         };
 
         const handleExportPDF = () => {
           const element = document.getElementById('printable-outstanding-report');
           const opt = {
             margin:       0.5,
-            filename:     `Outstanding_Report_${Date.now()}.pdf`,
+            filename:     `Outstanding_Report${isDateFiltered ? '_' + (outstandingDateFrom || '') + '_to_' + (outstandingDateTo || '') : ''}_${Date.now()}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { scale: 2 },
             jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
@@ -1788,10 +1854,18 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
         return (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }} className="no-print">
+            {/* Action Bar: Cumulative KPI, Route selector, Search input & Export Actions */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '1rem' }} className="no-print">
               <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(245, 158, 11, 0.05)', border: '1px solid rgba(245, 158, 11, 0.2)', borderRadius: '8px', minWidth: '220px' }}>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Cumulative Outstandings:</span>
-                <h3 style={{ fontSize: '1.5rem', color: 'var(--warning)', fontWeight: '800', margin: 0 }}>₹{sumOutstanding}</h3>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  {isDateFiltered ? 'Pending for Selected Period:' : 'Cumulative Outstandings:'}
+                </span>
+                <h3 style={{ fontSize: '1.5rem', color: 'var(--warning)', fontWeight: '800', margin: 0 }}>₹{sumOutstanding.toLocaleString('en-IN')}</h3>
+                {isDateFiltered && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)', display: 'block', marginTop: '0.2rem' }}>
+                    📅 {outstandingDateFrom || 'Start'} to {outstandingDateTo || 'Today'}
+                  </span>
+                )}
               </div>
 
               <div style={{ display: 'flex', gap: '0.75rem', flex: 1, minWidth: '280px', maxWidth: '580px', flexWrap: 'wrap' }}>
@@ -1825,106 +1899,201 @@ export default function Reports({ t, lang, onBillSelected, session }) {
               </div>
             </div>
 
+            {/* Date Range Filter Bar for Older Dates */}
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+              alignItems: 'center',
+              padding: '0.75rem 1rem',
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              marginBottom: '1rem'
+            }} className="no-print">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                  📅 {lang === 'ta' ? 'ஆரம்ப தேதி:' : 'From Date:'}
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ fontSize: '0.82rem', padding: '0.35rem 0.6rem', width: '145px', margin: 0 }}
+                  value={outstandingDateFrom}
+                  onChange={e => setOutstandingDateFrom(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                  📅 {lang === 'ta' ? 'முடிவு தேதி:' : 'To Date:'}
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ fontSize: '0.82rem', padding: '0.35rem 0.6rem', width: '145px', margin: 0 }}
+                  value={outstandingDateTo}
+                  onChange={e => setOutstandingDateTo(e.target.value)}
+                />
+              </div>
+
+              {/* Quick Preset Buttons for Older Dates */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginRight: '0.2rem' }}>Quick:</span>
+                <button
+                  type="button"
+                  onClick={() => { setOutstandingDateFrom(''); setOutstandingDateTo(getDaysAgoStr(7)); }}
+                  className="language-btn"
+                  style={{ fontSize: '0.74rem', padding: '0.25rem 0.55rem', cursor: 'pointer' }}
+                  title="Show pending invoices older than 7 days"
+                >
+                  &gt; 7 Days Old
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setOutstandingDateFrom(''); setOutstandingDateTo(getDaysAgoStr(15)); }}
+                  className="language-btn"
+                  style={{ fontSize: '0.74rem', padding: '0.25rem 0.55rem', cursor: 'pointer' }}
+                  title="Show pending invoices older than 15 days"
+                >
+                  &gt; 15 Days Old
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setOutstandingDateFrom(''); setOutstandingDateTo(getDaysAgoStr(30)); }}
+                  className="language-btn"
+                  style={{ fontSize: '0.74rem', padding: '0.25rem 0.55rem', cursor: 'pointer' }}
+                  title="Show pending invoices older than 30 days"
+                >
+                  &gt; 30 Days Old
+                </button>
+                {(outstandingDateFrom || outstandingDateTo) && (
+                  <button
+                    type="button"
+                    onClick={() => { setOutstandingDateFrom(''); setOutstandingDateTo(''); }}
+                    className="language-btn"
+                    style={{ fontSize: '0.74rem', padding: '0.25rem 0.55rem', color: 'var(--danger)', borderColor: 'var(--danger)', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    ✕ {lang === 'ta' ? 'வடிகட்டியை நீக்கு (அனைத்தும்)' : 'Clear Dates (All Time)'}
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="table-container" id="printable-outstanding-report">
-              <h2 className="print-only" style={{ marginBottom: '1rem', color: '#000' }}>Outstanding Balance Report - {new Date().toLocaleDateString()}</h2>
+              <h2 className="print-only" style={{ marginBottom: '1rem', color: '#000' }}>
+                Outstanding Balance Report {isDateFiltered ? `(${outstandingDateFrom || 'Start'} to ${outstandingDateTo || 'Today'})` : `- ${new Date().toLocaleDateString()}`}
+              </h2>
               <table className="custom-table">
                 <thead>
                   <tr>
                     <th>Shop Name</th>
                     <th>Contact Info</th>
                     <th>Shop Type</th>
-                    <th>Unpaid Balance</th>
+                    <th>{isDateFiltered ? 'Period Pending' : 'Unpaid Balance'}</th>
                     <th className="no-print">Breakdown</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(s => {
-                    const isExpanded = expandedShopId === s.id;
-                    const shopInvoices = orders
-                      .filter(o => o.shop_id === s.id && (o.status === 'delivered' || o.status === 'pending'))
-                      .map(order => {
-                        const orderPayments = payments.filter(p => p.order_id === order.id);
-                        const totalCollected = orderPayments.reduce((sum, p) => sum + p.collected_amount, 0);
-                        const remaining = order.net_amount - totalCollected;
-                        return { ...order, total_collected: totalCollected, remaining_outstanding: remaining, paymentsList: orderPayments };
-                      })
-                      .filter(o => o.remaining_outstanding > 0);
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                        {isDateFiltered 
+                          ? (lang === 'ta' ? 'தேர்ந்தெடுக்கப்பட்ட தேதி வரம்பில் நிலுவைத் தொகை இல்லை.' : 'No pending balances found for the selected date range.')
+                          : (lang === 'ta' ? 'நிலுவைத் தொகை உள்ள கடைகள் எதுவும் இல்லை.' : 'No shops with outstanding balances.')}
+                      </td>
+                    </tr>
+                  ) : (
+                    filtered.map(s => {
+                      const isExpanded = expandedShopId === s.id;
+                      const shopInvoices = shopInvoicesMap[s.id] || [];
+                      const displayBal = shopOutstandingMap[s.id] || 0;
 
-                    return (
-                      <React.Fragment key={s.id}>
-                        <tr>
-                          <td><strong>{translateShopName(s, lang)}</strong></td>
-                          <td>
-                            <div>{s.contact_person}</div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)' }}>📞 {s.mobile}</div>
-                          </td>
-                          <td>
-                            <span style={{ textTransform: 'uppercase', fontSize: '0.75rem', border: '1px solid var(--border-color)', padding: '2px 6px', borderRadius: '4px' }}>{s.shop_type}</span>
-                          </td>
-                          <td style={{ color: 'var(--danger)', fontWeight: '700' }}>₹{s.outstanding_amount}</td>
-                          <td className="no-print">
-                            {shopInvoices.length > 0 ? (
-                              <button
-                                type="button"
-                                className="language-btn"
-                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-                                onClick={() => setExpandedShopId(isExpanded ? null : s.id)}
-                              >
-                                {isExpanded ? '▲ Hide Details' : `▼ View Invoices (${shopInvoices.length})`}
-                              </button>
-                            ) : (
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>General Balance Only</span>
-                            )}
-                          </td>
-                        </tr>
-                        {isExpanded && shopInvoices.length > 0 && (
+                      return (
+                        <React.Fragment key={s.id}>
                           <tr>
-                            <td colSpan="5" style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.01)' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '3px solid var(--accent-cyan)', paddingLeft: '0.75rem', margin: '0.25rem 0' }}>
-                                <strong style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>UNPAID INVOICE BREAKDOWN:</strong>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.75rem' }}>
-                                  {shopInvoices.map(inv => (
-                                    <div key={inv.id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', padding: '0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
-                                        <span>Invoice: {inv.invoice_number}</span>
-                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                          <span style={{ color: 'var(--danger)' }}>₹{inv.remaining_outstanding} Due</span>
-                                          {onBillSelected && (
-                                            <button
-                                              type="button"
-                                              className="language-btn"
-                                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-                                              onClick={() => onBillSelected(inv.id)}
-                                            >
-                                              📄 Print Bill
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.1rem 0' }}>
-                                        Date: {new Date(inv.order_date).toLocaleDateString()} | Total: ₹{inv.net_amount}
-                                      </div>
-                                      {inv.paymentsList.length > 0 && (
-                                        <div style={{ marginTop: '0.25rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.25rem' }}>
-                                          <span style={{ fontSize: '0.7rem', fontWeight: 'bold', display: 'block', color: 'var(--success)' }}>Payments Breakdown:</span>
-                                          {inv.paymentsList.map(p => (
-                                            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem' }}>
-                                              <span>{p.payment_mode.toUpperCase()} {p.transaction_number ? `(${p.transaction_number})` : ''}</span>
-                                              <span>₹{p.collected_amount}</span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
+                            <td><strong>{translateShopName(s, lang)}</strong></td>
+                            <td>
+                              <div>{s.contact_person}</div>
+                              <div style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)' }}>📞 {s.mobile}</div>
+                            </td>
+                            <td>
+                              <span style={{ textTransform: 'uppercase', fontSize: '0.75rem', border: '1px solid var(--border-color)', padding: '2px 6px', borderRadius: '4px' }}>{s.shop_type}</span>
+                            </td>
+                            <td style={{ color: 'var(--danger)', fontWeight: '700' }}>
+                              ₹{displayBal.toLocaleString('en-IN')}
+                              {isDateFiltered && s.outstanding_amount !== displayBal && (
+                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>
+                                  Total: ₹{s.outstanding_amount.toLocaleString('en-IN')}
                                 </div>
-                              </div>
+                              )}
+                            </td>
+                            <td className="no-print">
+                              {shopInvoices.length > 0 ? (
+                                <button
+                                  type="button"
+                                  className="language-btn"
+                                  style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                  onClick={() => setExpandedShopId(isExpanded ? null : s.id)}
+                                >
+                                  {isExpanded ? '▲ Hide Details' : `▼ View Invoices (${shopInvoices.length})`}
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>General Balance Only</span>
+                              )}
                             </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
+                          {isExpanded && shopInvoices.length > 0 && (
+                            <tr>
+                              <td colSpan="5" style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.01)' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderLeft: '3px solid var(--accent-cyan)', paddingLeft: '0.75rem', margin: '0.25rem 0' }}>
+                                  <strong style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                    UNPAID INVOICE BREAKDOWN {isDateFiltered ? `(${outstandingDateFrom || 'Start'} to ${outstandingDateTo || 'Today'})` : ''}:
+                                  </strong>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '0.75rem' }}>
+                                    {shopInvoices.map(inv => (
+                                      <div key={inv.id} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', padding: '0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
+                                          <span>Invoice: {inv.invoice_number}</span>
+                                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                            <span style={{ color: 'var(--danger)' }}>₹{inv.remaining_outstanding} Due</span>
+                                            {onBillSelected && (
+                                              <button
+                                                type="button"
+                                                className="language-btn"
+                                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                                onClick={() => onBillSelected(inv.id)}
+                                              >
+                                                📄 Print Bill
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.1rem 0' }}>
+                                          Date: {inv.order_date ? new Date(inv.order_date).toLocaleDateString() : 'N/A'} | Total: ₹{inv.net_amount}
+                                        </div>
+                                        {inv.paymentsList.length > 0 && (
+                                          <div style={{ marginTop: '0.25rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.25rem' }}>
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 'bold', display: 'block', color: 'var(--success)' }}>Payments Breakdown:</span>
+                                            {inv.paymentsList.map(p => (
+                                              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem' }}>
+                                                <span>{(p.payment_mode || '').toUpperCase()} {p.transaction_number ? `(${p.transaction_number})` : ''}</span>
+                                                <span>₹{p.collected_amount}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -3244,6 +3413,7 @@ export default function Reports({ t, lang, onBillSelected, session }) {
 
   const tabs = [
     { id: 'daily_sales', label: t('daily_sales') },
+    { id: 'auditor_report', label: t('auditor_report') || 'Auditor Report' },
     { id: 'route_sales', label: t('route_sales') },
     { id: 'salesman_sales', label: t('salesman_sales') },
     { id: 'delivery_report', label: 'Delivery logs' },

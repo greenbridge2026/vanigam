@@ -108,6 +108,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [prevOutstandingAmount, setPrevOutstandingAmount] = useState(0);
   const [gpayTxn, setGpayTxn] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [deliveryCompletedPopup, setDeliveryCompletedPopup] = useState(null);
 
   // Order Deletion states
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -330,6 +331,13 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     setDeliveries(prev => prev.map(d => d.id === del.id ? { ...d, status: 'delivered', remarks: remarksMsg } : d));
     setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: 'delivered' } : o));
 
+    setDeliveryCompletedPopup({
+      title: lang === 'ta' ? 'விநியோகம் முடிந்தது' : 'Completed',
+      message: lang === 'ta'
+        ? `பில் #${order.invoice_number} வெற்றிகரமாக கடன் விநியோகம் செய்யப்பட்டது!`
+        : `Invoice #${order.invoice_number} has been marked as Completed (Credit Delivery).`
+    });
+
     try {
       await api.completeDelivery(del.id, {
         status: 'delivered',
@@ -373,6 +381,15 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     // 1. Instantly update local state optimistically for lightning-fast UX
     setDeliveries(prev => prev.map(d => d.id === del.id ? { ...d, status, remarks: finalRemarks, reason: selectedReason } : d));
     setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status } : o));
+
+    if (status === 'delivered') {
+      setDeliveryCompletedPopup({
+        title: lang === 'ta' ? 'விநியோகம் முடிந்தது' : 'Completed',
+        message: lang === 'ta'
+          ? `பில் #${order.invoice_number} (${shop ? (shop.name_ta || shop.name_en) : 'கடை'}) வெற்றிகரமாக விநியோகிக்கப்பட்டது!`
+          : `Invoice #${order.invoice_number} for ${shop ? (shop.name_en || shop.name_ta) : 'Shop'} has been marked as Completed!`
+      });
+    }
 
     if (status === 'delivered' && (ordAmt > 0 || prevAmt > 0)) {
       const newPayItems = [];
@@ -1605,6 +1622,78 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         onConfirm={executeDeleteOrder}
         onCancel={() => setConfirmDeleteOpen(false)}
       />
+
+      {/* Top Modal Popup for Completed Delivery */}
+      {deliveryCompletedPopup && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 99999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'flex-start',
+          paddingTop: '40px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card, #0f172a)',
+            border: '2px solid var(--success, #10b981)',
+            borderRadius: '14px',
+            boxShadow: '0 20px 45px rgba(0, 0, 0, 0.7), 0 0 25px rgba(16, 185, 129, 0.35)',
+            padding: '1.5rem 2rem',
+            width: '90%',
+            maxWidth: '440px',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            animation: 'fadeInDown 0.25s ease-out'
+          }}>
+            <div style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              background: 'rgba(16, 185, 129, 0.15)',
+              border: '2px solid var(--success, #10b981)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.8rem',
+              marginBottom: '0.85rem'
+            }}>
+              ✅
+            </div>
+            <h3 style={{ margin: '0 0 0.4rem 0', fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-main, #ffffff)' }}>
+              {deliveryCompletedPopup.title}
+            </h3>
+            <p style={{ margin: '0 0 1.25rem 0', fontSize: '0.92rem', color: 'var(--text-muted, #94a3b8)', lineHeight: 1.4 }}>
+              {deliveryCompletedPopup.message}
+            </p>
+            <button
+              type="button"
+              onClick={() => setDeliveryCompletedPopup(null)}
+              className="btn btn-primary"
+              style={{
+                minWidth: '130px',
+                padding: '0.55rem 2rem',
+                fontSize: '0.95rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                borderRadius: '8px',
+                background: 'var(--success, #10b981)',
+                borderColor: 'var(--success, #10b981)',
+                color: '#ffffff'
+              }}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Non-Delivery / Return Modal */}
       {nonDeliveryModalOpen && activeDelivery && (
