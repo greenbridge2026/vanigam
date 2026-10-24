@@ -1925,8 +1925,8 @@ app.post('/api/orders', async (req, res) => {
     cachedTimestamps[req.tenantId] = Date.now();
     lastMetaCheck[req.tenantId] = Date.now();
 
-    // Persist to Firestore asynchronously in background queue
-    queueFirestoreWrite(req.tenantId, db, modifiedTables);
+    // Persist to Firestore
+    await writeDB(req.tenantId, db, modifiedTables);
 
     res.status(201).json({ order: newOrder, items: orderItemsToCreate });
   } catch (err) {
@@ -1935,6 +1935,16 @@ app.post('/api/orders', async (req, res) => {
   } finally {
     releaseLock();
   }
+});
+
+app.get('/api/orders/:id', async (req, res) => {
+  const db = await readDB(req.tenantId);
+  const order = (db.orders || []).find(o => o.id === req.params.id);
+  if (!order) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+  const items = (db.order_items || []).filter(oi => oi.order_id === req.params.id);
+  res.json({ order, items });
 });
 
 app.get('/api/orders', async (req, res) => {
@@ -2118,8 +2128,8 @@ app.put('/api/orders/:id', async (req, res) => {
     cachedTimestamps[req.tenantId] = Date.now();
     lastMetaCheck[req.tenantId] = Date.now();
 
-    // Persist to Firestore asynchronously in background queue
-    queueFirestoreWrite(req.tenantId, db, modifiedTables);
+    // Persist to Firestore
+    await writeDB(req.tenantId, db, modifiedTables);
 
     res.json({ order, items: newOrderItemsToCreate });
   } finally {

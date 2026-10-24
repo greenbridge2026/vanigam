@@ -429,6 +429,17 @@ export const api = {
   async getOrderItems() {
     return getTableData('order_items', `${API_BASE}/orders/items`);
   },
+  async getOrder(id) {
+    try {
+      const res = await apiFetch(`${API_BASE}/orders/${id}`);
+      if (res.ok) {
+        return await parseJsonResponse(res, 'Failed to fetch order');
+      }
+    } catch (e) {
+      console.warn('Direct getOrder fetch failed:', e);
+    }
+    return null;
+  },
   async createOrder(orderData) {
     const res = await apiFetch(`${API_BASE}/orders`, {
       method: 'POST',

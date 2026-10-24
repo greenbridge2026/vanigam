@@ -384,7 +384,7 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
         };
         const result = await api.createOrder(orderPayload);
         if (onOrderCreated && result && result.order) {
-          onOrderCreated(result.order.id);
+          onOrderCreated(result.order.id, result.order, result.items);
         }
       }
     } catch (err) {

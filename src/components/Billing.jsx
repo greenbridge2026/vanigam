@@ -3,16 +3,16 @@ import api from '../api';
 import html2pdf from 'html2pdf.js';
 import { translateShopName, translateRouteName, translateProductName, translateAddress } from '../translations';
 
-export default function Billing({ orderId, t, lang, onBack }) {
-  const [order, setOrder] = useState(null);
-  const [orderItems, setOrderItems] = useState([]);
+export default function Billing({ orderId, initialData, t, lang, onBack }) {
+  const [order, setOrder] = useState(() => initialData?.order || null);
+  const [orderItems, setOrderItems] = useState(() => initialData?.items || []);
   const [products, setProducts] = useState([]);
   const [shop, setShop] = useState(null);
   const [route, setRoute] = useState(null);
   const [payments, setPayments] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
   const [allPayments, setAllPayments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialData?.order);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [modalPaymentRows, setModalPaymentRows] = useState([
     {
@@ -44,10 +44,12 @@ export default function Billing({ orderId, t, lang, onBack }) {
   }, []);
 
   useEffect(() => {
-    async function loadInvoiceData() {
+    let isMounted = true;
+
+    async function loadInvoiceData(retryCount = 0) {
       if (!orderId) return;
       try {
-        const [ordData, itemData, prodData, shopData, routeData, payData] = await Promise.all([
+        const results = await Promise.allSettled([
           api.getOrders(),
           api.getOrderItems(),
           api.getProducts(),
@@ -56,14 +58,55 @@ export default function Billing({ orderId, t, lang, onBack }) {
           api.getPayments()
         ]);
 
-        setAllOrders(ordData || []);
-        setAllPayments(payData || []);
+        if (!isMounted) return;
 
-        const currentOrder = ordData.find(o => o.id === orderId);
+        const ordData = results[0].status === 'fulfilled' ? results[0].value || [] : [];
+        const itemData = results[1].status === 'fulfilled' ? results[1].value || [] : [];
+        const prodData = results[2].status === 'fulfilled' ? results[2].value || [] : [];
+        const shopData = results[3].status === 'fulfilled' ? results[3].value || [] : [];
+        const routeData = results[4].status === 'fulfilled' ? results[4].value || [] : [];
+        const payData = results[5].status === 'fulfilled' ? results[5].value || [] : [];
+
+        setAllOrders(ordData);
+        setAllPayments(payData);
+        setProducts(prodData);
+
+        let currentOrder = ordData.find(o => o.id === orderId);
+        let items = itemData.filter(oi => oi.order_id === orderId);
+
+        // Fallback 1: Try single order direct fetch from backend if not found in list yet
+        if (!currentOrder && api.getOrder) {
+          try {
+            const directFetch = await api.getOrder(orderId);
+            if (directFetch && directFetch.order) {
+              currentOrder = directFetch.order;
+              if ((!items || items.length === 0) && directFetch.items) {
+                items = directFetch.items;
+              }
+            }
+          } catch (e) {
+            console.warn('Direct order lookup failed:', e);
+          }
+        }
+
+        // Fallback 2: Check initialData passed directly from creation
+        if (!currentOrder && initialData?.order && initialData.order.id === orderId) {
+          currentOrder = initialData.order;
+          if (!items || items.length === 0) {
+            items = initialData.items || [];
+          }
+        }
+
+        // Auto-retry up to 3 times with 500ms delay to accommodate live cloud database replication
+        if (!currentOrder && retryCount < 3) {
+          setTimeout(() => {
+            if (isMounted) loadInvoiceData(retryCount + 1);
+          }, 500);
+          return;
+        }
+
         if (currentOrder) {
           setOrder(currentOrder);
-          
-          const items = itemData.filter(oi => oi.order_id === orderId);
           setOrderItems(items);
 
           const currentShop = shopData.find(s => s.id === currentOrder.shop_id);
@@ -76,15 +119,19 @@ export default function Billing({ orderId, t, lang, onBack }) {
           const paymentList = payData.filter(p => p.order_id === orderId);
           setPayments(paymentList);
         }
-        setProducts(prodData);
       } catch (err) {
         console.error('Failed to load invoice details', err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     }
+
     loadInvoiceData();
-  }, [orderId]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [orderId, initialData]);
 
   const reloadInvoicePayments = async () => {
     try {
@@ -153,8 +200,35 @@ export default function Billing({ orderId, t, lang, onBack }) {
     }
   };
 
-  if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading Invoice...</div>;
-  if (!order) return <div style={{ color: 'var(--danger)', textAlign: 'center' }}>Invoice not found</div>;
+  if (loading) {
+    return (
+      <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '4rem 1rem' }}>
+        <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
+          {lang === 'ta' ? 'விலைப்பட்டியல் ஏற்றப்படுகிறது...' : 'Loading Invoice...'}
+        </p>
+      </div>
+    );
+  }
+
+  if (!order) {
+    return (
+      <div style={{ color: 'var(--danger)', textAlign: 'center', padding: '4rem 1rem' }}>
+        <p style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem' }}>
+          {lang === 'ta' ? 'விலைப்பட்டியல் கிடைக்கவில்லை' : 'Invoice not found'}
+        </p>
+        {onBack && (
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onBack}
+            style={{ padding: '0.6rem 1.4rem', cursor: 'pointer' }}
+          >
+            {lang === 'ta' ? '← பின்செல்க' : '← Back'}
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const handlePrint = () => {
     window.print();

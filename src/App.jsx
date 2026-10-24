@@ -75,6 +75,7 @@ export default function App() {
   const [selectedOrderId, setSelectedOrderId] = useState(() => {
     return localStorage.getItem('selectedOrderId') || null;
   });
+  const [selectedOrderInitialData, setSelectedOrderInitialData] = useState(null);
   const [previousTab, setPreviousTab] = useState(() => {
     return localStorage.getItem('previousTab') || 'deliveries';
   });
@@ -466,14 +467,16 @@ export default function App() {
   };
 
   // Handle invoice display redirection
-  const handleOrderCreated = (orderId) => {
+  const handleOrderCreated = (orderId, orderData = null, orderItems = null) => {
     setSelectedOrderId(orderId);
+    setSelectedOrderInitialData(orderData ? { order: orderData, items: orderItems } : null);
     setPreviousTab('deliveries');
     setActiveTab('billing');
   };
 
   const handleViewBillFromDelivery = (orderId) => {
     setSelectedOrderId(orderId);
+    setSelectedOrderInitialData(null);
     setPreviousTab(activeTab && activeTab !== 'billing' ? activeTab : 'deliveries');
     setActiveTab('billing');
   };
@@ -510,10 +513,12 @@ export default function App() {
       return (
         <Billing
           orderId={selectedOrderId}
+          initialData={selectedOrderInitialData}
           t={t}
           lang={lang}
           onBack={() => {
             setSelectedOrderId(null);
+            setSelectedOrderInitialData(null);
             const returnTarget = (previousTab && previousTab !== 'billing' && previousTab !== 'dashboard') ? previousTab : 'deliveries';
             setActiveTab(returnTarget);
           }}
