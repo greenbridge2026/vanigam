@@ -1920,13 +1920,21 @@ app.post('/api/orders', async (req, res) => {
       'outstanding_history',
       'notifications'
     ];
-    // Immediate in-memory commit for sub-10ms response
+    // Immediate in-memory commit for instant sub-10ms response
     cachedDBs[req.tenantId] = db;
     cachedTimestamps[req.tenantId] = Date.now();
     lastMetaCheck[req.tenantId] = Date.now();
 
-    // Persist to Firestore
-    await writeDB(req.tenantId, db, modifiedTables);
+    // Persist to Firestore:
+    // In Vercel serverless, await writeDB so execution context isn't frozen before saving.
+    // In local persistent Node server, write in background so user experiences instant response.
+    if (process.env.VERCEL) {
+      await writeDB(req.tenantId, db, modifiedTables);
+    } else {
+      writeDB(req.tenantId, db, modifiedTables).catch(err => {
+        console.error('[Background Firestore write error]:', err);
+      });
+    }
 
     res.status(201).json({ order: newOrder, items: orderItemsToCreate });
   } catch (err) {
@@ -2123,13 +2131,18 @@ app.put('/api/orders/:id', async (req, res) => {
       'outstanding_history',
       'delivery_audit_trail'
     ];
-    // Immediate in-memory commit for sub-10ms response
+    // Immediate in-memory commit for instant sub-10ms response
     cachedDBs[req.tenantId] = db;
     cachedTimestamps[req.tenantId] = Date.now();
     lastMetaCheck[req.tenantId] = Date.now();
 
-    // Persist to Firestore
-    await writeDB(req.tenantId, db, modifiedTables);
+    if (process.env.VERCEL) {
+      await writeDB(req.tenantId, db, modifiedTables);
+    } else {
+      writeDB(req.tenantId, db, modifiedTables).catch(err => {
+        console.error('[Background Firestore write error on update]:', err);
+      });
+    }
 
     res.json({ order, items: newOrderItemsToCreate });
   } finally {
@@ -2945,7 +2958,31 @@ app.delete('/api/orders/:id', async (req, res) => {
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
     });
 
-    await writeDB(req.tenantId, db);
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
+
+    const deleteModifiedTables = [
+      'orders',
+      'order_items',
+      'products',
+      'stock_ledger',
+      'deliveries',
+      'bills',
+      'payments',
+      'shops',
+      'outstanding_history',
+      'recycle_bin'
+    ];
+
+    if (process.env.VERCEL) {
+      await writeDB(req.tenantId, db, deleteModifiedTables);
+    } else {
+      writeDB(req.tenantId, db, deleteModifiedTables).catch(err => {
+        console.error('[Background Firestore write error on delete]:', err);
+      });
+    }
+
     res.json({ success: true });
   } finally {
     releaseLock();

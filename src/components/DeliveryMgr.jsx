@@ -610,27 +610,41 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
   const executeDeleteOrder = async () => {
     setConfirmDeleteOpen(false);
-    if (!orderToDelete) return;
+    const targetId = orderToDelete;
+    if (!targetId) return;
+
+    // 1. Instantly remove from UI without waiting for network
+    setDeliveries(prev => (prev || []).filter(d => d.order_id !== targetId));
+    setOrders(prev => (prev || []).filter(o => o.id !== targetId));
+    if (activeDelivery && activeDelivery.order?.id === targetId) {
+      setActiveDelivery(null);
+    }
+    setOrderToDelete(null);
+
+    // 2. Perform backend deletion and silent background sync
     try {
-      await api.deleteOrder(orderToDelete);
-      alert(lang === 'ta' ? 'ஆர்டர் வெற்றிகரமாக நீக்கப்பட்டது!' : 'Order deleted successfully!');
-      
+      await api.deleteOrder(targetId);
+
       const [dData, oData, sData] = await Promise.all([
         api.getDeliveries(),
         api.getOrders(),
         api.getShops()
       ]);
-      setDeliveries(dData);
-      setOrders(oData);
-      setShops(sData);
-
-      if (activeDelivery && activeDelivery.order.id === orderToDelete) {
-        setActiveDelivery(null);
-      }
+      setDeliveries(dData || []);
+      setOrders(oData || []);
+      setShops(sData || []);
     } catch (err) {
-      alert(err.message || 'Failed to delete order');
-    } finally {
-      setOrderToDelete(null);
+      console.error('Failed to delete order:', err);
+      alert(err.message || (lang === 'ta' ? 'ஆர்டர் நீக்குவதில் தோல்வி' : 'Failed to delete order'));
+      // Rollback by reloading from server
+      const [dData, oData, sData] = await Promise.all([
+        api.getDeliveries(),
+        api.getOrders(),
+        api.getShops()
+      ]);
+      setDeliveries(dData || []);
+      setOrders(oData || []);
+      setShops(sData || []);
     }
   };
 
@@ -656,8 +670,13 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
   const handleCancelOrder = async (orderId) => {
     if (!window.confirm(lang === 'ta' ? 'இந்த ஆர்டரை நிச்சயமாக ரத்து செய்ய விரும்புகிறீர்களா?' : 'Are you sure you want to cancel this order?')) return;
+
+    // Instant optimistic update in UI
+    setDeliveries(prev => (prev || []).map(d => d.order_id === orderId ? { ...d, status: 'cancelled' } : d));
+    setOrders(prev => (prev || []).map(o => o.id === orderId ? { ...o, status: 'cancelled' } : o));
+
     try {
-      const del = deliveries.find(d => d.order_id === orderId);
+      const del = (deliveries || []).find(d => d.order_id === orderId);
       if (del) {
         await api.completeDelivery(del.id, { status: 'cancelled', reason: 'Cancelled by user', remarks: 'Cancelled' });
       }
@@ -666,11 +685,19 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         api.getOrders(),
         api.getShops()
       ]);
-      setDeliveries(dData);
-      setOrders(oData);
-      setShops(sData);
+      setDeliveries(dData || []);
+      setOrders(oData || []);
+      setShops(sData || []);
     } catch (err) {
       alert(err.message || 'Failed to cancel order');
+      const [dData, oData, sData] = await Promise.all([
+        api.getDeliveries(),
+        api.getOrders(),
+        api.getShops()
+      ]);
+      setDeliveries(dData || []);
+      setOrders(oData || []);
+      setShops(sData || []);
     }
   };
 
