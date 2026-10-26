@@ -120,7 +120,7 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: 10000;
 }
 
 .menu-toggle-btn {
@@ -660,16 +660,16 @@ h1, h2, h3, h4, h5, h6 {
 
 .notifications-popup {
   position: absolute;
-  top: 60px;
-  right: 2rem;
-  width: 320px;
-  max-height: 400px;
+  top: 55px;
+  right: 1.5rem;
+  width: 340px;
+  max-height: 440px;
   overflow-y: auto;
-  background: var(--bg-popup);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  z-index: 200;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  z-index: 99999;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.5);
   padding: 1rem;
   color: var(--text-main);
 }
@@ -1033,6 +1033,76 @@ h1, h2, h3, h4, h5, h6 {
     break-after: avoid !important;
     margin-bottom: 0 !important;
     padding-bottom: 0 !important;
+  }
+
+  /* HIGH-CONTRAST DEEP SOLID DARK FOR BILL / INVOICE PRINT */
+  #printable-invoice,
+  #printable-invoice *,
+  #printable-direct-invoice,
+  #printable-direct-invoice *,
+  .invoice-card,
+  .invoice-card * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    text-shadow: none !important;
+    opacity: 1 !important;
+    filter: none !important;
+  }
+
+  #printable-invoice,
+  #printable-direct-invoice,
+  .invoice-card {
+    border: 2px solid #000000 !important;
+    background: #ffffff !important;
+  }
+
+  #printable-invoice table,
+  #printable-invoice th,
+  #printable-invoice td,
+  #printable-invoice div,
+  #printable-invoice span,
+  #printable-invoice strong,
+  #printable-direct-invoice table,
+  #printable-direct-invoice th,
+  #printable-direct-invoice td,
+  #printable-direct-invoice div,
+  #printable-direct-invoice span,
+  #printable-direct-invoice strong,
+  .invoice-card table,
+  .invoice-card th,
+  .invoice-card td,
+  .invoice-card div,
+  .invoice-card span,
+  .invoice-card strong {
+    border-color: #000000 !important;
+  }
+
+  #printable-invoice th,
+  #printable-direct-invoice th,
+  .invoice-card th {
+    font-weight: 900 !important;
+    color: #000000 !important;
+    background: #f1f5f9 !important;
+    border-bottom: 2px solid #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #printable-invoice td,
+  #printable-direct-invoice td,
+  .invoice-card td {
+    color: #000000 !important;
+    border-bottom: 1px solid #000000 !important;
+  }
+
+  #printable-invoice td strong,
+  #printable-invoice span strong,
+  #printable-direct-invoice td strong,
+  #printable-direct-invoice span strong,
+  .invoice-card td strong,
+  .invoice-card span strong {
+    font-weight: 950 !important;
+    color: #000000 !important;
   }
 
   /* Universal prevention of trailing blank pages */

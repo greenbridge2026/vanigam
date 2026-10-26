@@ -107,6 +107,7 @@ async function readDB(tenantId) {
       if (!dbData.vehicle_dispatches) dbData.vehicle_dispatches = [];
       if (!dbData.vehicle_sales) dbData.vehicle_sales = [];
       if (!dbData.vehicle_reconciliations) dbData.vehicle_reconciliations = [];
+      if (!dbData.rough_bills) dbData.rough_bills = [];
     } catch (error) {
       dbData = await seedDB(tenantId);
     }
@@ -134,7 +135,7 @@ async function readDB(tenantId) {
             'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
             'bills', 'notifications', 'vehicles', 'vehicle_stock',
             'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
-            'delivery_audit_trail', 'settings'
+            'delivery_audit_trail', 'settings', 'rough_bills'
           ];
           for (const key of tableKeys) {
             cachedTableSnapshots[tenantId][key] = JSON.stringify(dbData[key] || []);
@@ -1736,7 +1737,7 @@ app.post('/api/orders', async (req, res) => {
     if (!db.products) db.products = [];
     if (!db.routes) db.routes = [];
 
-    const { shop_id, route_id, salesman_id, items, discount } = req.body;
+    const { shop_id, route_id, salesman_id, items, discount, order_date, delivery_date, invoice_date } = req.body;
     
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Order must contain at least one product item' });
@@ -1851,13 +1852,20 @@ app.post('/api/orders', async (req, res) => {
 
     const prevOutstanding = Number(shop.outstanding_amount || 0);
 
+    const nowIso = new Date().toISOString();
+    const actualOrderDate = order_date || nowIso;
+    const actualDeliveryDate = delivery_date || actualOrderDate;
+    const actualInvoiceDate = delivery_date || invoice_date || actualDeliveryDate;
+
     const newOrder = {
       id: `ord_${Date.now()}`,
       invoice_number: invoiceNum,
       route_id,
       shop_id,
       salesman_id,
-      order_date: new Date().toISOString(),
+      order_date: actualOrderDate,
+      delivery_date: actualDeliveryDate,
+      invoice_date: actualInvoiceDate,
       total_amount: totalAmount,
       discount: discountAmt,
       net_amount: netAmount,
@@ -2102,6 +2110,13 @@ app.put('/api/orders/:id', async (req, res) => {
     order.total_amount = totalAmount;
     order.discount = discountAmt;
     order.net_amount = netAmount;
+    if (req.body.order_date) order.order_date = req.body.order_date;
+    if (req.body.delivery_date) {
+      order.delivery_date = req.body.delivery_date;
+      order.invoice_date = req.body.delivery_date;
+    } else if (req.body.invoice_date) {
+      order.invoice_date = req.body.invoice_date;
+    }
 
     // 8. Log in Audit Trail
     if (!db.delivery_audit_trail) db.delivery_audit_trail = [];
@@ -2172,6 +2187,7 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
     const requestedStatus = req.body.status || 'delivered'; // 'delivered' | 'not_delivered' | 'returned'
     const reason = req.body.reason || '';
     const remarks = req.body.remarks || '';
+    const deliveryDate = req.body.delivery_date || req.body.invoice_date;
 
     const order = db.orders.find(o => o.id === delivery.order_id);
     const shop = order ? db.shops.find(s => s.id === order.shop_id) : null;
@@ -2179,25 +2195,37 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
     let finalStatus = requestedStatus;
 
     delivery.status = finalStatus;
-    delivery.delivery_time = new Date().toISOString();
+    if (deliveryDate) {
+      delivery.delivery_date = deliveryDate;
+      delivery.delivery_time = deliveryDate;
+    } else {
+      delivery.delivery_time = new Date().toISOString();
+    }
     delivery.remarks = remarks || (finalStatus === 'delivered' ? 'Delivered successfully' : `${finalStatus} due to ${reason}`);
     delivery.reason = reason;
 
     if (order) {
       order.status = finalStatus;
+      if (deliveryDate) {
+        order.delivery_date = deliveryDate;
+        order.invoice_date = deliveryDate;
+      }
 
       if (finalStatus === 'delivered') {
-        // Auto-create bill log
+        // Auto-create or update bill log
         if (!db.bills) db.bills = [];
-        if (!db.bills.some(b => b.order_id === order.id)) {
+        const existingBill = db.bills.find(b => b.order_id === order.id);
+        if (!existingBill) {
           db.bills.push({
             id: `bill_${Date.now()}`,
             order_id: order.id,
             invoice_number: order.invoice_number,
             pdf_path: `/invoices/${order.invoice_number}.pdf`,
             shared_status: 'none',
-            date: new Date().toISOString()
+            date: deliveryDate || new Date().toISOString()
           });
+        } else if (deliveryDate) {
+          existingBill.date = deliveryDate;
         }
       } else if (finalStatus === 'not_delivered' || finalStatus === 'returned') {
         // Reverse stock and outstanding for non-deliveries or returns
@@ -2939,6 +2967,7 @@ app.delete('/api/orders/:id', async (req, res) => {
     db.deliveries = db.deliveries.filter(d => d.order_id !== orderId);
     db.bills = db.bills.filter(b => b.order_id !== orderId);
     db.payments = db.payments.filter(p => p.order_id !== orderId);
+    db.notifications = (db.notifications || []).filter(n => !n.message?.includes(order.invoice_number) && !n.message?.includes(orderId));
 
     if (!db.recycle_bin) db.recycle_bin = [];
     db.recycle_bin.push({
@@ -3513,6 +3542,66 @@ app.post('/api/vehicles/reconcile', async (req, res) => {
 
     await writeDB(req.tenantId, db);
     res.status(200).json(newRecon);
+  } finally {
+    releaseLock();
+  }
+});
+
+// --- Rough Bills (Walk-in Temporary Bills without Inventory/Report Impact) ---
+app.get('/api/rough-bills', async (req, res) => {
+  const db = await readDB(req.tenantId);
+  res.json(db.rough_bills || []);
+});
+
+app.post('/api/rough-bills', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    if (!db.rough_bills) db.rough_bills = [];
+
+    const existingCount = db.rough_bills.length;
+    const generatedNum = `RB-${String(1001 + existingCount)}`;
+
+    const newRoughBill = {
+      id: req.body.id || `rb_${Date.now()}`,
+      bill_number: req.body.bill_number || generatedNum,
+      bill_date: req.body.bill_date || new Date().toISOString(),
+      customer_name: (req.body.customer_name && req.body.customer_name.trim()) ? req.body.customer_name.trim() : 'General Customer',
+      customer_phone: req.body.customer_phone || '',
+      customer_address: req.body.customer_address || 'Walk-in Counter',
+      route_name: req.body.route_name || 'Walk-in / நேரடி விற்பனை',
+      salesman_name: req.body.salesman_name || 'Counter Sales',
+      items: Array.isArray(req.body.items) ? req.body.items : [],
+      discount: Number(req.body.discount || 0),
+      total_amount: Number(req.body.total_amount || 0),
+      taxable_amount: Number(req.body.taxable_amount || 0),
+      total_cgst: Number(req.body.total_cgst || 0),
+      total_sgst: Number(req.body.total_sgst || 0),
+      final_amount: Number(req.body.final_amount || req.body.total_amount || 0),
+      payment_mode: req.body.payment_mode || 'Cash',
+      created_at: new Date().toISOString()
+    };
+
+    db.rough_bills.unshift(newRoughBill);
+    if (db.rough_bills.length > 200) {
+      db.rough_bills = db.rough_bills.slice(0, 200);
+    }
+
+    await writeDB(req.tenantId, db);
+    res.status(201).json(newRoughBill);
+  } finally {
+    releaseLock();
+  }
+});
+
+app.delete('/api/rough-bills/:id', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    if (!db.rough_bills) db.rough_bills = [];
+    db.rough_bills = db.rough_bills.filter(b => b.id !== req.params.id);
+    await writeDB(req.tenantId, db);
+    res.json({ success: true });
   } finally {
     releaseLock();
   }

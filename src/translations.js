@@ -144,6 +144,9 @@ export const translations = {
 
     // Delivery Module
     date: "Date",
+    order_date: "Order Date",
+    delivery_date: "Delivery Date",
+    invoice_date: "Invoice Date",
     assigned_orders: "Today's Delivery Tasks",
     mark_delivered: "Mark Delivered",
     remarks: "Remarks (optional)",
@@ -395,6 +398,9 @@ export const translations = {
 
     // Delivery Module
     date: "தேதி",
+    order_date: "ஆர்டர் தேதி",
+    delivery_date: "டெலிவரி தேதி",
+    invoice_date: "பில் தேதி",
     assigned_orders: "இன்றைய விநியோகப் பணிகள்",
     mark_delivered: "விநியோகிக்கப்பட்டது",
     remarks: "குறிப்புகள் (தேவைப்பட்டால்)",

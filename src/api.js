@@ -729,6 +729,54 @@ export const api = {
     });
     const data = await parseJsonResponse(res, 'Failed to translate');
     return data ? data.translatedText : '';
+  },
+
+  // Rough Bills (Walk-in Quick Billing)
+  async getRoughBills() {
+    try {
+      const res = await apiFetch(`${API_BASE}/rough-bills`);
+      if (res.ok) {
+        return await parseJsonResponse(res, 'Failed to fetch rough bills');
+      }
+    } catch (e) {
+      console.warn('Backend rough bills fetch failed, using local storage fallback', e);
+    }
+    const local = localStorage.getItem('rough_bills');
+    return local ? JSON.parse(local) : [];
+  },
+
+  async saveRoughBill(bill) {
+    try {
+      const res = await apiFetch(`${API_BASE}/rough-bills`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bill)
+      });
+      if (res.ok) {
+        const saved = await parseJsonResponse(res, 'Failed to save rough bill');
+        const local = JSON.parse(localStorage.getItem('rough_bills') || '[]');
+        local.unshift(saved);
+        localStorage.setItem('rough_bills', JSON.stringify(local.slice(0, 200)));
+        return saved;
+      }
+    } catch (e) {
+      console.warn('Backend rough bill save failed, saving to local storage', e);
+    }
+    const local = JSON.parse(localStorage.getItem('rough_bills') || '[]');
+    const newBill = { ...bill, id: bill.id || `rb_${Date.now()}` };
+    local.unshift(newBill);
+    localStorage.setItem('rough_bills', JSON.stringify(local.slice(0, 200)));
+    return newBill;
+  },
+
+  async deleteRoughBill(id) {
+    try {
+      await apiFetch(`${API_BASE}/rough-bills/${id}`, { method: 'DELETE' });
+    } catch (e) {}
+    const local = JSON.parse(localStorage.getItem('rough_bills') || '[]');
+    const filtered = local.filter(b => b.id !== id);
+    localStorage.setItem('rough_bills', JSON.stringify(filtered));
+    return { success: true };
   }
 };
 

@@ -3,8 +3,22 @@ import api from '../api';
 import * as XLSX from 'xlsx';
 import { calculateOrderGstBreakdown } from '../utils/gstUtils';
 import { translateShopName, translateRouteName, translateProductName } from '../translations';
+import RoughBill from './RoughBill';
 
-export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onOrderUpdated, onCancelEdit }) {
+export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onOrderUpdated, onCancelEdit, initialSubTab = 'regular', onSubTabChange }) {
+  const [activeSubTab, setActiveSubTab] = useState(initialSubTab || 'regular');
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
+  const handleSubTabSwitch = (tab) => {
+    setActiveSubTab(tab);
+    if (onSubTabChange) onSubTabChange(tab);
+  };
+
   const [routes, setRoutes] = useState([]);
   const [shops, setShops] = useState([]);
   const [products, setProducts] = useState([]);
@@ -16,6 +30,8 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
   const [selectedShop, setSelectedShop] = useState('');
   const [cart, setCart] = useState({}); // key: product_id, val: { cases: 0, bottles: 0 }
   const [discount, setDiscount] = useState(0);
+  const getTodayDateStr = () => new Date().toISOString().split('T')[0];
+  const [orderDate, setOrderDate] = useState(getTodayDateStr);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [orderPlacedPopupInfo, setOrderPlacedPopupInfo] = useState(null);
@@ -69,6 +85,14 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
       setSelectedRoute(editingOrder.route_id || '');
       setSelectedShop(editingOrder.shop_id || '');
       setDiscount(editingOrder.discount || 0);
+      if (editingOrder.order_date) {
+        setOrderDate(editingOrder.order_date.split('T')[0]);
+      }
+      if (editingOrder.delivery_date) {
+        setDeliveryDate(editingOrder.delivery_date.split('T')[0]);
+      } else if (editingOrder.order_date) {
+        setDeliveryDate(editingOrder.order_date.split('T')[0]);
+      }
 
       async function loadEditingCart() {
         try {
@@ -367,12 +391,18 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
 
     setSubmitting(true);
     try {
+      const orderDateIso = orderDate ? new Date(orderDate).toISOString() : new Date().toISOString();
+      const deliveryDateIso = orderDateIso;
+
       if (editingOrder) {
         await api.updateOrder(editingOrder.id, {
           shop_id: selectedShop,
           route_id: selectedRoute,
           items,
-          discount: Number(discount || 0)
+          discount: Number(discount || 0),
+          order_date: orderDateIso,
+          delivery_date: deliveryDateIso,
+          invoice_date: deliveryDateIso
         });
         const invNum = editingOrder.invoice_number || `ORD-${editingOrder.id}`;
         setOrderPlacedPopupInfo({
@@ -393,7 +423,10 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           route_id: selectedRoute || (shopObj ? shopObj.route_id : ''),
           salesman_id: 'u2',
           items,
-          discount: Number(discount || 0)
+          discount: Number(discount || 0),
+          order_date: orderDateIso,
+          delivery_date: deliveryDateIso,
+          invoice_date: deliveryDateIso
         };
         const result = await api.createOrder(orderPayload);
         const invNum = result?.order?.invoice_number || `ORD-${result?.order?.id}`;
@@ -689,17 +722,60 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
         </div>
       )}
 
-      <div style={{ marginBottom: '0.75rem' }}>
-        <h1 style={{ fontSize: '1.75rem', marginBottom: '0.15rem' }}>
-          {editingOrder ? `✏️ ${lang === 'ta' ? 'விலைப்பட்டியல் திருத்துக' : 'Edit Invoice'}` : `🛒 ${t('order_taking')}`}
-        </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-          {editingOrder ? (lang === 'ta' ? 'விலைப்பட்டியலின் பொருள்களை திருத்தவும்' : 'Modify items, quantities or discount for this pending invoice') : 'Quick Order entry with live-synced smart cart panel'}
-        </p>
+      {/* Sub Menu under Order Taking */}
+      <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }} className="no-print">
+        <button
+          type="button"
+          onClick={() => handleSubTabSwitch('regular')}
+          className={`btn ${activeSubTab === 'regular' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{
+            fontSize: '0.88rem',
+            fontWeight: '700',
+            padding: '0.45rem 1.1rem',
+            borderRadius: '20px',
+            background: activeSubTab === 'regular' ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.05)',
+            color: activeSubTab === 'regular' ? '#0f172a' : 'var(--text-main)',
+            border: activeSubTab === 'regular' ? 'none' : '1px solid var(--border-color)',
+            cursor: 'pointer'
+          }}
+        >
+          🛒 {lang === 'ta' ? 'வழக்கமான ஆர்டர் (Regular Order)' : 'Regular Sales Order'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleSubTabSwitch('rough_bill')}
+          className={`btn ${activeSubTab === 'rough_bill' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{
+            fontSize: '0.88rem',
+            fontWeight: '700',
+            padding: '0.45rem 1.1rem',
+            borderRadius: '20px',
+            background: activeSubTab === 'rough_bill' ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.05)',
+            color: activeSubTab === 'rough_bill' ? '#0f172a' : 'var(--text-main)',
+            border: activeSubTab === 'rough_bill' ? 'none' : '1px solid var(--border-color)',
+            cursor: 'pointer'
+          }}
+        >
+          🧾 {lang === 'ta' ? 'ரஃப் பில் (Rough Bill - Walk-in)' : 'Rough Bill (Walk-in Quick Billing)'}
+        </button>
       </div>
 
+      {activeSubTab === 'rough_bill' ? (
+        <RoughBill t={t} lang={lang} onBack={() => handleSubTabSwitch('regular')} />
+      ) : (
+        <>
+          <div style={{ marginBottom: '0.75rem' }}>
+            <h1 style={{ fontSize: '1.75rem', marginBottom: '0.15rem' }}>
+              {editingOrder ? `✏️ ${lang === 'ta' ? 'விலைப்பட்டியல் திருத்துக' : 'Edit Invoice'}` : `🛒 ${t('order_taking')}`}
+            </h1>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              {editingOrder ? (lang === 'ta' ? 'விலைப்பட்டியலின் பொருள்களை திருத்தவும்' : 'Modify items, quantities or discount for this pending invoice') : 'Quick Order entry with live-synced smart cart panel'}
+            </p>
+          </div>
+
       {/* Selectors Bar */}
-      <div className="glass-card" style={{ marginBottom: '0.75rem', padding: '0.75rem 1.25rem', position: 'relative', zIndex: 500 }}>
+      <div className="glass-card" style={{ marginBottom: '0.75rem', padding: '0.75rem 1.25rem', position: 'relative', zIndex: 40 }}>
         <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
           {/* Route Management Searchable Dropdown */}
           <div className="form-group" style={{ flex: 1, minWidth: '240px', margin: 0, position: 'relative' }} ref={routeContainerRef}>
@@ -962,6 +1038,19 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
                 )}
               </div>
             )}
+            {/* Order Date */}
+            <div className="form-group" style={{ minWidth: '150px', flex: '0 0 auto', margin: 0 }}>
+              <label style={{ fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.25rem', display: 'block' }}>
+                📅 {lang === 'ta' ? 'ஆர்டர் தேதி' : 'Order Date'}
+              </label>
+              <input
+                type="date"
+                className="form-input"
+                value={orderDate}
+                onChange={e => setOrderDate(e.target.value)}
+                style={{ fontSize: '0.9rem', width: '100%', padding: '0.45rem 0.75rem' }}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -1289,6 +1378,8 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
         <div className="glass-card" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
           🔍 {lang === 'ta' ? 'ஆர்டர் வரிகளை உருவாக்க வழித்தடம் மற்றும் கடையைத் தேர்வு செய்க.' : 'Please select route and shop to build order lines.'}
         </div>
+      )}
+        </>
       )}
     </div>
   );

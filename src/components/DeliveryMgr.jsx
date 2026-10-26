@@ -120,12 +120,17 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [nonDeliveryModalOpen, setNonDeliveryModalOpen] = useState(false);
   const [nonDeliveryType, setNonDeliveryType] = useState('not_delivered'); // 'not_delivered' | 'returned'
 
+  // Fulfillment Delivery Date state (reflects as invoice date on bill)
+  const getTodayDateStr = () => new Date().toISOString().split('T')[0];
+  const [fulfillDeliveryDate, setFulfillDeliveryDate] = useState(getTodayDateStr);
+
   // Order Editing states
   const [products, setProducts] = useState([]);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [orderToEdit, setOrderToEdit] = useState(null);
   const [editItems, setEditItems] = useState([]);
   const [editDiscount, setEditDiscount] = useState(0);
+  const [editDeliveryDate, setEditDeliveryDate] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   const handleStartEditOrder = async (order) => {
@@ -159,6 +164,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         { id: `oi_new_${Date.now()}`, product_id: pData[0]?.id || '', cases: 1, bottles: 0, rate: pData[0]?.wholesale_price || 0, amount: pData[0]?.wholesale_price || 0 }
       ]);
       setEditDiscount(order.discount || 0);
+      setEditDeliveryDate(order.delivery_date ? order.delivery_date.split('T')[0] : (order.order_date ? order.order_date.split('T')[0] : ''));
       setEditModalOpen(true);
     } catch (err) {
       alert('Failed to load invoice items for editing: ' + (err.message || err));
@@ -224,6 +230,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
     setSavingEdit(true);
     try {
+      const deliveryDateIso = editDeliveryDate ? new Date(editDeliveryDate).toISOString() : (orderToEdit.delivery_date || orderToEdit.order_date);
       await api.updateOrder(orderToEdit.id, {
         items: editItems.map(item => ({
           ...item,
@@ -232,7 +239,9 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
           rate: Number(item.rate || 0),
           amount: Number(item.amount || 0)
         })),
-        discount: Number(editDiscount || 0)
+        discount: Number(editDiscount || 0),
+        delivery_date: deliveryDateIso,
+        invoice_date: deliveryDateIso
       });
 
       alert(lang === 'ta' ? 'விலைப்பட்டியல் வெற்றிகரமாக மாற்றப்பட்டது!' : 'Invoice updated successfully!');
@@ -285,6 +294,8 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
             const matchedOrder = oData.find(o => o.id === selectId);
             const matchedShop = matchedOrder ? sData.find(s => s.id === matchedOrder.shop_id) : null;
             setActiveDelivery({ del: matchedDelivery, order: matchedOrder, shop: matchedShop });
+            const initialDate = matchedOrder?.delivery_date ? matchedOrder.delivery_date.split('T')[0] : (matchedOrder?.order_date ? matchedOrder.order_date.split('T')[0] : getTodayDateStr());
+            setFulfillDeliveryDate(initialDate);
             setRemarks('');
             setPaymentMode('cash');
             setOrderPaymentAmount(matchedOrder ? matchedOrder.net_amount : 0);
@@ -308,6 +319,8 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     const remainingDue = order ? Math.max(0, Number(order.net_amount || 0) - directPaid) : 0;
 
     setActiveDelivery({ del, order, shop });
+    const initialDate = order?.delivery_date ? order.delivery_date.split('T')[0] : (order?.order_date ? order.order_date.split('T')[0] : getTodayDateStr());
+    setFulfillDeliveryDate(initialDate);
     setRemarks('');
     setPaymentMode('cash');
     setOrderPaymentAmount(remainingDue);
@@ -377,10 +390,11 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     const finalRemarks = customRemarks !== undefined ? customRemarks : remarks;
     const ordAmt = Number(orderPaymentAmount || 0);
     const prevAmt = Number(prevOutstandingAmount || 0);
+    const deliveryDateIso = fulfillDeliveryDate ? new Date(fulfillDeliveryDate).toISOString() : (order.delivery_date || new Date().toISOString());
 
     // 1. Instantly update local state optimistically for lightning-fast UX
-    setDeliveries(prev => prev.map(d => d.id === del.id ? { ...d, status, remarks: finalRemarks, reason: selectedReason } : d));
-    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status } : o));
+    setDeliveries(prev => prev.map(d => d.id === del.id ? { ...d, status, remarks: finalRemarks, reason: selectedReason, delivery_date: deliveryDateIso, delivery_time: deliveryDateIso } : d));
+    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, status, delivery_date: deliveryDateIso, invoice_date: deliveryDateIso } : o));
 
     if (status === 'delivered') {
       setDeliveryCompletedPopup({
@@ -541,7 +555,9 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       await api.completeDelivery(del.id, {
         status: status,
         reason: selectedReason,
-        remarks: finalRemarks
+        remarks: finalRemarks,
+        delivery_date: deliveryDateIso,
+        invoice_date: deliveryDateIso
       });
 
       // Reload dataset in background to ensure sync
@@ -1261,6 +1277,44 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0.2rem 0' }}>Contact No: {activeDelivery.shop.mobile}</p>
               </div>
 
+              {/* Delivery Date Change Option (Reflects as Invoice Date in Bill) */}
+              <div style={{
+                background: 'rgba(6, 182, 212, 0.06)',
+                border: '1px solid rgba(6, 182, 212, 0.25)',
+                borderRadius: '8px',
+                padding: '0.65rem 0.85rem'
+              }}>
+                <label style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontWeight: '700',
+                  fontSize: '0.85rem',
+                  color: 'var(--accent-cyan)',
+                  marginBottom: '0.35rem'
+                }}>
+                  <span>📅 {lang === 'ta' ? 'டெலிவரி தேதி (பில்லில் தோன்றும் தேதி)' : 'Delivery Date (Reflected as Invoice Date in Bill)'}</span>
+                  <span style={{ fontSize: '0.75rem', fontWeight: '500', color: 'var(--text-muted)' }}>
+                    {lang === 'ta' ? 'பில் தேதி' : 'Invoice Date'}
+                  </span>
+                </label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={fulfillDeliveryDate}
+                  onChange={e => setFulfillDeliveryDate(e.target.value)}
+                  style={{
+                    fontSize: '0.95rem',
+                    width: '100%',
+                    padding: '0.45rem 0.75rem',
+                    fontWeight: '700',
+                    borderColor: 'var(--accent-cyan)',
+                    background: 'var(--bg-input, rgba(255,255,255,0.05))',
+                    color: 'var(--text-main)'
+                  }}
+                />
+              </div>
+
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
                   <span>Total Outstanding:</span>
@@ -1831,6 +1885,27 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
               >
                 ✕
               </button>
+            </div>
+
+            {/* Dates row */}
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem', padding: '0.65rem 0.85rem', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', border: '1px solid var(--border-color)', alignItems: 'center' }}>
+              <div style={{ fontSize: '0.85rem' }}>
+                <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'ஆர்டர் தேதி: ' : 'Order Date: '}</span>
+                <strong style={{ color: 'var(--text-main)' }}>{orderToEdit.order_date ? new Date(orderToEdit.order_date).toLocaleDateString('en-GB') : 'N/A'}</strong>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+                <label style={{ color: 'var(--accent-cyan)', fontWeight: 600 }}>{lang === 'ta' ? 'திட்டமிடப்பட்ட டெலிவரி தேதி:' : 'Scheduled Delivery Date:'}</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={editDeliveryDate}
+                  onChange={e => setEditDeliveryDate(e.target.value)}
+                  style={{ fontSize: '0.85rem', padding: '0.3rem 0.5rem', width: 'auto' }}
+                />
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                ({lang === 'ta' ? 'பில் தேதி டெலிவரி தேதியை பிரதிபலிக்கும்' : 'Invoice Date will reflect Delivery Date'})
+              </div>
             </div>
 
             {/* Products Table */}

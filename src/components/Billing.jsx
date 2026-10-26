@@ -260,6 +260,16 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
     companyGstin: settings?.company_gst || '33CWRPK4071L1Z2'
   });
 
+  const formatDateDisplay = (dateVal) => {
+    if (!dateVal) return 'N/A';
+    try {
+      const d = new Date(dateVal);
+      return isNaN(d.getTime()) ? String(dateVal) : d.toLocaleDateString('en-GB');
+    } catch (e) {
+      return String(dateVal);
+    }
+  };
+
   // Export Invoice to Excel (.xlsx)
   const handleExportExcel = () => {
     if (!order) return;
@@ -268,7 +278,8 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
       [`INVOICE - ${order.invoice_number}`],
       ['Company:', settings.company_name, 'GSTIN:', settings.company_gst],
       ['Address:', settings.company_address, 'Phone:', settings.company_phone],
-      ['Date:', new Date(order.order_date).toLocaleString(), 'Route:', route ? (route.name_en || route.name) : '-'],
+      ['Invoice Date:', formatDateDisplay(order.delivery_date || order.invoice_date || order.order_date), 'Order Date:', formatDateDisplay(order.order_date), 'Delivery Date:', formatDateDisplay(order.delivery_date || order.order_date)],
+      ['Route:', route ? (route.name_en || route.name) : '-'],
       ['Customer:', shop ? (lang === 'ta' ? shop.name_ta || shop.name_en : shop.name_en) : '-', 'Customer GSTIN:', shop?.gst_number || 'N/A'],
       [''],
       ['S.No', 'Product Name', 'Size', 'Cases', 'Bottles', 'Rate (₹)', 'Taxable (₹)', 'GST %', 'CGST (₹)', 'SGST (₹)', 'Total (₹)']
@@ -328,7 +339,7 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
     const csvRows = [
       `"INVOICE ${order.invoice_number} - ${settings.company_name}"`,
       `"Customer:","${shop ? (shop.name_en || '').replace(/"/g, '""') : ''}","GSTIN:","${shop?.gst_number || ''}"`,
-      `"Date:","${new Date(order.order_date).toLocaleDateString()}"`,
+      `"Invoice Date:","${formatDateDisplay(order.delivery_date || order.invoice_date || order.order_date)}","Order Date:","${formatDateDisplay(order.order_date)}","Delivery Date:","${formatDateDisplay(order.delivery_date || order.order_date)}"`,
       '',
       'S.No,Product_Name,Size,Cases,Bottles,Rate,Taxable_Amount,GST_Rate,CGST_Amount,SGST_Amount,Total_Amount'
     ];
@@ -398,7 +409,9 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
 
     const message = `*${settings.company_name}*\n` +
       `Invoice No: ${order.invoice_number}\n` +
-      `Date: ${new Date(order.order_date).toLocaleDateString()}\n` +
+      `Invoice Date: ${formatDateDisplay(order.delivery_date || order.invoice_date || order.order_date)}\n` +
+      `Order Date: ${formatDateDisplay(order.order_date)}\n` +
+      `Delivery Date: ${formatDateDisplay(order.delivery_date || order.order_date)}\n` +
       `Shop: ${shopName}\n` +
       `Items: ${itemsStr}\n` +
       `Net Total: ₹${order.net_amount}\n` +
@@ -494,9 +507,9 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                 <div style={{ display: 'flex', gap: isCompact ? '8px' : '12px', alignItems: 'center' }}>
                   {/* Wholesale Logo Symbol */}
                   <div style={{
-                    background: '#1e293b',
+                    background: '#000000',
                     color: '#ffffff',
-                    fontWeight: '800',
+                    fontWeight: '900',
                     fontSize: isCompact ? '14px' : '18px',
                     width: isCompact ? '32px' : '40px',
                     height: isCompact ? '32px' : '40px',
@@ -509,27 +522,27 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                     GSK
                   </div>
                   <div>
-                    <h2 style={{ fontSize: isCompact ? '16px' : '20px', fontWeight: '800', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#1e293b' }}>
+                    <h2 style={{ fontSize: isCompact ? '16px' : '20px', fontWeight: '900', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#000000' }}>
                       {settings.company_name}
                     </h2>
-                    <p style={{ fontSize: isCompact ? '9px' : '10px', color: '#475569', margin: isCompact ? '1px 0' : '3px 0 1px 0', fontWeight: '500' }}>
+                    <p style={{ fontSize: isCompact ? '9px' : '10px', color: '#000000', margin: isCompact ? '1px 0' : '3px 0 1px 0', fontWeight: '700' }}>
                       📍 {settings.company_address}
                     </p>
-                    <div style={{ display: 'flex', gap: '10px', fontSize: isCompact ? '9px' : '10px', color: '#475569', fontWeight: '600' }}>
+                    <div style={{ display: 'flex', gap: '10px', fontSize: isCompact ? '9px' : '10px', color: '#000000', fontWeight: '700' }}>
                       <span>📞 Mob: {settings.company_phone || settings.company_mobile || "9345463415"}</span>
                       <span>|</span>
-                      <span>GSTIN: <strong style={{ color: '#0f172a', fontWeight: '800' }}>{settings.company_gst}</strong></span>
+                      <span>GSTIN: <strong style={{ color: '#000000', fontWeight: '900' }}>{settings.company_gst}</strong></span>
                     </div>
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <h1 style={{ fontSize: isCompact ? '15px' : '18px', fontWeight: '900', color: '#1e293b', margin: 0, letterSpacing: '0.5px' }}>
+                  <h1 style={{ fontSize: isCompact ? '15px' : '18px', fontWeight: '900', color: '#000000', margin: 0, letterSpacing: '0.5px' }}>
                     TAX INVOICE
                   </h1>
-                  <p style={{ fontSize: isCompact ? '8.5px' : '10px', fontWeight: 'bold', color: '#475569', margin: '3px 0 0 0', textTransform: 'uppercase' }}>
+                  <p style={{ fontSize: isCompact ? '8.5px' : '10px', fontWeight: '900', color: '#000000', margin: '3px 0 0 0', textTransform: 'uppercase' }}>
                     வரி விலைப்பட்டியல்
                   </p>
-                  <span style={{ fontSize: isCompact ? '7px' : '8px', color: '#64748b', border: '1px solid #cbd5e1', padding: '2px 6px', borderRadius: '3px', display: 'inline-block', marginTop: isCompact ? '4px' : '6px', fontWeight: '600' }}>
+                  <span style={{ fontSize: isCompact ? '7px' : '8px', color: '#000000', border: '1.5px solid #000000', padding: '2px 6px', borderRadius: '3px', display: 'inline-block', marginTop: isCompact ? '4px' : '6px', fontWeight: '800' }}>
                     {lang === 'ta' ? 'அசல் நகல்' : 'ORIGINAL COPY'}
                   </span>
                 </div>
@@ -539,53 +552,53 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 1.1fr',
-                border: '1.5px solid #1e293b',
+                border: '2px solid #000000',
                 borderRadius: '4px',
                 overflow: 'hidden',
                 fontSize: isCompact ? '10px' : '11px'
               }}>
                 {/* Left side details */}
-                <div style={{ padding: isCompact ? '5px 8px' : '8px 10px', borderRight: '1.5px solid #1e293b', display: 'flex', flexDirection: 'column', gap: isCompact ? '3px' : '5px', background: '#f8fafc' }}>
+                <div style={{ padding: isCompact ? '5px 8px' : '8px 10px', borderRight: '2px solid #000000', display: 'flex', flexDirection: 'column', gap: isCompact ? '3px' : '5px', background: '#f8fafc' }}>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'பில் எண்:' : 'Invoice No:'}</span>
-                    <strong style={{ color: '#0f172a', fontWeight: '800' }}>{order.invoice_number}</strong>
+                    <span style={{ width: lang === 'ta' ? '120px' : '95px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'பில் எண்:' : 'Invoice No:'}</span>
+                    <strong style={{ color: '#000000', fontWeight: '900' }}>{order.invoice_number}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'பில் தேதி:' : 'Invoice Date:'}</span>
-                    <span style={{ color: '#0f172a', fontWeight: '800' }}>{new Date(order.order_date).toLocaleDateString('en-GB')}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '95px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'பில் தேதி:' : 'Invoice Date:'}</span>
+                    <strong style={{ color: '#000000', fontWeight: '900' }}>{formatDateDisplay(order.delivery_date || order.invoice_date || order.order_date)}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'வழித்தடம்:' : 'Route:'}</span>
-                    <span style={{ color: '#0f172a', fontWeight: '800' }}>{translateRouteName(route, lang)}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '95px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'வழித்தடம்:' : 'Route:'}</span>
+                    <strong style={{ color: '#000000', fontWeight: '900' }}>{translateRouteName(route, lang)}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'விற்பனையாளர்:' : 'Salesman:'}</span>
-                    <span style={{ color: '#0f172a', fontWeight: '800' }}>{lang === 'ta' ? 'விநியோக நபர்' : 'Delivery Person'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '95px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'விற்பனையாளர்:' : 'Salesman:'}</span>
+                    <strong style={{ color: '#000000', fontWeight: '900' }}>{lang === 'ta' ? 'விநியோக நபர்' : 'Delivery Person'}</strong>
                   </div>
                 </div>
                 {/* Right side Customer details */}
                 <div style={{ padding: isCompact ? '5px 8px' : '8px 10px', display: 'flex', flexDirection: 'column', gap: isCompact ? '3px' : '5px' }}>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'வாடிக்கையாளர்:' : 'Customer Name:'}</span>
-                    <strong style={{ color: '#0f172a', fontWeight: '800' }}>{translateShopName(shop, lang)}</strong>
+                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'வாடிக்கையாளர்:' : 'Customer Name:'}</span>
+                    <strong style={{ color: '#000000', fontWeight: '900' }}>{translateShopName(shop, lang)}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'தொடர்பு எண்:' : 'Mobile No:'}</span>
-                    <span style={{ color: '#0f172a', fontWeight: '800' }}>{shop ? shop.mobile : ''}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'தொடர்பு எண்:' : 'Mobile No:'}</span>
+                    <strong style={{ color: '#000000', fontWeight: '900' }}>{shop ? shop.mobile : ''}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'ஜிஎஸ்டி எண்:' : 'Customer GSTIN:'}</span>
-                    <span style={{ color: '#0f172a', fontWeight: '800' }}>{shop ? shop.gst_number || 'N/A' : 'N/A'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'ஜிஎஸ்டி எண்:' : 'Customer GSTIN:'}</span>
+                    <strong style={{ color: '#000000', fontWeight: '900' }}>{shop ? shop.gst_number || 'N/A' : 'N/A'}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#475569', fontWeight: '600', flexShrink: 0 }}>{lang === 'ta' ? 'முகவரி:' : 'Shop Address:'}</span>
-                    <span style={{ color: '#0f172a', fontWeight: '800' }}>{shop ? translateAddress(shop.address, lang) || 'N/A' : 'N/A'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'முகவரி:' : 'Shop Address:'}</span>
+                    <strong style={{ color: '#000000', fontWeight: '900' }}>{shop ? translateAddress(shop.address, lang) || 'N/A' : 'N/A'}</strong>
                   </div>
                 </div>
               </div>
 
               {/* Product Details Tabular Format */}
-              <div style={{ border: '1.5px solid #1e293b', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{ border: '2px solid #000000', borderRadius: '4px', overflow: 'hidden' }}>
                 <table style={{
                   width: '100%',
                   borderCollapse: 'collapse',
@@ -593,36 +606,36 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                   textAlign: 'left'
                 }}>
                   <thead>
-                    <tr style={{ background: '#ffffff', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '30px', fontWeight: '700', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>#</th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', fontWeight: '700', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
+                    <tr style={{ background: '#f8fafc', color: '#000000', borderBottom: '2px solid #000000' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '30px', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>#</th>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
                         {lang === 'ta' ? 'பொருட்களின் விபரம்' : 'Product Name'}
                       </th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '55px', fontWeight: '700', color: '#475569', borderBottom: '1.5px solid #1e293b', textAlign: 'center' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '55px', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000', textAlign: 'center' }}>
                         {lang === 'ta' ? 'அளவு' : 'Size'}
                       </th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '45px', textAlign: 'center', fontWeight: '700', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '45px', textAlign: 'center', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
                         {lang === 'ta' ? 'பெட்டி' : 'Cases'}
                       </th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '45px', textAlign: 'center', fontWeight: '700', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '45px', textAlign: 'center', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
                         {lang === 'ta' ? 'பாட்டில்' : 'Bottles'}
                       </th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '65px', textAlign: 'right', fontWeight: '700', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '65px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
                         {lang === 'ta' ? 'விகிதம்' : 'Rate'}
                       </th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '75px', textAlign: 'right', fontWeight: '700', color: '#0284c7', borderBottom: '1.5px solid #1e293b' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '75px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
                         {lang === 'ta' ? 'வரித்தொகை' : 'Taxable'}
                       </th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '50px', textAlign: 'center', fontWeight: '700', color: '#475569', borderBottom: '1.5px solid #1e293b' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '50px', textAlign: 'center', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
                         GST
                       </th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '65px', textAlign: 'right', fontWeight: '700', color: '#0891b2', borderBottom: '1.5px solid #1e293b' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '65px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
                         CGST
                       </th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '65px', textAlign: 'right', fontWeight: '700', color: '#16a34a', borderBottom: '1.5px solid #1e293b' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '65px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
                         SGST
                       </th>
-                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '80px', textAlign: 'right', fontWeight: '800', color: '#0f172a', borderBottom: '1.5px solid #1e293b' }}>
+                      <th style={{ padding: isCompact ? '4px 6px' : '5px 6px', width: '80px', textAlign: 'right', fontWeight: '950', color: '#000000', borderBottom: '2px solid #000000' }}>
                         {lang === 'ta' ? 'மொத்தம்' : 'Total'}
                       </th>
                     </tr>
@@ -637,50 +650,50 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                       return (
                         <tr key={item.id || idx} style={{
                           background: idx % 2 === 0 ? '#ffffff' : '#f8fafc',
-                          borderBottom: '1px solid #cbd5e1'
+                          borderBottom: '1px solid #000000'
                         }}>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', color: '#0f172a', fontWeight: '700', textAlign: 'center' }}>{idx + 1}</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', fontWeight: '800', color: '#0f172a' }}>{pName}</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', color: '#475569', textAlign: 'center' }}>{pSize || '-'}</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', fontWeight: '700', color: '#0f172a' }}>{item.cases || 0}</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', fontWeight: '700', color: '#0f172a' }}>{item.bottles || 0}</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#0f172a', fontWeight: '600' }}>₹{item.rate}</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#0284c7', fontWeight: '700' }}>₹{item.taxableAmount}</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', fontWeight: '700', color: '#475569' }}>{item.gstRate}%</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#0891b2', fontWeight: '600' }}>₹{item.cgstAmount}</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#16a34a', fontWeight: '600' }}>₹{item.sgstAmount}</td>
-                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', fontWeight: '800', color: '#0f172a' }}>₹{item.grandTotal}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', color: '#000000', fontWeight: '800', textAlign: 'center' }}>{idx + 1}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', fontWeight: '800', color: '#000000' }}>{pName}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', color: '#000000', textAlign: 'center', fontWeight: '700' }}>{pSize || '-'}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', fontWeight: '800', color: '#000000' }}>{item.cases || 0}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', fontWeight: '800', color: '#000000' }}>{item.bottles || 0}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.rate}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.taxableAmount}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', fontWeight: '800', color: '#000000' }}>{item.gstRate}%</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.cgstAmount}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.sgstAmount}</td>
+                          <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', fontWeight: '950', color: '#000000' }}>₹{item.grandTotal}</td>
                         </tr>
                       );
                     })}
                     {/* Total Row */}
                     <tr style={{
                       background: '#ffffff',
-                      borderTop: '2px solid #1e293b',
-                      borderBottom: '2px solid #1e293b',
-                      fontWeight: '800'
+                      borderTop: '2.5px solid #000000',
+                      borderBottom: '2.5px solid #000000',
+                      fontWeight: '900'
                     }}>
                       <td style={{ padding: isCompact ? '3px 6px' : '5px 6px' }}></td>
-                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', color: '#0f172a', fontWeight: '800' }}>{lang === 'ta' ? 'மொத்தம்' : 'Total'}</td>
+                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', color: '#000000', fontWeight: '950' }}>{lang === 'ta' ? 'மொத்தம்' : 'Total'}</td>
                       <td style={{ padding: isCompact ? '3px 6px' : '5px 6px' }}></td>
-                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', color: '#0f172a', fontWeight: '800' }}>
+                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', color: '#000000', fontWeight: '950' }}>
                         {gstBreakdown.items.reduce((sum, item) => sum + (Number(item.cases) || 0), 0)}
                       </td>
-                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', color: '#0f172a', fontWeight: '800' }}>
+                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'center', color: '#000000', fontWeight: '950' }}>
                         {gstBreakdown.items.reduce((sum, item) => sum + (Number(item.bottles) || 0), 0)}
                       </td>
                       <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right' }}></td>
-                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#0284c7', fontWeight: '800' }}>
+                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '950' }}>
                         ₹{gstBreakdown.taxableAmount}
                       </td>
                       <td style={{ padding: isCompact ? '3px 6px' : '5px 6px' }}></td>
-                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#0891b2', fontWeight: '800' }}>
+                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '950' }}>
                         ₹{gstBreakdown.totalCgst}
                       </td>
-                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#16a34a', fontWeight: '800' }}>
+                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '950' }}>
                         ₹{gstBreakdown.totalSgst}
                       </td>
-                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', fontWeight: '900', color: '#0f172a' }}>
+                      <td style={{ padding: isCompact ? '3px 6px' : '5px 6px', textAlign: 'right', fontWeight: '950', color: '#000000' }}>
                         ₹{gstBreakdown.grandTotalIncGst}
                       </td>
                     </tr>
@@ -704,7 +717,7 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                     
                     {/* Horizontal Financial Ledger & GST Breakdown Summary */}
                     <div style={{
-                      border: '1.5px solid #1e293b',
+                      border: '2px solid #000000',
                       borderRadius: '4px',
                       overflow: 'hidden',
                       background: '#ffffff',
@@ -717,60 +730,60 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                           ? (gstBreakdown.totalIgst > 0 ? 'repeat(7, 1fr)' : 'repeat(6, 1fr)') 
                           : (gstBreakdown.totalIgst > 0 ? 'repeat(6, 1fr)' : 'repeat(5, 1fr)'),
                         background: '#f8fafc',
-                        borderBottom: '1px solid #cbd5e1',
+                        borderBottom: '1.5px solid #000000',
                         textAlign: 'center'
                       }}>
                         {gstBreakdown.discount > 0 && (
-                          <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #cbd5e1' }}>
-                            <span style={{ color: '#ef4444', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
+                          <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #000000' }}>
+                            <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
                               {lang === 'ta' ? 'தள்ளுபடி' : 'Discount (-)'}
                             </span>
-                            <strong style={{ color: '#ef4444', fontSize: isCompact ? '9.5px' : '10.5px' }}>-₹{gstBreakdown.discount}</strong>
+                            <strong style={{ color: '#000000', fontSize: isCompact ? '9.5px' : '10.5px', fontWeight: '900' }}>-₹{gstBreakdown.discount}</strong>
                           </div>
                         )}
 
-                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #cbd5e1', background: 'rgba(2, 132, 199, 0.08)' }}>
-                          <span style={{ color: '#0284c7', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
+                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #000000', background: '#f1f5f9' }}>
+                          <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '900', display: 'block' }}>
                             {lang === 'ta' ? 'வரிக்கு உட்பட்டது' : 'Taxable Amount'}
                           </span>
-                          <strong style={{ color: '#0284c7', fontSize: isCompact ? '10px' : '11px' }}>₹{gstBreakdown.taxableAmount}</strong>
+                          <strong style={{ color: '#000000', fontSize: isCompact ? '10px' : '11px', fontWeight: '950' }}>₹{gstBreakdown.taxableAmount}</strong>
                         </div>
 
-                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #cbd5e1' }}>
-                          <span style={{ color: '#0891b2', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
+                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #000000' }}>
+                          <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
                             Total CGST
                           </span>
-                          <strong style={{ color: '#0891b2', fontSize: isCompact ? '9.5px' : '10.5px' }}>₹{gstBreakdown.totalCgst}</strong>
+                          <strong style={{ color: '#000000', fontSize: isCompact ? '9.5px' : '10.5px', fontWeight: '900' }}>₹{gstBreakdown.totalCgst}</strong>
                         </div>
 
-                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #cbd5e1' }}>
-                          <span style={{ color: '#16a34a', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
+                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #000000' }}>
+                          <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
                             Total SGST
                           </span>
-                          <strong style={{ color: '#16a34a', fontSize: isCompact ? '9.5px' : '10.5px' }}>₹{gstBreakdown.totalSgst}</strong>
+                          <strong style={{ color: '#000000', fontSize: isCompact ? '9.5px' : '10.5px', fontWeight: '900' }}>₹{gstBreakdown.totalSgst}</strong>
                         </div>
 
                         {gstBreakdown.totalIgst > 0 && (
-                          <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #cbd5e1' }}>
-                            <span style={{ color: '#f59e0b', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
+                          <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #000000' }}>
+                            <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
                               Total IGST
                             </span>
-                            <strong style={{ color: '#f59e0b', fontSize: isCompact ? '9.5px' : '10.5px' }}>₹{gstBreakdown.totalIgst}</strong>
+                            <strong style={{ color: '#000000', fontSize: isCompact ? '9.5px' : '10.5px', fontWeight: '900' }}>₹{gstBreakdown.totalIgst}</strong>
                           </div>
                         )}
 
-                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #cbd5e1' }}>
-                          <span style={{ color: '#d97706', fontSize: '8px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
+                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', borderRight: '1px solid #000000' }}>
+                          <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
                             Total GST
                           </span>
-                          <strong style={{ color: '#d97706', fontSize: isCompact ? '9.5px' : '10.5px' }}>₹{gstBreakdown.totalGst}</strong>
+                          <strong style={{ color: '#000000', fontSize: isCompact ? '9.5px' : '10.5px', fontWeight: '900' }}>₹{gstBreakdown.totalGst}</strong>
                         </div>
 
-                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', background: 'rgba(15, 23, 42, 0.05)' }}>
-                          <span style={{ color: '#0f172a', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
+                        <div style={{ padding: isCompact ? '3px 4px' : '4px 6px', background: '#e2e8f0' }}>
+                          <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '900', display: 'block' }}>
                             {lang === 'ta' ? 'ஜிஎஸ்டி மொத்தம்' : 'Grand Total (Inc. GST)'}
                           </span>
-                          <strong style={{ color: '#0f172a', fontSize: isCompact ? '10.5px' : '11.5px' }}>₹{gstBreakdown.grandTotalIncGst}</strong>
+                          <strong style={{ color: '#000000', fontSize: isCompact ? '10.5px' : '11.5px', fontWeight: '950' }}>₹{gstBreakdown.grandTotalIncGst}</strong>
                         </div>
                       </div>
 
@@ -782,37 +795,37 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                         textAlign: 'center',
                         alignItems: 'center'
                       }}>
-                        <div style={{ padding: isCompact ? '4px 6px' : '6px 8px', borderRight: '1px solid #cbd5e1' }}>
-                          <span style={{ color: '#475569', fontSize: '8.5px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
+                        <div style={{ padding: isCompact ? '4px 6px' : '6px 8px', borderRight: '1px solid #000000' }}>
+                          <span style={{ color: '#000000', fontSize: '8.5px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
                             {lang === 'ta' ? 'பழைய நிலுவை' : 'Old Balance'}
                           </span>
-                          <strong style={{ color: '#0f172a', fontSize: isCompact ? '10px' : '11px' }}>₹{outstandingBeforeOrder}</strong>
+                          <strong style={{ color: '#000000', fontSize: isCompact ? '10px' : '11px', fontWeight: '900' }}>₹{outstandingBeforeOrder}</strong>
                         </div>
 
-                        <div style={{ padding: isCompact ? '4px 6px' : '6px 8px', borderRight: '1px solid #cbd5e1' }}>
-                          <span style={{ color: '#475569', fontSize: '8.5px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
+                        <div style={{ padding: isCompact ? '4px 6px' : '6px 8px', borderRight: '1px solid #000000' }}>
+                          <span style={{ color: '#000000', fontSize: '8.5px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
                             {lang === 'ta' ? 'தற்போதைய பில்' : 'Current Bill Total'}
                           </span>
-                          <strong style={{ color: '#0f172a', fontSize: isCompact ? '10px' : '11px' }}>₹{gstBreakdown.grandTotalIncGst}</strong>
+                          <strong style={{ color: '#000000', fontSize: isCompact ? '10px' : '11px', fontWeight: '900' }}>₹{gstBreakdown.grandTotalIncGst}</strong>
                         </div>
 
-                        <div style={{ padding: isCompact ? '4px 6px' : '6px 8px', borderRight: '1px solid #cbd5e1' }}>
-                          <span style={{ color: '#16a34a', fontSize: '8.5px', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>
+                        <div style={{ padding: isCompact ? '4px 6px' : '6px 8px', borderRight: '1px solid #000000' }}>
+                          <span style={{ color: '#000000', fontSize: '8.5px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
                             {lang === 'ta' ? 'வசூலிக்கப்பட்ட தொகை' : 'Amount Collected'}
                           </span>
-                          <strong style={{ color: '#16a34a', fontSize: isCompact ? '10px' : '11px' }}>₹{totalCollected}</strong>
+                          <strong style={{ color: '#000000', fontSize: isCompact ? '10px' : '11px', fontWeight: '900' }}>₹{totalCollected}</strong>
                         </div>
 
                         <div style={{
                           padding: isCompact ? '4px 8px' : '6px 10px',
-                          background: remainingOutstanding > 0 ? '#fef2f2' : '#f0fdf4',
+                          background: '#ffffff',
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center'
                         }}>
                           <span style={{
-                            color: remainingOutstanding > 0 ? '#b91c1c' : '#15803d',
-                            fontWeight: '900',
+                            color: '#000000',
+                            fontWeight: '950',
                             textTransform: 'uppercase',
                             letterSpacing: '0.5px',
                             fontSize: isCompact ? '9.5px' : '11px'
@@ -820,7 +833,7 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                             {lang === 'ta' ? 'செலுத்த வேண்டியது:' : 'AMOUNT DUE:'}
                           </span>
                           <strong style={{
-                            color: remainingOutstanding > 0 ? '#b91c1c' : '#15803d',
+                            color: '#000000',
                             fontWeight: '950',
                             fontSize: isCompact ? '12px' : '13.5px'
                           }}>
@@ -832,10 +845,10 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
 
                     {/* Payment Details & GPay QR Section */}
                     <div style={{
-                      border: '1.5px solid #1e293b',
+                      border: '2px solid #000000',
                       borderRadius: '4px',
                       padding: isCompact ? '4px 8px' : '6px 10px',
-                      background: '#f8fafc',
+                      background: '#ffffff',
                       display: 'flex',
                       flexDirection: 'row',
                       alignItems: 'center',
@@ -845,20 +858,20 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                     }}>
                       {/* Payment Breakup List */}
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '3px', justifyContent: 'center' }}>
-                        <strong style={{ fontSize: isCompact ? '9.5px' : '10.5px', color: '#1e293b', fontWeight: '800', textTransform: 'uppercase', borderBottom: '1px solid #cbd5e1', paddingBottom: '2px', marginBottom: '2px' }}>
+                        <strong style={{ fontSize: isCompact ? '9.5px' : '10.5px', color: '#000000', fontWeight: '900', textTransform: 'uppercase', borderBottom: '1.5px solid #000000', paddingBottom: '2px', marginBottom: '2px' }}>
                           {lang === 'ta' ? 'கட்டண விவரங்கள்' : 'PAYMENT BREAKUP'}
                         </strong>
                         {payments.length === 0 ? (
-                          <span style={{ fontSize: isCompact ? '8.5px' : '9.5px', color: '#ef4444', fontWeight: '800' }}>
+                          <span style={{ fontSize: isCompact ? '8.5px' : '9.5px', color: '#000000', fontWeight: '900' }}>
                             {lang === 'ta' ? 'நிலுவை (No payments collected)' : 'UNPAID / ON CREDIT'}
                           </span>
                         ) : (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
                             {payments.map(p => (
-                              <div key={p.id} style={{ fontSize: isCompact ? '8.5px' : '9.5px', color: '#0f172a' }}>
-                                <span style={{ textTransform: 'uppercase', fontWeight: '700' }}>{p.payment_mode}:</span>
-                                <strong style={{ color: '#0f172a', fontWeight: '800', marginLeft: '4px' }}>₹{p.collected_amount}</strong>
-                                {p.transaction_number && <span style={{ color: '#64748b', fontSize: '8px', marginLeft: '2px' }}>({p.transaction_number})</span>}
+                              <div key={p.id} style={{ fontSize: isCompact ? '8.5px' : '9.5px', color: '#000000' }}>
+                                <span style={{ textTransform: 'uppercase', fontWeight: '800' }}>{p.payment_mode}:</span>
+                                <strong style={{ color: '#000000', fontWeight: '900', marginLeft: '4px' }}>₹{p.collected_amount}</strong>
+                                {p.transaction_number && <span style={{ color: '#000000', fontWeight: '700', fontSize: '8px', marginLeft: '2px' }}>({p.transaction_number})</span>}
                               </div>
                             ))}
                           </div>
@@ -871,7 +884,7 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: '8px',
-                        borderLeft: '1.5px dashed #cbd5e1',
+                        borderLeft: '1.5px solid #000000',
                         paddingLeft: '10px'
                       }}>
                         <img 
@@ -880,20 +893,20 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                           style={{ 
                             width: isCompact ? '48px' : '56px', 
                             height: isCompact ? '48px' : '56px', 
-                            border: '1px solid #0f172a', 
+                            border: '1.5px solid #000000', 
                             padding: '1px', 
                             borderRadius: '4px',
                             background: '#ffffff'
                           }} 
                         />
                         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                          <span style={{ fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '900', color: '#0f172a' }}>
+                          <span style={{ fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '950', color: '#000000' }}>
                             📱 {upiName}
                           </span>
-                          <span style={{ fontSize: isCompact ? '7px' : '8px', fontWeight: '800', color: '#0284c7', wordBreak: 'break-all' }}>
+                          <span style={{ fontSize: isCompact ? '7px' : '8px', fontWeight: '900', color: '#000000', wordBreak: 'break-all' }}>
                             {upiVpa}
                           </span>
-                          <span style={{ fontSize: isCompact ? '7.5px' : '8.5px', fontWeight: '900', color: '#16a34a', marginTop: '1px' }}>
+                          <span style={{ fontSize: isCompact ? '7.5px' : '8.5px', fontWeight: '950', color: '#000000', marginTop: '1px' }}>
                             {lang === 'ta' ? `தொகை: ₹${billAmount}` : `Scan & Pay: ₹${billAmount}`}
                           </span>
                         </div>
@@ -912,12 +925,12 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
                 padding: '0 12px'
               }}>
                 <div style={{ textAlign: 'center', width: '200px' }}>
-                  <div style={{ borderTop: '1px dashed #475569', paddingTop: '6px', fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ borderTop: '1.5px dashed #000000', paddingTop: '6px', fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '900', color: '#000000', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     {lang === 'ta' ? 'வாடிக்கையாளர் கையொப்பம்' : 'CUSTOMER SIGNATURE'}
                   </div>
                 </div>
                 <div style={{ textAlign: 'center', width: '200px' }}>
-                  <div style={{ borderTop: '1px dashed #475569', paddingTop: '6px', fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ borderTop: '1.5px dashed #000000', paddingTop: '6px', fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '900', color: '#000000', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     {lang === 'ta' ? 'அங்கீகரிக்கப்பட்ட கையொப்பம்' : 'AUTHORISED SIGNATORY'}
                   </div>
                 </div>

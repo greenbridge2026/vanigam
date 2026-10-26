@@ -50,6 +50,16 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
     window.print();
   };
 
+  const formatDateDisplay = (dateVal) => {
+    if (!dateVal) return 'N/A';
+    try {
+      const d = new Date(dateVal);
+      return isNaN(d.getTime()) ? String(dateVal) : d.toLocaleDateString('en-GB');
+    } catch (e) {
+      return String(dateVal);
+    }
+  };
+
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>Loading Invoices for Printing...</div>;
 
   return (
@@ -198,19 +208,19 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
               }}>
                 <div style={{ padding: isCompact ? '5px 8px' : '8px 10px', borderRight: '2px solid #0f172a', display: 'flex', flexDirection: 'column', gap: isCompact ? '3px' : '5px', background: '#f8fafc' }}>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#0f172a', fontWeight: '800', flexShrink: 0 }}>{lang === 'ta' ? 'பில் எண்:' : 'Invoice No:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '95px', color: '#0f172a', fontWeight: '800', flexShrink: 0 }}>{lang === 'ta' ? 'பில் எண்:' : 'Invoice No:'}</span>
                     <strong style={{ color: '#0f172a', fontWeight: '900' }}>{order.invoice_number}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#0f172a', fontWeight: '800', flexShrink: 0 }}>{lang === 'ta' ? 'பில் தேதி:' : 'Invoice Date:'}</span>
-                    <strong style={{ color: '#0f172a', fontWeight: '800' }}>{new Date(order.order_date).toLocaleDateString('en-GB')}</strong>
+                    <span style={{ width: lang === 'ta' ? '120px' : '95px', color: '#0f172a', fontWeight: '800', flexShrink: 0 }}>{lang === 'ta' ? 'பில் தேதி:' : 'Invoice Date:'}</span>
+                    <strong style={{ color: '#0f172a', fontWeight: '800' }}>{formatDateDisplay(order.delivery_date || order.invoice_date || order.order_date)}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#0f172a', fontWeight: '800', flexShrink: 0 }}>{lang === 'ta' ? 'வழித்தடம்:' : 'Route:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '95px', color: '#0f172a', fontWeight: '800', flexShrink: 0 }}>{lang === 'ta' ? 'வழித்தடம்:' : 'Route:'}</span>
                     <strong style={{ color: '#0f172a', fontWeight: '800' }}>{translateRouteName(route, lang)}</strong>
                   </div>
                   <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '90px', color: '#0f172a', fontWeight: '800', flexShrink: 0 }}>{lang === 'ta' ? 'விற்பனையாளர்:' : 'Salesman:'}</span>
+                    <span style={{ width: lang === 'ta' ? '120px' : '95px', color: '#0f172a', fontWeight: '800', flexShrink: 0 }}>{lang === 'ta' ? 'விற்பனையாளர்:' : 'Salesman:'}</span>
                     <strong style={{ color: '#0f172a', fontWeight: '800' }}>{lang === 'ta' ? 'விநியோக நபர்' : 'Delivery Person'}</strong>
                   </div>
                 </div>
@@ -357,13 +367,13 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
                           <span style={{ fontSize: isCompact ? '9px' : '10px', fontWeight: '900', color: '#0f172a' }}>
                             📱 {upiName}
                           </span>
-                          <span style={{ fontSize: isCompact ? '7.5px' : '8.5px', fontWeight: '800', color: '#0284c7', wordBreak: 'break-all' }}>
+                          <span style={{ fontSize: isCompact ? '7.5px' : '8.5px', fontWeight: '900', color: '#000000', wordBreak: 'break-all' }}>
                             {upiVpa}
                           </span>
-                          <span style={{ fontSize: isCompact ? '8px' : '9px', fontWeight: '900', color: '#16a34a', marginTop: '1px' }}>
+                          <span style={{ fontSize: isCompact ? '8px' : '9px', fontWeight: '950', color: '#000000', marginTop: '1px' }}>
                             {lang === 'ta' ? `தொகை: ₹${billAmount}` : `Bill Due: ₹${billAmount}`}
                           </span>
-                          <span style={{ fontSize: isCompact ? '6.5px' : '7.5px', color: '#475569', marginTop: '1px', lineHeight: '1.1', maxWidth: '95px' }}>
+                          <span style={{ fontSize: isCompact ? '6.5px' : '7.5px', color: '#000000', fontWeight: '700', marginTop: '1px', lineHeight: '1.1', maxWidth: '95px' }}>
                             {lang === 'ta' ? 'தொகையை உள்ளிட்டு செலுத்தலாம்' : 'Scan & enter amount in GPay'}
                           </span>
                         </div>
@@ -371,39 +381,39 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
 
                     </div>
 
-                <div style={{ border: '1.5px solid #1e293b', borderRadius: '4px', overflow: 'hidden', fontSize: isCompact ? '10px' : '11px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div style={{ border: '2px solid #000000', borderRadius: '4px', overflow: 'hidden', fontSize: isCompact ? '10px' : '11px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #cbd5e1' }}>
-                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'மொத்தத் தொகை:' : 'Gross Total:'}</span>
-                      <span style={{ fontWeight: '800', color: '#0f172a' }}>₹{order.total_amount}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #000000' }}>
+                      <span style={{ color: '#000000', fontWeight: '700' }}>{lang === 'ta' ? 'மொத்தத் தொகை:' : 'Gross Total:'}</span>
+                      <span style={{ fontWeight: '900', color: '#000000' }}>₹{order.total_amount}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #cbd5e1' }}>
-                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'தள்ளுபடி:' : 'Discount (-):'}</span>
-                      <span style={{ fontWeight: '800', color: '#ef4444' }}>-₹{order.discount || 0}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #000000' }}>
+                      <span style={{ color: '#000000', fontWeight: '700' }}>{lang === 'ta' ? 'தள்ளுபடி:' : 'Discount (-):'}</span>
+                      <span style={{ fontWeight: '900', color: '#000000' }}>-₹{order.discount || 0}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #cbd5e1' }}>
-                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'துணைத்தொகை:' : 'Subtotal:'}</span>
-                      <span style={{ fontWeight: '800', color: '#0f172a' }}>₹{(Number(order.total_amount) || 0) - (Number(order.discount) || 0)}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #000000' }}>
+                      <span style={{ color: '#000000', fontWeight: '700' }}>{lang === 'ta' ? 'துணைத்தொகை:' : 'Subtotal:'}</span>
+                      <span style={{ fontWeight: '900', color: '#000000' }}>₹{(Number(order.total_amount) || 0) - (Number(order.discount) || 0)}</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #cbd5e1' }}>
-                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'பழைய நிலுவை:' : 'Old Balance:'}</span>
-                      <span style={{ fontWeight: '800', color: '#0f172a' }}>₹{outstandingBeforeOrder}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px', borderBottom: '1px solid #000000' }}>
+                      <span style={{ color: '#000000', fontWeight: '700' }}>{lang === 'ta' ? 'பழைய நிலுவை:' : 'Old Balance:'}</span>
+                      <span style={{ fontWeight: '900', color: '#000000' }}>₹{outstandingBeforeOrder}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: isCompact ? '2px 6px' : '4px 8px' }}>
-                      <span style={{ color: '#475569', fontWeight: '600' }}>{lang === 'ta' ? 'வசூலிக்கப்பட்ட தொகை:' : 'Amount Collected:'}</span>
-                      <span style={{ fontWeight: '800', color: '#10b981' }}>₹{totalCollected}</span>
+                      <span style={{ color: '#000000', fontWeight: '700' }}>{lang === 'ta' ? 'வசூலிக்கப்பட்ட தொகை:' : 'Amount Collected:'}</span>
+                      <span style={{ fontWeight: '900', color: '#000000' }}>₹{totalCollected}</span>
                     </div>
                     <div style={{
                       display: 'flex',
                       justifyContent: 'space-between',
                       padding: isCompact ? '4px 6px' : '6px 8px',
                       background: '#ffffff',
-                      borderTop: '1.5px solid #1e293b'
+                      borderTop: '2px solid #000000'
                     }}>
-                      <span style={{ color: '#0f172a', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: isCompact ? '10px' : '11px' }}>
+                      <span style={{ color: '#000000', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.5px', fontSize: isCompact ? '10px' : '11px' }}>
                         {lang === 'ta' ? 'செலுத்த வேண்டிய தொகை:' : 'AMOUNT DUE:'}
                       </span>
-                      <strong style={{ color: '#0f172a', fontWeight: '800', fontSize: isCompact ? '11px' : '12px' }}>
+                      <strong style={{ color: '#000000', fontWeight: '950', fontSize: isCompact ? '11px' : '12px' }}>
                         ₹{remainingOutstanding}
                       </strong>
                     </div>
@@ -416,12 +426,12 @@ export default function BulkPrintLayout({ orderIds, t, lang, onBack }) {
               {/* Signatures */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: isCompact ? '20px' : '35px', padding: '0 12px' }}>
                 <div style={{ textAlign: 'center', width: '200px' }}>
-                  <div style={{ borderTop: '1px dashed #475569', paddingTop: '6px', fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ borderTop: '1.5px dashed #000000', paddingTop: '6px', fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '900', color: '#000000', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     {lang === 'ta' ? 'வாடிக்கையாளர் கையொப்பம்' : 'CUSTOMER SIGNATURE'}
                   </div>
                 </div>
                 <div style={{ textAlign: 'center', width: '200px' }}>
-                  <div style={{ borderTop: '1px dashed #475569', paddingTop: '6px', fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ borderTop: '1.5px dashed #000000', paddingTop: '6px', fontSize: isCompact ? '8.5px' : '9.5px', fontWeight: '900', color: '#000000', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     {lang === 'ta' ? 'அங்கீகரிக்கப்பட்ட கையொப்பம்' : 'AUTHORISED SIGNATORY'}
                   </div>
                 </div>

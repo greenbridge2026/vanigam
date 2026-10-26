@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { translations } from './translations';
 import api from './api';
 
@@ -87,6 +87,7 @@ export default function App() {
     const saved = localStorage.getItem('bulkPrintOrderIds');
     return saved ? JSON.parse(saved) : null;
   });
+  const [orderTakingSubTab, setOrderTakingSubTab] = useState('regular');
   const [menuHidden, setMenuHidden] = useState(() => window.innerWidth <= 768);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settings, setSettings] = useState({
@@ -171,6 +172,21 @@ export default function App() {
   // Notifications
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const notificationContainerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (notificationContainerRef.current && !notificationContainerRef.current.contains(e.target)) {
+        setShowNotifications(false);
+      }
+    };
+    if (showNotifications) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showNotifications]);
 
   useEffect(() => {
     if (session) {
@@ -559,6 +575,8 @@ export default function App() {
             t={t}
             lang={lang}
             editingOrder={editingOrder}
+            initialSubTab={orderTakingSubTab}
+            onSubTabChange={(sub) => setOrderTakingSubTab(sub)}
             onOrderCreated={handleOrderCreated}
             onOrderUpdated={() => {
               setEditingOrder(null);
@@ -630,32 +648,42 @@ export default function App() {
             {currentUserName || session.name} ({t(session.role)})
           </div>
 
-          {/* Notification bell */}
-          <div className="notification-bell" onClick={() => setShowNotifications(!showNotifications)}>
-            🔔
-            {unreadNotifications.length > 0 && (
-              <span className="badge-count">{unreadNotifications.length}</span>
-            )}
-          </div>
+          {/* Notification bell & popup container */}
+          <div ref={notificationContainerRef} style={{ position: 'relative' }}>
+            <div className="notification-bell" onClick={() => setShowNotifications(!showNotifications)}>
+              🔔
+              {unreadNotifications.length > 0 && (
+                <span className="badge-count">{unreadNotifications.length}</span>
+              )}
+            </div>
 
-          {/* Notifications List Popup */}
-          {showNotifications && (
-            <div className="notifications-popup">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '0.75rem' }}>
-                <div>
-                  <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <span>🔔</span> {t('notifications')}
-                    <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', borderRadius: '10px' }}>
-                      Live Recent
-                    </span>
-                  </strong>
+            {/* Notifications List Popup */}
+            {showNotifications && (
+              <div className="notifications-popup">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span>🔔</span> {t('notifications')}
+                      <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', borderRadius: '10px' }}>
+                        Live Recent
+                      </span>
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {unreadNotifications.length > 0 && (
+                      <button onClick={markAllRead} style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold' }}>
+                        {t('mark_all_read')}
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => setShowNotifications(false)} 
+                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1rem', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}
+                      title="Close"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
-                {unreadNotifications.length > 0 && (
-                  <button onClick={markAllRead} style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold' }}>
-                    {t('mark_all_read')}
-                  </button>
-                )}
-              </div>
               <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
                 {notifications.length === 0 ? (
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>{t('no_notifications')}</p>
@@ -708,6 +736,7 @@ export default function App() {
               </div>
             </div>
           )}
+          </div>
 
           {/* Settings Option */}
           {session?.role === 'admin' && (
@@ -735,24 +764,77 @@ export default function App() {
 
         {/* Sidebar */}
         <aside className={`sidebar no-print ${menuHidden ? 'hidden' : ''}`}>
-          {getSidebarLinks().map(link => (
-            <button
-              key={link.id}
-              onClick={() => {
-                setActiveTab(link.id);
-                setSelectedOrderId(null);
-                setEditingOrder(null);
-                setBulkPrintOrderIds(null);
-                if (window.innerWidth <= 768) {
-                  setMenuHidden(true);
-                }
-              }}
-              className={`sidebar-link ${activeTab === link.id ? 'active' : ''}`}
-            >
-              <span>{link.icon}</span>
-              <span>{link.label}</span>
-            </button>
-          ))}
+          {getSidebarLinks().map(link => {
+            const isOrders = link.id === 'orders';
+            const isActive = activeTab === link.id;
+
+            return (
+              <React.Fragment key={link.id}>
+                <button
+                  onClick={() => {
+                    setActiveTab(link.id);
+                    if (isOrders) setOrderTakingSubTab('regular');
+                    setSelectedOrderId(null);
+                    setEditingOrder(null);
+                    setBulkPrintOrderIds(null);
+                    if (window.innerWidth <= 768) {
+                      setMenuHidden(true);
+                    }
+                  }}
+                  className={`sidebar-link ${isActive && (!isOrders || orderTakingSubTab === 'regular') ? 'active' : ''}`}
+                >
+                  <span>{link.icon}</span>
+                  <span>{link.label}</span>
+                </button>
+
+                {/* Sub Menu under Order Taking in Sidebar */}
+                {isOrders && (
+                  <div style={{ paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '2px', margin: '2px 0 6px 0' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('orders');
+                        setOrderTakingSubTab('regular');
+                        setSelectedOrderId(null);
+                        setEditingOrder(null);
+                        if (window.innerWidth <= 768) setMenuHidden(true);
+                      }}
+                      className={`sidebar-link ${activeTab === 'orders' && orderTakingSubTab === 'regular' ? 'active' : ''}`}
+                      style={{
+                        fontSize: '0.8rem',
+                        padding: '0.35rem 0.75rem',
+                        opacity: activeTab === 'orders' && orderTakingSubTab === 'regular' ? 1 : 0.75,
+                        background: activeTab === 'orders' && orderTakingSubTab === 'regular' ? 'rgba(6, 182, 212, 0.15)' : 'transparent'
+                      }}
+                    >
+                      <span style={{ fontSize: '0.85rem' }}>🛒</span>
+                      <span>{lang === 'ta' ? 'வழக்கமான ஆர்டர்' : 'Regular Order'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('orders');
+                        setOrderTakingSubTab('rough_bill');
+                        setSelectedOrderId(null);
+                        setEditingOrder(null);
+                        if (window.innerWidth <= 768) setMenuHidden(true);
+                      }}
+                      className={`sidebar-link ${activeTab === 'orders' && orderTakingSubTab === 'rough_bill' ? 'active' : ''}`}
+                      style={{
+                        fontSize: '0.8rem',
+                        padding: '0.35rem 0.75rem',
+                        opacity: activeTab === 'orders' && orderTakingSubTab === 'rough_bill' ? 1 : 0.75,
+                        background: activeTab === 'orders' && orderTakingSubTab === 'rough_bill' ? 'rgba(6, 182, 212, 0.15)' : 'transparent'
+                      }}
+                    >
+                      <span style={{ fontSize: '0.85rem' }}>🧾</span>
+                      <span>{lang === 'ta' ? 'ரஃப் பில் (Rough Bill)' : 'Rough Bill (Walk-in)'}</span>
+                    </button>
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
         </aside>
 
         {/* Dynamic Panels */}
