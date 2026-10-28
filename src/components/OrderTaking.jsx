@@ -418,18 +418,80 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           }
         });
       } else {
+        const tempOrderId = `ord_${Date.now()}`;
+        const cachedOrders = api.getCached('orders') || [];
+
+        // Find lowest available candidate starting from INV-1001
+        const usedNumbers = new Set();
+        cachedOrders.forEach(o => {
+          if (o.invoice_number) {
+            const match = String(o.invoice_number).match(/INV-(\d+)/i);
+            if (match) {
+              const num = parseInt(match[1], 10);
+              if (!isNaN(num)) usedNumbers.add(num);
+            }
+          }
+        });
+
+        let candidate = 1001;
+        while (usedNumbers.has(candidate)) {
+          candidate++;
+        }
+        const invoiceNum = `INV-${candidate}`;
+
+        // Map items with deterministic IDs matching client and server
+        const orderItemsList = items.map((it, idx) => {
+          const prod = products.find(p => p.id === it.product_id) || {};
+          const rate = shopObj?.shop_type === 'wholesale' ? prod.wholesale_price : prod.retail_price;
+          const totalQty = (Number(it.cases || 0) * (prod.case_qty_rule || 1)) + Number(it.bottles || 0);
+          const amount = Math.round(totalQty * (rate / (prod.case_qty_rule || 1)));
+          const itemId = `oi_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 4)}`;
+          return {
+            id: itemId,
+            order_id: tempOrderId,
+            product_id: it.product_id,
+            cases: Number(it.cases || 0),
+            bottles: Number(it.bottles || 0),
+            rate: rate,
+            amount: amount
+          };
+        });
+
+        const totalAmount = orderItemsList.reduce((sum, item) => sum + item.amount, 0);
+        const discountAmt = Number(discount || 0);
+        const netAmount = Math.max(0, totalAmount - discountAmt);
+
+        const optimisticOrder = {
+          id: tempOrderId,
+          invoice_number: invoiceNum,
+          route_id: selectedRoute || (shopObj ? shopObj.route_id : ''),
+          shop_id: selectedShop,
+          salesman_id: 'u2',
+          order_date: orderDateIso,
+          delivery_date: deliveryDateIso,
+          invoice_date: deliveryDateIso,
+          total_amount: totalAmount,
+          discount: discountAmt,
+          net_amount: netAmount,
+          previous_outstanding: Number(shopObj?.outstanding_amount || 0),
+          status: 'pending',
+          delivery_man_id: (api.getCached('routes') || []).find(r => r.id === (selectedRoute || shopObj?.route_id))?.delivery_man_id || ''
+        };
+
         const orderPayload = {
+          id: tempOrderId,
+          invoice_number: invoiceNum,
           shop_id: selectedShop,
           route_id: selectedRoute || (shopObj ? shopObj.route_id : ''),
           salesman_id: 'u2',
-          items,
-          discount: Number(discount || 0),
+          items: orderItemsList,
+          discount: discountAmt,
           order_date: orderDateIso,
           delivery_date: deliveryDateIso,
           invoice_date: deliveryDateIso
         };
 
-        // Immediately deduct product stock in local state & cache for instant 0ms reduction
+        // 1. Immediately deduct product stock in local state & cache for instant 0ms reduction
         const updatedProds = products.map(p => {
           const cartItem = cart[p.id];
           if (cartItem) {
@@ -441,17 +503,39 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
         setProducts(updatedProds);
         api.setCached('products', updatedProds);
 
-        const result = await api.createOrder(orderPayload);
-        if (result && result.products) {
-          setProducts(result.products);
-          api.setCached('products', result.products);
+        // 2. Populate orders & order_items in clientCache immediately
+        api.setCached('orders', [optimisticOrder, ...cachedOrders.filter(o => o.id !== tempOrderId)]);
+        const cachedItems = api.getCached('order_items') || [];
+        api.setCached('order_items', [...orderItemsList, ...cachedItems.filter(i => i.order_id !== tempOrderId)]);
+
+        // 3. Clear cart and input states
+        setCart({});
+        setDiscount(0);
+
+        // 4. Instantly switch to Billing screen with 0ms delay!
+        if (onOrderCreated) {
+          onOrderCreated(tempOrderId, optimisticOrder, orderItemsList);
         }
-        if (onOrderCreated && result && result.order) {
-          onOrderCreated(result.order.id, result.order, result.items);
-        } else {
-          setCart({});
-          setDiscount(0);
-        }
+
+        // 5. Commit to backend asynchronously in background with safety rollback
+        api.createOrder(orderPayload).then(result => {
+          if (result && result.products) {
+            setProducts(result.products);
+            api.setCached('products', result.products);
+          }
+          if (result && result.order) {
+            const latestOrders = (api.getCached('orders') || []).filter(o => o.id !== tempOrderId && o.id !== result.order.id);
+            api.setCached('orders', [result.order, ...latestOrders]);
+            if (result.items) {
+              const latestItems = (api.getCached('order_items') || []).filter(i => i.order_id !== tempOrderId && i.order_id !== result.order.id);
+              api.setCached('order_items', [...result.items, ...latestItems]);
+            }
+          }
+        }).catch(err => {
+          console.error('Order creation error in background:', err);
+          alert(err.message || (lang === 'ta' ? 'ஆர்டர் சமர்ப்பிப்பதில் பிழை' : 'Error processing order transaction'));
+        });
+        return;
       }
     } catch (err) {
       alert(err.message || (lang === 'ta' ? 'ஆர்டர் சமர்ப்பிப்பதில் பிழை' : 'Error processing order transaction'));

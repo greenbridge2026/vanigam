@@ -19,7 +19,11 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
     if (!rId) return null;
     return (api.getCached('routes') || []).find(r => r.id === rId) || null;
   });
-  const [payments, setPayments] = useState(() => api.getCached('payments') || []);
+  const [payments, setPayments] = useState(() => {
+    if (initialData?.payments) return initialData.payments;
+    const all = api.getCached('payments') || [];
+    return orderId ? all.filter(p => p.order_id === orderId) : [];
+  });
   const [allOrders, setAllOrders] = useState(() => api.getCached('orders') || []);
   const [allPayments, setAllPayments] = useState(() => api.getCached('payments') || []);
   const [loading, setLoading] = useState(() => !initialData?.order && !(api.getCached('orders') || []).find(o => o.id === orderId));
@@ -69,6 +73,13 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
       const cachedRoutes = api.getCached('routes') || [];
       const foundRoute = cachedRoutes.find(r => r.id === initialData.order.route_id);
       if (foundRoute) setRoute(foundRoute);
+
+      if (initialData.payments) {
+        setPayments(initialData.payments);
+      } else {
+        const cachedPayments = api.getCached('payments') || [];
+        setPayments(orderId ? cachedPayments.filter(p => p.order_id === orderId) : []);
+      }
 
       setLoading(false);
     }

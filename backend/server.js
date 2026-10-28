@@ -162,7 +162,10 @@ async function readDB(tenantId) {
             const tableKey = parts[0];
             const chunkIndex = parseInt(parts[1], 10);
             if (!chunkDocs[tableKey]) chunkDocs[tableKey] = [];
-            chunkDocs[tableKey].push({ index: chunkIndex, data: doc.data().data || [] });
+            const cData = doc.data().data || [];
+            chunkDocs[tableKey].push({ index: chunkIndex, data: cData });
+            if (!cachedTableSnapshots[tenantId]) cachedTableSnapshots[tenantId] = {};
+            cachedTableSnapshots[tenantId][doc.id] = JSON.stringify(cData);
           } else {
             rawDocs[doc.id] = doc.data();
           }
@@ -228,9 +231,23 @@ async function readDB(tenantId) {
   }
 
   if (dbData) {
+    let pruned = false;
+    if (Array.isArray(dbData.stock_ledger) && dbData.stock_ledger.length > 2000) {
+      dbData.stock_ledger = dbData.stock_ledger.slice(-2000);
+      pruned = true;
+    }
+    if (Array.isArray(dbData.notifications) && dbData.notifications.length > 150) {
+      dbData.notifications = dbData.notifications.slice(-150);
+      pruned = true;
+    }
+    if (Array.isArray(dbData.delivery_audit_trail) && dbData.delivery_audit_trail.length > 500) {
+      dbData.delivery_audit_trail = dbData.delivery_audit_trail.slice(-500);
+      pruned = true;
+    }
+
     const cleaned = cleanSyntheticOpeningOrders(dbData);
     const reindexedChanged = (dbData.orders && dbData.orders.length > 0) ? sanitizeAndReindexOrders(dbData) : false;
-    if (cleaned || reindexedChanged) {
+    if (cleaned || reindexedChanged || pruned) {
       cachedDBs[tenantId] = dbData;
       writeDB(tenantId, dbData).catch(err => console.error(`Error auto-persisting database cleanup/reindexing for ${tenantId}:`, err));
     }
@@ -279,7 +296,7 @@ async function writeDB(tenantId, data, modifiedKeys = null) {
       const newDataStr = JSON.stringify(data[key] || (key === 'settings' ? {} : []));
 
       const isExplicitModified = modifiedKeys && Array.isArray(modifiedKeys) && modifiedKeys.includes(key);
-      if (!isExplicitModified && oldDataStr === newDataStr) {
+      if (oldDataStr === newDataStr) {
         continue;
       }
 
@@ -308,9 +325,15 @@ async function writeDB(tenantId, data, modifiedKeys = null) {
             updated_at: timestamp
           });
 
-          // Chunk documents
+          // Chunk documents: only write chunks that actually changed to save massive network payload!
           for (let i = 0; i < chunks.length; i++) {
-            const chunkRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(`${key}__chunk_${i}`);
+            const chunkDocId = `${key}__chunk_${i}`;
+            const chunkStr = JSON.stringify(chunks[i]);
+            if (cachedTableSnapshots[tenantId][chunkDocId] === chunkStr) {
+              continue;
+            }
+            cachedTableSnapshots[tenantId][chunkDocId] = chunkStr;
+            const chunkRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(chunkDocId);
             batch.set(chunkRef, {
               data: chunks[i],
               chunk_index: i,
@@ -1884,7 +1907,7 @@ app.post('/api/orders', async (req, res) => {
       const amount = totalQtyRequested * (rate / product.case_qty_rule); // rate is based on cases/bottles proportionately
 
       orderItemsToCreate.push({
-        id: `oi_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        id: item.id || `oi_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         product_id: product.id,
         cases: Number(item.cases || 0),
         bottles: Number(item.bottles || 0),
@@ -1952,7 +1975,14 @@ app.post('/api/orders', async (req, res) => {
     while (usedNumbers.has(candidate)) {
       candidate++;
     }
-    const invoiceNum = `INV-${candidate}`;
+    let invoiceNum = `INV-${candidate}`;
+    if (req.body.invoice_number) {
+      const match = String(req.body.invoice_number).match(/INV-(\d+)/i);
+      const reqNum = match ? parseInt(match[1], 10) : null;
+      if (reqNum && !usedNumbers.has(reqNum)) {
+        invoiceNum = req.body.invoice_number;
+      }
+    }
 
     const prevOutstanding = Number(shop.outstanding_amount || 0);
 
@@ -1962,7 +1992,7 @@ app.post('/api/orders', async (req, res) => {
     const actualInvoiceDate = delivery_date || invoice_date || actualDeliveryDate;
 
     const newOrder = {
-      id: `ord_${Date.now()}`,
+      id: req.body.id || `ord_${Date.now()}`,
       invoice_number: invoiceNum,
       route_id,
       shop_id,
