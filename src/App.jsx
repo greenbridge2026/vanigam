@@ -533,6 +533,12 @@ export default function App() {
           initialData={selectedOrderInitialData}
           t={t}
           lang={lang}
+          onNewBill={() => {
+            setSelectedOrderId(null);
+            setSelectedOrderInitialData(null);
+            setOrderTakingSubTab('regular');
+            setActiveTab('orders');
+          }}
           onBack={() => {
             setSelectedOrderId(null);
             setSelectedOrderInitialData(null);

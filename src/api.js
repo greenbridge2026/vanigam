@@ -409,8 +409,14 @@ export const api = {
         setCached('order_items', [...result.items, ...cachedItems.filter(i => i.order_id !== result.order.id)]);
       }
     }
+    if (result && result.delivery) {
+      const cachedDeliveries = getCached('deliveries');
+      if (cachedDeliveries && Array.isArray(cachedDeliveries)) {
+        setCached('deliveries', [result.delivery, ...cachedDeliveries.filter(d => d.id !== result.delivery.id && d.order_id !== result.order?.id)]);
+      }
+    }
 
-    invalidateCache(['deliveries', 'shops', 'stock_ledger', 'notifications', 'outstanding_history']);
+    invalidateCache(['shops', 'stock_ledger', 'notifications', 'outstanding_history']);
     return result;
   },
   async updateOrder(id, orderData) {
@@ -538,11 +544,25 @@ export const api = {
     return result;
   },
   async deleteOrder(id) {
+    // Immediately purge from in-memory cache so no page sees it
+    const cachedOrders = getCached('orders');
+    if (cachedOrders && Array.isArray(cachedOrders)) {
+      setCached('orders', cachedOrders.filter(o => o.id !== id));
+    }
+    const cachedDeliveries = getCached('deliveries');
+    if (cachedDeliveries && Array.isArray(cachedDeliveries)) {
+      setCached('deliveries', cachedDeliveries.filter(d => d.order_id !== id && d.id !== id));
+    }
+    const cachedItems = getCached('order_items');
+    if (cachedItems && Array.isArray(cachedItems)) {
+      setCached('order_items', cachedItems.filter(oi => oi.order_id !== id));
+    }
+
     const res = await apiFetch(`${API_BASE}/orders/${id}`, {
       method: 'DELETE'
     });
     const result = await parseJsonResponse(res, 'Failed to cancel/delete order');
-    invalidateCache(['orders', 'order_items', 'deliveries', 'shops', 'products', 'stock_ledger', 'recycle_bin']);
+    invalidateCache(['shops', 'products', 'stock_ledger', 'recycle_bin', 'outstanding_history']);
     return result;
   },
 

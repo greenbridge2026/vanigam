@@ -478,9 +478,20 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           delivery_man_id: (api.getCached('routes') || []).find(r => r.id === (selectedRoute || shopObj?.route_id))?.delivery_man_id || ''
         };
 
+        const tempDeliveryId = `del_${Date.now()}`;
+        const optimisticDelivery = {
+          id: tempDeliveryId,
+          order_id: tempOrderId,
+          delivery_man_id: optimisticOrder.delivery_man_id,
+          status: 'pending',
+          delivery_time: null,
+          remarks: ''
+        };
+
         const orderPayload = {
           id: tempOrderId,
           invoice_number: invoiceNum,
+          delivery_id: tempDeliveryId,
           shop_id: selectedShop,
           route_id: selectedRoute || (shopObj ? shopObj.route_id : ''),
           salesman_id: 'u2',
@@ -503,10 +514,12 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
         setProducts(updatedProds);
         api.setCached('products', updatedProds);
 
-        // 2. Populate orders & order_items in clientCache immediately
+        // 2. Populate orders, order_items & deliveries in clientCache immediately
         api.setCached('orders', [optimisticOrder, ...cachedOrders.filter(o => o.id !== tempOrderId)]);
         const cachedItems = api.getCached('order_items') || [];
         api.setCached('order_items', [...orderItemsList, ...cachedItems.filter(i => i.order_id !== tempOrderId)]);
+        const cachedDeliveries = api.getCached('deliveries') || [];
+        api.setCached('deliveries', [optimisticDelivery, ...cachedDeliveries.filter(d => d.order_id !== tempOrderId)]);
 
         // 3. Clear cart and input states
         setCart({});
@@ -530,6 +543,10 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
               const latestItems = (api.getCached('order_items') || []).filter(i => i.order_id !== tempOrderId && i.order_id !== result.order.id);
               api.setCached('order_items', [...result.items, ...latestItems]);
             }
+          }
+          if (result && result.delivery) {
+            const latestDeliveries = (api.getCached('deliveries') || []).filter(d => d.id !== tempDeliveryId && d.order_id !== tempOrderId && d.id !== result.delivery.id);
+            api.setCached('deliveries', [result.delivery, ...latestDeliveries]);
           }
         }).catch(err => {
           console.error('Order creation error in background:', err);

@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx';
 import { calculateOrderGstBreakdown } from '../utils/gstUtils';
 import { translateShopName, translateRouteName, translateProductName, translateAddress } from '../translations';
 
-export default function Billing({ orderId, initialData, t, lang, onBack }) {
+export default function Billing({ orderId, initialData, t, lang, onBack, onNewBill }) {
   const [order, setOrder] = useState(() => initialData?.order || null);
   const [orderItems, setOrderItems] = useState(() => initialData?.items || []);
   const [products, setProducts] = useState(() => api.getCached('products') || []);
@@ -509,9 +509,30 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
               {lang === 'ta' ? 'முன்னோட்டம், பில் அச்சிடவும், பிடிஎஃப் பதிவிறக்கவும், அல்லது வாட்ஸ்அப்பில் பகிரவும்' : 'Preview, print receipt, download PDF, or share via WhatsApp'}
             </p>
           </div>
-          <button className="btn btn-secondary" onClick={onBack}>
-            {lang === 'ta' ? '⬅ பின்னால்' : '⬅ Back'}
-          </button>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {onNewBill && (
+              <button 
+                id="btn-new-bill-top"
+                className="btn btn-primary" 
+                onClick={onNewBill}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px', 
+                  background: '#10b981', 
+                  borderColor: '#10b981', 
+                  color: '#ffffff', 
+                  fontWeight: '800',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+                }}
+              >
+                ➕ {lang === 'ta' ? 'புதிய பில்' : 'New Bill'}
+              </button>
+            )}
+            <button className="btn btn-secondary" onClick={onBack}>
+              {lang === 'ta' ? '⬅ பின்னால்' : '⬅ Back'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -975,6 +996,26 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
           {totalCollected < order.net_amount && (
             <button className="btn btn-primary" onClick={handleOpenPaymentModal} style={{ background: '#10b981', borderColor: '#10b981' }}>
               💵 {lang === 'ta' ? 'வசூல் செய் (Record Payment)' : 'Record Payment'}
+            </button>
+          )}
+
+          {onNewBill && (
+            <button 
+              id="btn-new-bill-bottom"
+              className="btn btn-primary" 
+              onClick={onNewBill}
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '6px', 
+                background: '#10b981', 
+                borderColor: '#10b981', 
+                color: '#ffffff', 
+                fontWeight: '800',
+                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)'
+              }}
+            >
+              ➕ {lang === 'ta' ? 'புதிய பில்' : 'New Bill'}
             </button>
           )}
 

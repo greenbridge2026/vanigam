@@ -2018,14 +2018,15 @@ app.post('/api/orders', async (req, res) => {
 
     // Create delivery entry
     if (!db.deliveries) db.deliveries = [];
-    db.deliveries.push({
-      id: `del_${Date.now()}`,
+    const newDelivery = {
+      id: req.body.delivery_id || `del_${Date.now()}`,
       order_id: newOrder.id,
       delivery_man_id: newOrder.delivery_man_id,
       status: 'pending',
       delivery_time: null,
       remarks: ''
-    });
+    };
+    db.deliveries.push(newDelivery);
 
     // Outstanding Alert for Delivery Man (updates only when items are delivered, or starts tracking outstanding now)
     // The business logic: Outstanding is generated. We update the shop's outstanding after delivery completion or when placing?
@@ -2081,6 +2082,7 @@ app.post('/api/orders', async (req, res) => {
     res.status(201).json({
       order: newOrder,
       items: orderItemsToCreate,
+      delivery: newDelivery,
       products: db.products,
       shop: shop
     });

@@ -276,8 +276,29 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
           api.getRoutes(),
           api.getPayments()
         ]);
-        setDeliveries(dData);
-        setOrders(oData);
+        const serverDeliveries = dData || [];
+        const serverOrders = oData || [];
+
+        // Preserve any newly created optimistic deliveries from memory that server has not synced yet
+        const cachedDeliveries = api.getCached('deliveries') || [];
+        const mergedDeliveries = [...serverDeliveries];
+        cachedDeliveries.forEach(cd => {
+          if (!mergedDeliveries.some(d => d.id === cd.id || d.order_id === cd.order_id)) {
+            mergedDeliveries.unshift(cd);
+          }
+        });
+
+        // Preserve any newly created optimistic orders from memory
+        const cachedOrders = api.getCached('orders') || [];
+        const mergedOrders = [...serverOrders];
+        cachedOrders.forEach(co => {
+          if (!mergedOrders.some(o => o.id === co.id)) {
+            mergedOrders.unshift(co);
+          }
+        });
+
+        setDeliveries(mergedDeliveries);
+        setOrders(mergedOrders);
         setShops(sData);
         setRoutes(rData);
         setPayments(pData);
@@ -646,13 +667,27 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     const targetId = orderToDelete;
     if (!targetId) return;
 
-    // 1. Instantly remove from UI without waiting for network
-    setDeliveries(prev => (prev || []).filter(d => d.order_id !== targetId));
+    // 1. Instantly remove from UI and global client cache without waiting for network!
+    setDeliveries(prev => (prev || []).filter(d => d.order_id !== targetId && d.id !== targetId));
     setOrders(prev => (prev || []).filter(o => o.id !== targetId));
-    if (activeDelivery && activeDelivery.order?.id === targetId) {
+    if (activeDelivery && (activeDelivery.order?.id === targetId || activeDelivery.del?.id === targetId)) {
       setActiveDelivery(null);
     }
     setOrderToDelete(null);
+
+    // Update global client cache immediately so no page/tab can see this order
+    const cachedOrders = api.getCached('orders');
+    if (cachedOrders && Array.isArray(cachedOrders)) {
+      api.setCached('orders', cachedOrders.filter(o => o.id !== targetId));
+    }
+    const cachedDeliveries = api.getCached('deliveries');
+    if (cachedDeliveries && Array.isArray(cachedDeliveries)) {
+      api.setCached('deliveries', cachedDeliveries.filter(d => d.order_id !== targetId && d.id !== targetId));
+    }
+    const cachedItems = api.getCached('order_items');
+    if (cachedItems && Array.isArray(cachedItems)) {
+      api.setCached('order_items', cachedItems.filter(oi => oi.order_id !== targetId));
+    }
 
     // 2. Perform backend deletion and silent background sync
     try {
@@ -663,21 +698,12 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         api.getOrders(),
         api.getShops()
       ]);
-      setDeliveries(dData || []);
-      setOrders(oData || []);
+      setDeliveries((dData || []).filter(d => d.order_id !== targetId && d.id !== targetId));
+      setOrders((oData || []).filter(o => o.id !== targetId));
       setShops(sData || []);
     } catch (err) {
       console.error('Failed to delete order:', err);
       alert(err.message || (lang === 'ta' ? 'ஆர்டர் நீக்குவதில் தோல்வி' : 'Failed to delete order'));
-      // Rollback by reloading from server
-      const [dData, oData, sData] = await Promise.all([
-        api.getDeliveries(),
-        api.getOrders(),
-        api.getShops()
-      ]);
-      setDeliveries(dData || []);
-      setOrders(oData || []);
-      setShops(sData || []);
     }
   };
 
@@ -740,7 +766,23 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     return `upi://pay?pa=${encodeURIComponent(pa)}&pn=${encodeURIComponent(pn)}&am=${am}&cu=INR&tn=${encodeURIComponent(tn)}`;
   };
 
-  const filteredDeliveries = deliveries.filter(d => {
+  // Ensure every active regular order has a visible delivery entry even if async sync is in flight
+  const combinedDeliveries = [...deliveries];
+  const existingDeliveryOrderIds = new Set(deliveries.map(d => d.order_id));
+  (orders || []).forEach(o => {
+    if (o && o.status !== 'cancelled' && !existingDeliveryOrderIds.has(o.id)) {
+      combinedDeliveries.unshift({
+        id: `del_${o.id}`,
+        order_id: o.id,
+        delivery_man_id: o.delivery_man_id || '',
+        status: o.status || 'pending',
+        delivery_time: null,
+        remarks: ''
+      });
+    }
+  });
+
+  const filteredDeliveries = combinedDeliveries.filter(d => {
     if (statusFilter !== 'all' && d.status !== statusFilter) return false;
     
     const order = orders.find(o => o.id === d.order_id);
