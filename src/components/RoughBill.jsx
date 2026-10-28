@@ -74,7 +74,7 @@ export default function RoughBill({ t, lang, onBack }) {
     } else {
       const caseQty = Number(prod.case_qty_rule || 24);
       const rate = Number(prod.wholesale_price || prod.retail_price || prod.price_per_case || 0);
-      const gstRate = Number(prod.gst !== undefined ? prod.gst : prod.gst_rate !== undefined ? prod.gst_rate : 0);
+      // Rough bill: GST should not be reflected for products from product management
       const displayName = lang === 'ta' ? (prod.name_ta || prod.name_en || prod.name) : (prod.name_en || prod.name_ta || prod.name);
       const newItem = {
         id: `item_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
@@ -85,7 +85,7 @@ export default function RoughBill({ t, lang, onBack }) {
         cases: 1,
         bottles: 0,
         rate: rate,
-        gst_rate: gstRate,
+        gst_rate: 0,
         taxable_amount: 0,
         cgst_amount: 0,
         sgst_amount: 0,
@@ -191,6 +191,7 @@ export default function RoughBill({ t, lang, onBack }) {
   const calculatedSgst = items.reduce((sum, it) => sum + (Number(it.sgst_amount) || 0), 0);
   const calculatedTotal = items.reduce((sum, it) => sum + (Number(it.total_amount) || 0), 0);
   const calculatedNet = Math.max(0, calculatedTotal - (Number(discount) || 0));
+  const hasGst = (calculatedCgst + calculatedSgst) > 0;
 
   const finalBillAmount = isFinalAmountOverridden && manualFinalAmount !== ''
     ? Number(manualFinalAmount)
@@ -581,7 +582,7 @@ export default function RoughBill({ t, lang, onBack }) {
                       const pRate = p.wholesale_price || p.retail_price || 0;
                       return (
                         <option key={p.id} value={p.id}>
-                          {pName} {p.size ? `(${p.size})` : ''} — Rate: ₹{pRate} | GST: {p.gst || p.gst_rate || 0}%
+                          {pName} {p.size ? `(${p.size})` : ''} — Rate: ₹{pRate}
                         </option>
                       );
                     })}
@@ -648,7 +649,7 @@ export default function RoughBill({ t, lang, onBack }) {
                                       updated[idx].size = p.size || '';
                                       updated[idx].case_qty_rule = Number(p.case_qty_rule || 24);
                                       updated[idx].rate = Number(p.wholesale_price || p.retail_price || 0);
-                                      updated[idx].gst_rate = Number(p.gst !== undefined ? p.gst : p.gst_rate !== undefined ? p.gst_rate : 0);
+                                      updated[idx].gst_rate = 0;
                                       calculateItemTotals(updated[idx]);
                                       setItems(updated);
                                     }
@@ -869,15 +870,19 @@ export default function RoughBill({ t, lang, onBack }) {
                   <strong>{totalCases} cases, {totalBottles} bottles</strong>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'வரித்தொகை:' : 'Taxable Amount:'}</span>
-                  <strong>₹{calculatedTaxable.toFixed(2)}</strong>
-                </div>
+                {hasGst && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'வரித்தொகை:' : 'Taxable Amount:'}</span>
+                      <strong>₹{calculatedTaxable.toFixed(2)}</strong>
+                    </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>CGST + SGST:</span>
-                  <strong>₹{(calculatedCgst + calculatedSgst).toFixed(2)}</strong>
-                </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>CGST + SGST:</span>
+                      <strong>₹{(calculatedCgst + calculatedSgst).toFixed(2)}</strong>
+                    </div>
+                  </>
+                )}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem' }}>
                   <span style={{ color: 'var(--text-muted)' }}>{lang === 'ta' ? 'துணைத்தொகை:' : 'Subtotal:'}</span>
@@ -1144,10 +1149,10 @@ export default function RoughBill({ t, lang, onBack }) {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <h1 style={{ fontSize: '18px', fontWeight: '900', color: '#000000', margin: 0, letterSpacing: '0.5px' }}>
-                    TAX INVOICE
+                    {hasGst ? 'TAX INVOICE' : (lang === 'ta' ? 'ரஃப் பில்' : 'ROUGH BILL')}
                   </h1>
                   <p style={{ fontSize: '10px', fontWeight: '900', color: '#000000', margin: '3px 0 0 0', textTransform: 'uppercase' }}>
-                    வரி விலைப்பட்டியல்
+                    {hasGst ? (lang === 'ta' ? 'வரி விலைப்பட்டியல்' : 'TAX INVOICE') : (lang === 'ta' ? 'நேரடி விற்பனை பில்' : 'ESTIMATE / ROUGH BILL')}
                   </p>
                   <span style={{ fontSize: '8px', color: '#000000', border: '1.5px solid #000000', padding: '2px 6px', borderRadius: '3px', display: 'inline-block', marginTop: '6px', fontWeight: '800' }}>
                     {lang === 'ta' ? 'அசல் நகல்' : 'ORIGINAL COPY'}
@@ -1194,10 +1199,12 @@ export default function RoughBill({ t, lang, onBack }) {
                     <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'தொடர்பு எண்:' : 'Mobile No:'}</span>
                     <strong style={{ color: '#000000', fontWeight: '900' }}>{customerPhone || 'N/A'}</strong>
                   </div>
-                  <div style={{ display: 'flex' }}>
-                    <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'ஜிஎஸ்டி எண்:' : 'Customer GSTIN:'}</span>
-                    <strong style={{ color: '#000000', fontWeight: '900' }}>N/A</strong>
-                  </div>
+                  {hasGst && (
+                    <div style={{ display: 'flex' }}>
+                      <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'ஜிஎஸ்டி எண்:' : 'Customer GSTIN:'}</span>
+                      <strong style={{ color: '#000000', fontWeight: '900' }}>N/A</strong>
+                    </div>
+                  )}
                   <div style={{ display: 'flex' }}>
                     <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'முகவரி:' : 'Shop Address:'}</span>
                     <strong style={{ color: '#000000', fontWeight: '900' }}>{customerAddress || 'Walk-in Counter'}</strong>
@@ -1231,18 +1238,22 @@ export default function RoughBill({ t, lang, onBack }) {
                       <th style={{ padding: '5px 6px', width: '65px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
                         {lang === 'ta' ? 'விகிதம்' : 'Rate'}
                       </th>
-                      <th style={{ padding: '5px 6px', width: '75px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
-                        {lang === 'ta' ? 'வரித்தொகை' : 'Taxable'}
-                      </th>
-                      <th style={{ padding: '5px 6px', width: '50px', textAlign: 'center', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
-                        GST
-                      </th>
-                      <th style={{ padding: '5px 6px', width: '65px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
-                        CGST
-                      </th>
-                      <th style={{ padding: '5px 6px', width: '65px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
-                        SGST
-                      </th>
+                      {hasGst && (
+                        <>
+                          <th style={{ padding: '5px 6px', width: '75px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
+                            {lang === 'ta' ? 'வரித்தொகை' : 'Taxable'}
+                          </th>
+                          <th style={{ padding: '5px 6px', width: '50px', textAlign: 'center', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
+                            GST
+                          </th>
+                          <th style={{ padding: '5px 6px', width: '65px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
+                            CGST
+                          </th>
+                          <th style={{ padding: '5px 6px', width: '65px', textAlign: 'right', fontWeight: '900', color: '#000000', borderBottom: '2px solid #000000' }}>
+                            SGST
+                          </th>
+                        </>
+                      )}
                       <th style={{ padding: '5px 6px', width: '80px', textAlign: 'right', fontWeight: '950', color: '#000000', borderBottom: '2px solid #000000' }}>
                         {lang === 'ta' ? 'மொத்தம்' : 'Total'}
                       </th>
@@ -1260,10 +1271,14 @@ export default function RoughBill({ t, lang, onBack }) {
                         <td style={{ padding: '5px 6px', textAlign: 'center', fontWeight: '800', color: '#000000' }}>{item.cases || 0}</td>
                         <td style={{ padding: '5px 6px', textAlign: 'center', fontWeight: '800', color: '#000000' }}>{item.bottles || 0}</td>
                         <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.rate}</td>
-                        <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.taxable_amount}</td>
-                        <td style={{ padding: '5px 6px', textAlign: 'center', fontWeight: '800', color: '#000000' }}>{item.gst_rate}%</td>
-                        <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.cgst_amount}</td>
-                        <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.sgst_amount}</td>
+                        {hasGst && (
+                          <>
+                            <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.taxable_amount}</td>
+                            <td style={{ padding: '5px 6px', textAlign: 'center', fontWeight: '800', color: '#000000' }}>{item.gst_rate}%</td>
+                            <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.cgst_amount}</td>
+                            <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '800' }}>₹{item.sgst_amount}</td>
+                          </>
+                        )}
                         <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: '950', color: '#000000' }}>₹{item.total_amount}</td>
                       </tr>
                     ))}
@@ -1281,10 +1296,14 @@ export default function RoughBill({ t, lang, onBack }) {
                       <td style={{ padding: '5px 6px', textAlign: 'center', color: '#000000', fontWeight: '950' }}>{totalCases}</td>
                       <td style={{ padding: '5px 6px', textAlign: 'center', color: '#000000', fontWeight: '950' }}>{totalBottles}</td>
                       <td style={{ padding: '5px 6px', textAlign: 'right' }}></td>
-                      <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '950' }}>₹{calculatedTaxable.toFixed(2)}</td>
-                      <td style={{ padding: '5px 6px' }}></td>
-                      <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '950' }}>₹{calculatedCgst.toFixed(2)}</td>
-                      <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '950' }}>₹{calculatedSgst.toFixed(2)}</td>
+                      {hasGst && (
+                        <>
+                          <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '950' }}>₹{calculatedTaxable.toFixed(2)}</td>
+                          <td style={{ padding: '5px 6px' }}></td>
+                          <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '950' }}>₹{calculatedCgst.toFixed(2)}</td>
+                          <td style={{ padding: '5px 6px', textAlign: 'right', color: '#000000', fontWeight: '950' }}>₹{calculatedSgst.toFixed(2)}</td>
+                        </>
+                      )}
                       <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: '950', color: '#000000' }}>₹{calculatedTotal.toFixed(2)}</td>
                     </tr>
                   </tbody>
@@ -1302,58 +1321,91 @@ export default function RoughBill({ t, lang, onBack }) {
                   background: '#ffffff',
                   fontSize: '10px'
                 }}>
-                  {/* Row 1: GST Breakdown (Horizontal) */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: discount > 0 ? 'repeat(6, 1fr)' : 'repeat(5, 1fr)',
-                    background: '#f8fafc',
-                    borderBottom: '1.5px solid #000000',
-                    textAlign: 'center'
-                  }}>
-                    {discount > 0 && (
+                  {/* Row 1: Financial & GST Breakdown (Horizontal) */}
+                  {hasGst ? (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: discount > 0 ? 'repeat(6, 1fr)' : 'repeat(5, 1fr)',
+                      background: '#f8fafc',
+                      borderBottom: '1.5px solid #000000',
+                      textAlign: 'center'
+                    }}>
+                      {discount > 0 && (
+                        <div style={{ padding: '4px 6px', borderRight: '1px solid #000000' }}>
+                          <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
+                            {lang === 'ta' ? 'தள்ளுபடி' : 'Discount (-)'}
+                          </span>
+                          <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>-₹{discount}</strong>
+                        </div>
+                      )}
+
+                      <div style={{ padding: '4px 6px', borderRight: '1px solid #000000', background: '#f1f5f9' }}>
+                        <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '900', display: 'block' }}>
+                          {lang === 'ta' ? 'வரிக்கு உட்பட்டது' : 'Taxable Amount'}
+                        </span>
+                        <strong style={{ color: '#000000', fontSize: '11px', fontWeight: '950' }}>₹{calculatedTaxable.toFixed(2)}</strong>
+                      </div>
+
                       <div style={{ padding: '4px 6px', borderRight: '1px solid #000000' }}>
                         <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
-                          {lang === 'ta' ? 'தள்ளுபடி' : 'Discount (-)'}
+                          Total CGST
                         </span>
-                        <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>-₹{discount}</strong>
+                        <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>₹{calculatedCgst.toFixed(2)}</strong>
                       </div>
-                    )}
 
-                    <div style={{ padding: '4px 6px', borderRight: '1px solid #000000', background: '#f1f5f9' }}>
-                      <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '900', display: 'block' }}>
-                        {lang === 'ta' ? 'வரிக்கு உட்பட்டது' : 'Taxable Amount'}
-                      </span>
-                      <strong style={{ color: '#000000', fontSize: '11px', fontWeight: '950' }}>₹{calculatedTaxable.toFixed(2)}</strong>
-                    </div>
+                      <div style={{ padding: '4px 6px', borderRight: '1px solid #000000' }}>
+                        <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
+                          Total SGST
+                        </span>
+                        <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>₹{calculatedSgst.toFixed(2)}</strong>
+                      </div>
 
-                    <div style={{ padding: '4px 6px', borderRight: '1px solid #000000' }}>
-                      <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
-                        Total CGST
-                      </span>
-                      <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>₹{calculatedCgst.toFixed(2)}</strong>
-                    </div>
+                      <div style={{ padding: '4px 6px', borderRight: '1px solid #000000' }}>
+                        <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
+                          Total GST
+                        </span>
+                        <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>₹{(calculatedCgst + calculatedSgst).toFixed(2)}</strong>
+                      </div>
 
-                    <div style={{ padding: '4px 6px', borderRight: '1px solid #000000' }}>
-                      <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
-                        Total SGST
-                      </span>
-                      <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>₹{calculatedSgst.toFixed(2)}</strong>
+                      <div style={{ padding: '4px 6px', background: '#e2e8f0' }}>
+                        <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '900', display: 'block' }}>
+                          {lang === 'ta' ? 'ஜிஎஸ்டி மொத்தம்' : 'Grand Total (Inc. GST)'}
+                        </span>
+                        <strong style={{ color: '#000000', fontSize: '11.5px', fontWeight: '950' }}>₹{calculatedTotal.toFixed(2)}</strong>
+                      </div>
                     </div>
+                  ) : (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: discount > 0 ? '1fr 1fr 1fr' : '1fr 1fr',
+                      background: '#f8fafc',
+                      borderBottom: '1.5px solid #000000',
+                      textAlign: 'center'
+                    }}>
+                      <div style={{ padding: '4px 6px', borderRight: '1px solid #000000' }}>
+                        <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
+                          {lang === 'ta' ? 'மொத்த சரக்கு' : 'Total Items / Qty'}
+                        </span>
+                        <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>{totalCases} cases, {totalBottles} btls</strong>
+                      </div>
 
-                    <div style={{ padding: '4px 6px', borderRight: '1px solid #000000' }}>
-                      <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
-                        Total GST
-                      </span>
-                      <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>₹{(calculatedCgst + calculatedSgst).toFixed(2)}</strong>
-                    </div>
+                      {discount > 0 && (
+                        <div style={{ padding: '4px 6px', borderRight: '1px solid #000000' }}>
+                          <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '800', display: 'block' }}>
+                            {lang === 'ta' ? 'தள்ளுபடி' : 'Discount (-)'}
+                          </span>
+                          <strong style={{ color: '#000000', fontSize: '10.5px', fontWeight: '900' }}>-₹{discount}</strong>
+                        </div>
+                      )}
 
-                    <div style={{ padding: '4px 6px', background: '#e2e8f0' }}>
-                      <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '900', display: 'block' }}>
-                        {lang === 'ta' ? 'ஜிஎஸ்டி மொத்தம்' : 'Grand Total (Inc. GST)'}
-                      </span>
-                      <strong style={{ color: '#000000', fontSize: '11.5px', fontWeight: '950' }}>₹{calculatedTotal.toFixed(2)}</strong>
+                      <div style={{ padding: '4px 6px', background: '#e2e8f0' }}>
+                        <span style={{ color: '#000000', fontSize: '8px', textTransform: 'uppercase', fontWeight: '900', display: 'block' }}>
+                          {lang === 'ta' ? 'மொத்தத் தொகை' : 'Grand Total'}
+                        </span>
+                        <strong style={{ color: '#000000', fontSize: '11.5px', fontWeight: '950' }}>₹{calculatedTotal.toFixed(2)}</strong>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Row 2: Outstanding & Settlement (Horizontal) */}
                   <div style={{

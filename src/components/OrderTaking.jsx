@@ -428,7 +428,24 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           delivery_date: deliveryDateIso,
           invoice_date: deliveryDateIso
         };
+
+        // Immediately deduct product stock in local state & cache for instant 0ms reduction
+        const updatedProds = products.map(p => {
+          const cartItem = cart[p.id];
+          if (cartItem) {
+            const deducted = (Number(cartItem.cases || 0) * p.case_qty_rule) + Number(cartItem.bottles || 0);
+            return { ...p, current_stock_bottles: Math.max(0, p.current_stock_bottles - deducted) };
+          }
+          return p;
+        });
+        setProducts(updatedProds);
+        api.setCached('products', updatedProds);
+
         const result = await api.createOrder(orderPayload);
+        if (result && result.products) {
+          setProducts(result.products);
+          api.setCached('products', result.products);
+        }
         if (onOrderCreated && result && result.order) {
           onOrderCreated(result.order.id, result.order, result.items);
         } else {
@@ -1115,6 +1132,8 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
                   <tbody>
                     {filteredCatalogProducts.map(p => {
                       const rate = getProductPrice(p);
+                      const inCartBottles = ((Number(cart[p.id]?.cases) || 0) * p.case_qty_rule) + (Number(cart[p.id]?.bottles) || 0);
+                      const remainingBottles = Math.max(0, p.current_stock_bottles - inCartBottles);
                       return (
                         <tr key={p.id}>
                           <td>
@@ -1122,13 +1141,20 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.brand} | {p.size}</div>
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            <span style={{ 
-                              fontSize: '0.8rem', 
-                              fontWeight: '600', 
-                              color: p.current_stock_bottles === 0 ? 'var(--danger)' : 'var(--text-muted)'
-                            }}>
-                              {formatStock(p.current_stock_bottles, p.case_qty_rule)}
-                            </span>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                              <span style={{ 
+                                fontSize: '0.82rem', 
+                                fontWeight: '700', 
+                                color: remainingBottles === 0 ? 'var(--danger)' : 'var(--text-main)'
+                              }}>
+                                {formatStock(remainingBottles, p.case_qty_rule)}
+                              </span>
+                              {inCartBottles > 0 && (
+                                <span style={{ fontSize: '0.7rem', color: '#eab308', fontWeight: '600' }}>
+                                  ({lang === 'ta' ? 'கூடையில்' : 'in cart'}: -{formatStock(inCartBottles, p.case_qty_rule)})
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td>
                             <input

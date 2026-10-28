@@ -56,6 +56,23 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
   useEffect(() => {
     let isMounted = true;
 
+    // Instant Render: If initialData is passed from OrderTaking, show invoice immediately with 0ms delay!
+    if (initialData?.order && initialData.order.id === orderId) {
+      setOrder(initialData.order);
+      if (initialData.items && initialData.items.length > 0) {
+        setOrderItems(initialData.items);
+      }
+      const cachedShops = api.getCached('shops') || [];
+      const foundShop = cachedShops.find(s => s.id === initialData.order.shop_id);
+      if (foundShop) setShop(foundShop);
+
+      const cachedRoutes = api.getCached('routes') || [];
+      const foundRoute = cachedRoutes.find(r => r.id === initialData.order.route_id);
+      if (foundRoute) setRoute(foundRoute);
+
+      setLoading(false);
+    }
+
     async function loadInvoiceData(retryCount = 0) {
       if (!orderId) return;
       try {
@@ -77,14 +94,18 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
         const routeData = results[4].status === 'fulfilled' ? results[4].value || [] : [];
         const payData = results[5].status === 'fulfilled' ? results[5].value || [] : [];
 
-        setAllOrders(ordData);
-        setAllPayments(payData);
-        setProducts(prodData);
+        if (ordData.length > 0) setAllOrders(ordData);
+        if (payData.length > 0) setAllPayments(payData);
+        if (prodData.length > 0) setProducts(prodData);
 
-        let currentOrder = ordData.find(o => o.id === orderId);
+        let currentOrder = ordData.find(o => o.id === orderId) || (initialData?.order?.id === orderId ? initialData.order : null);
         let items = itemData.filter(oi => oi.order_id === orderId);
 
-        // Fallback 1: Try single order direct fetch from backend if not found in list yet
+        if ((!items || items.length === 0) && initialData?.order?.id === orderId && initialData.items) {
+          items = initialData.items;
+        }
+
+        // Direct single order fetch fallback if not found in list
         if (!currentOrder && api.getOrder) {
           try {
             const directFetch = await api.getOrder(orderId);
@@ -99,33 +120,26 @@ export default function Billing({ orderId, initialData, t, lang, onBack }) {
           }
         }
 
-        // Fallback 2: Check initialData passed directly from creation
-        if (!currentOrder && initialData?.order && initialData.order.id === orderId) {
-          currentOrder = initialData.order;
-          if (!items || items.length === 0) {
-            items = initialData.items || [];
-          }
-        }
-
-        // Auto-retry up to 3 times with 500ms delay to accommodate live cloud database replication
-        if (!currentOrder && retryCount < 3) {
+        // Auto-retry once only if order really not found
+        if (!currentOrder && retryCount < 1) {
           setTimeout(() => {
             if (isMounted) loadInvoiceData(retryCount + 1);
-          }, 500);
+          }, 300);
           return;
         }
 
         if (currentOrder) {
           setOrder(currentOrder);
-          setOrderItems(items);
+          if (items && items.length > 0) {
+            setOrderItems(items);
+          }
 
-          const currentShop = shopData.find(s => s.id === currentOrder.shop_id);
-          setShop(currentShop);
+          const currentShop = shopData.find(s => s.id === currentOrder.shop_id) || (initialData?.order?.shop_id === currentOrder.shop_id ? (api.getCached('shops') || []).find(s => s.id === currentOrder.shop_id) : null);
+          if (currentShop) setShop(currentShop);
 
-          const currentRoute = routeData.find(r => r.id === currentOrder.route_id);
-          setRoute(currentRoute);
+          const currentRoute = routeData.find(r => r.id === currentOrder.route_id) || (initialData?.order?.route_id === currentOrder.route_id ? (api.getCached('routes') || []).find(r => r.id === currentOrder.route_id) : null);
+          if (currentRoute) setRoute(currentRoute);
 
-          // Find payment for this order
           const paymentList = payData.filter(p => p.order_id === orderId);
           setPayments(paymentList);
         }

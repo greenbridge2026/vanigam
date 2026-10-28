@@ -391,7 +391,26 @@ export const api = {
       body: JSON.stringify(orderData)
     });
     const result = await parseJsonResponse(res, 'Failed to place order');
-    invalidateCache(['orders', 'order_items', 'products', 'deliveries', 'shops', 'stock_ledger', 'notifications', 'outstanding_history']);
+    
+    // Instantly update client cache with updated products so stocks reflect in 0ms
+    if (result && result.products) {
+      setCached('products', result.products);
+    }
+    // Instantly populate new order & items in client cache so Billing loads in 0ms
+    if (result && result.order) {
+      const cachedOrders = getCached('orders');
+      if (cachedOrders && Array.isArray(cachedOrders)) {
+        setCached('orders', [result.order, ...cachedOrders.filter(o => o.id !== result.order.id)]);
+      }
+    }
+    if (result && result.items) {
+      const cachedItems = getCached('order_items');
+      if (cachedItems && Array.isArray(cachedItems)) {
+        setCached('order_items', [...result.items, ...cachedItems.filter(i => i.order_id !== result.order.id)]);
+      }
+    }
+
+    invalidateCache(['deliveries', 'shops', 'stock_ledger', 'notifications', 'outstanding_history']);
     return result;
   },
   async updateOrder(id, orderData) {

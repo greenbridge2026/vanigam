@@ -13,10 +13,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Simple lock mechanism for transactional integrity
+// Simple lock mechanism for transactional integrity with safety timeout
 let dbLock = false;
-async function acquireLock() {
+async function acquireLock(timeoutMs = 3000) {
+  const start = Date.now();
   while (dbLock) {
+    if (Date.now() - start > timeoutMs) {
+      console.warn('[Lock Timeout] Auto-releasing lock after', timeoutMs, 'ms to prevent hanging');
+      dbLock = false;
+      break;
+    }
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   dbLock = true;
@@ -2042,13 +2048,29 @@ app.post('/api/orders', async (req, res) => {
       });
     }
 
-    res.status(201).json({ order: newOrder, items: orderItemsToCreate });
+    res.status(201).json({
+      order: newOrder,
+      items: orderItemsToCreate,
+      products: db.products,
+      shop: shop
+    });
   } catch (err) {
     console.error('Error placing order:', err);
     res.status(500).json({ error: err && err.message ? `Error placing order: ${err.message}` : 'Failed to place order' });
   } finally {
     releaseLock();
   }
+});
+
+// Order Items list - must be declared BEFORE /api/orders/:id so Express doesn't match :id with 'items'
+app.get('/api/orders/items', async (req, res) => {
+  const db = await readDB(req.tenantId);
+  res.json(db.order_items || []);
+});
+
+app.get('/api/orders', async (req, res) => {
+  const db = await readDB(req.tenantId);
+  res.json(db.orders || []);
 });
 
 app.get('/api/orders/:id', async (req, res) => {
@@ -2059,16 +2081,6 @@ app.get('/api/orders/:id', async (req, res) => {
   }
   const items = (db.order_items || []).filter(oi => oi.order_id === req.params.id);
   res.json({ order, items });
-});
-
-app.get('/api/orders', async (req, res) => {
-  const db = await readDB(req.tenantId);
-  res.json(db.orders || []);
-});
-
-app.get('/api/orders/items', async (req, res) => {
-  const db = await readDB(req.tenantId);
-  res.json(db.order_items);
 });
 
 // Edit Order / Invoice Entry
