@@ -927,7 +927,7 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                         <td>{s.contact_person || '-'}</td>
                         <td><span className="badge" style={{ textTransform: 'capitalize' }}>{s.shop_type || 'retail'}</span></td>
                         <td>{s.gst_number || '-'}</td>
-                        <td>₹{s.outstanding_amount || 0}</td>
+                        <td>₹{Math.max(0, Number(s.outstanding_amount || 0))}</td>
                         <td><span className={`badge ${s.status === 'active' ? 'badge-success' : 'badge-danger'}`} style={{ textTransform: 'capitalize' }}>{s.status || 'active'}</span></td>
                       </tr>
                     );
@@ -1046,8 +1046,8 @@ export default function ShopMgr({ t, lang, onBillSelected }) {
                         {s.shop_type === 'wholesale' ? t('wholesale') : t('retail')}
                       </span>
                     </td>
-                    <td style={{ fontWeight: '700', color: s.outstanding_amount > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                      ₹{s.outstanding_amount || 0}
+                    <td style={{ fontWeight: '700', color: Number(s.outstanding_amount || 0) > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                      ₹{Math.max(0, Number(s.outstanding_amount || 0))}
                     </td>
                     <td>
                       <span

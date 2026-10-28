@@ -245,6 +245,15 @@ async function readDB(tenantId) {
       pruned = true;
     }
 
+    if (Array.isArray(dbData.shops)) {
+      dbData.shops.forEach(s => {
+        if (Number(s.outstanding_amount || 0) < 0) {
+          s.outstanding_amount = 0;
+          pruned = true;
+        }
+      });
+    }
+
     const cleaned = cleanSyntheticOpeningOrders(dbData);
     const reindexedChanged = (dbData.orders && dbData.orders.length > 0) ? sanitizeAndReindexOrders(dbData) : false;
     if (cleaned || reindexedChanged || pruned) {
@@ -1719,31 +1728,56 @@ app.post('/api/purchases', async (req, res) => {
     const db = await readDB(req.tenantId);
     const { supplier, product_id, cases, bottles, purchase_price } = req.body;
     
-    const productIndex = db.products.findIndex(p => p.id === product_id);
+    const productIndex = (db.products || []).findIndex(p => p.id === product_id);
     if (productIndex === -1) {
-      return res.status(404).json({ error: 'Product not found' });
+      return res.status(404).json({ error: 'Product not found in Product Management' });
     }
     const product = db.products[productIndex];
     
-    const addedBottles = (Number(cases || 0) * product.case_qty_rule) + Number(bottles || 0);
-    const wasOutOfStock = product.current_stock_bottles === 0;
+    const caseRule = product.case_qty_rule || 24;
+    const addedBottles = (Number(cases || 0) * caseRule) + Number(bottles || 0);
 
-    // Update Stock
-    product.current_stock_bottles += addedBottles;
+    // Prevent immediate duplicate purchase entry (e.g. rapid double clicks)
+    const recentDuplicate = (db.purchases || []).find(p => 
+      p.product_id === product_id &&
+      p.supplier === (supplier || 'Supplier') &&
+      Number(p.cases) === Number(cases || 0) &&
+      Number(p.bottles) === Number(bottles || 0) &&
+      (Date.now() - new Date(p.purchase_date || 0).getTime() < 3000)
+    );
+    if (recentDuplicate) {
+      return res.status(200).json({
+        ...recentDuplicate,
+        product,
+        duplicatePrevented: true
+      });
+    }
 
-    // Save purchase log
+    const wasOutOfStock = Number(product.current_stock_bottles || 0) === 0;
+
+    // 1. Update Product Stock (Requirement: automatically update product in Product Management)
+    product.current_stock_bottles = Number(product.current_stock_bottles || 0) + addedBottles;
+
+    // Update purchase price without overwriting selling prices or GST rates (Requirement: do not overwrite selling prices/GST)
+    if (purchase_price !== undefined && purchase_price !== null && purchase_price !== '') {
+      product.purchase_price = Number(purchase_price);
+    }
+
+    // 2. Save purchase log
+    if (!db.purchases) db.purchases = [];
     const newPurchase = {
       id: `purch_${Date.now()}`,
-      supplier,
+      supplier: supplier || 'Supplier',
       purchase_date: req.body.purchase_date || new Date().toISOString(),
       product_id,
       cases: Number(cases || 0),
       bottles: Number(bottles || 0),
-      purchase_price: Number(purchase_price || product.purchase_price)
+      purchase_price: Number(purchase_price !== undefined ? purchase_price : product.purchase_price)
     };
-    db.purchases.push(newPurchase);
+    db.purchases.unshift(newPurchase);
 
-    // Ledger log
+    // 3. Stock Ledger log
+    if (!db.stock_ledger) db.stock_ledger = [];
     db.stock_ledger.push({
       id: `sl_${Date.now()}`,
       product_id,
@@ -1751,23 +1785,43 @@ app.post('/api/purchases', async (req, res) => {
       cases_change: Number(cases || 0),
       bottles_change: Number(bottles || 0),
       running_stock_bottles: product.current_stock_bottles,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      reference: `Purchase from ${supplier || 'Supplier'}`
     });
 
     // Notify Refill if it was out of stock
     if (wasOutOfStock && addedBottles > 0) {
+      if (!db.notifications) db.notifications = [];
       db.notifications.push({
         id: `n_${Date.now()}`,
         type: 'stock_refilled',
-        message_en: `${product.name_en} (${product.size}) stock has been refilled.`,
-        message_ta: `${product.name_ta} (${product.size}) கையிருப்பு நிரப்பப்பட்டுள்ளது.`,
+        message_en: `${product.name_en} (${product.size}) stock has been refilled (${addedBottles} bottles added).`,
+        message_ta: `${product.name_ta} (${product.size}) கையிருப்பு நிரப்பப்பட்டுள்ளது (${addedBottles} பாட்டில்கள் சேர்க்கப்பட்டன).`,
         status: 'unread',
         created_at: new Date().toISOString()
       });
     }
 
-    await writeDB(req.tenantId, db);
-    res.status(201).json(newPurchase);
+    const modifiedTables = ['purchases', 'products', 'stock_ledger', 'notifications'];
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
+
+    if (process.env.VERCEL) {
+      await writeDB(req.tenantId, db, modifiedTables);
+    } else {
+      writeDB(req.tenantId, db, modifiedTables).catch(err => {
+        console.error('[Background Firestore write error on purchase create]:', err);
+      });
+    }
+
+    res.status(201).json({
+      ...newPurchase,
+      product
+    });
+  } catch (err) {
+    console.error('Error creating purchase:', err);
+    res.status(500).json({ error: err.message || 'Failed to create purchase' });
   } finally {
     releaseLock();
   }
@@ -1779,7 +1833,7 @@ app.put('/api/purchases/:id', async (req, res) => {
   try {
     const db = await readDB(req.tenantId);
     const purchaseId = req.params.id;
-    const existingIndex = db.purchases.findIndex(p => p.id === purchaseId);
+    const existingIndex = (db.purchases || []).findIndex(p => p.id === purchaseId);
     if (existingIndex === -1) {
       return res.status(404).json({ error: 'Purchase record not found' });
     }
@@ -1787,30 +1841,34 @@ app.put('/api/purchases/:id', async (req, res) => {
 
     const { supplier, purchase_date, product_id, cases, bottles, purchase_price } = req.body;
     const targetProductId = product_id || oldPurchase.product_id;
-    const productIndex = db.products.findIndex(p => p.id === targetProductId);
+    const productIndex = (db.products || []).findIndex(p => p.id === targetProductId);
     if (productIndex === -1) {
       return res.status(404).json({ error: 'Associated product not found' });
     }
     const product = db.products[productIndex];
-    const oldProduct = db.products.find(p => p.id === oldPurchase.product_id);
+    const oldProduct = (db.products || []).find(p => p.id === oldPurchase.product_id);
 
-    const oldBottles = (Number(oldPurchase.cases || 0) * (oldProduct ? oldProduct.case_qty_rule : 1)) + Number(oldPurchase.bottles || 0);
-    const newBottles = (Number(cases || 0) * product.case_qty_rule) + Number(bottles || 0);
+    const oldBottles = (Number(oldPurchase.cases || 0) * (oldProduct ? oldProduct.case_qty_rule : 24)) + Number(oldPurchase.bottles || 0);
+    const newBottles = (Number(cases || 0) * (product.case_qty_rule || 24)) + Number(bottles || 0);
 
     if (oldPurchase.product_id === targetProductId) {
       const diff = newBottles - oldBottles;
-      if (product.current_stock_bottles + diff < 0) {
+      if (Number(product.current_stock_bottles || 0) + diff < 0) {
         return res.status(400).json({ error: `Cannot update purchase. Stock would drop below zero.` });
       }
-      product.current_stock_bottles += diff;
+      product.current_stock_bottles = Number(product.current_stock_bottles || 0) + diff;
     } else {
       if (oldProduct) {
-        if (oldProduct.current_stock_bottles - oldBottles < 0) {
+        if (Number(oldProduct.current_stock_bottles || 0) - oldBottles < 0) {
           return res.status(400).json({ error: `Cannot change product. Reverting previous stock would drop stock below zero.` });
         }
-        oldProduct.current_stock_bottles -= oldBottles;
+        oldProduct.current_stock_bottles = Number(oldProduct.current_stock_bottles || 0) - oldBottles;
       }
-      product.current_stock_bottles += newBottles;
+      product.current_stock_bottles = Number(product.current_stock_bottles || 0) + newBottles;
+    }
+
+    if (purchase_price !== undefined && purchase_price !== null && purchase_price !== '') {
+      product.purchase_price = Number(purchase_price);
     }
 
     const updatedPurchase = {
@@ -1825,6 +1883,7 @@ app.put('/api/purchases/:id', async (req, res) => {
 
     db.purchases[existingIndex] = updatedPurchase;
 
+    if (!db.stock_ledger) db.stock_ledger = [];
     db.stock_ledger.push({
       id: `sl_${Date.now()}_edit`,
       product_id: targetProductId,
@@ -1832,11 +1891,111 @@ app.put('/api/purchases/:id', async (req, res) => {
       cases_change: Number(cases || 0) - Number(oldPurchase.cases || 0),
       bottles_change: Number(bottles || 0) - Number(oldPurchase.bottles || 0),
       running_stock_bottles: product.current_stock_bottles,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      reference: `Purchase update (ID: ${oldPurchase.id})`
     });
 
-    await writeDB(req.tenantId, db);
-    res.json(updatedPurchase);
+    const modifiedTables = ['purchases', 'products', 'stock_ledger'];
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
+
+    if (process.env.VERCEL) {
+      await writeDB(req.tenantId, db, modifiedTables);
+    } else {
+      writeDB(req.tenantId, db, modifiedTables).catch(err => {
+        console.error('[Background Firestore write error on purchase edit]:', err);
+      });
+    }
+
+    res.json({
+      ...updatedPurchase,
+      product
+    });
+  } catch (err) {
+    console.error('Error updating purchase:', err);
+    res.status(500).json({ error: err.message || 'Failed to update purchase' });
+  } finally {
+    releaseLock();
+  }
+});
+
+// Delete Purchase Entry (with stock reversal & ledger reversal)
+app.delete('/api/purchases/:id', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const purchaseId = req.params.id;
+    const existingIndex = (db.purchases || []).findIndex(p => p.id === purchaseId);
+    if (existingIndex === -1) {
+      return res.status(404).json({ error: 'Purchase record not found' });
+    }
+    const purchaseToDelete = db.purchases[existingIndex];
+    const product = (db.products || []).find(p => p.id === purchaseToDelete.product_id);
+
+    if (product) {
+      const caseRule = product.case_qty_rule || 24;
+      const bottlesToRevert = (Number(purchaseToDelete.cases || 0) * caseRule) + Number(purchaseToDelete.bottles || 0);
+
+      if (Number(product.current_stock_bottles || 0) < bottlesToRevert) {
+        return res.status(400).json({
+          error: `Cannot delete purchase. Subtracting ${bottlesToRevert} bottles would cause negative stock. Current available: ${product.current_stock_bottles} bottles.`
+        });
+      }
+
+      // Revert stock safely
+      product.current_stock_bottles = Math.max(0, Number(product.current_stock_bottles || 0) - bottlesToRevert);
+
+      // Record reversal in stock ledger
+      if (!db.stock_ledger) db.stock_ledger = [];
+      db.stock_ledger.push({
+        id: `sl_${Date.now()}_del`,
+        product_id: product.id,
+        transaction_type: 'purchase_cancel',
+        cases_change: -Number(purchaseToDelete.cases || 0),
+        bottles_change: -Number(purchaseToDelete.bottles || 0),
+        running_stock_bottles: product.current_stock_bottles,
+        timestamp: new Date().toISOString(),
+        reference: `Cancelled purchase from ${purchaseToDelete.supplier || 'Supplier'}`
+      });
+    }
+
+    // Save to recycle_bin for recovery
+    if (!db.recycle_bin) db.recycle_bin = [];
+    db.recycle_bin.push({
+      id: `rb_${Date.now()}_pc`,
+      table: 'purchases',
+      original_id: purchaseId,
+      data: { purchase: purchaseToDelete, ledgerEntry: (db.stock_ledger || []).slice(-1)[0] },
+      deleted_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    });
+
+    // Remove purchase
+    db.purchases.splice(existingIndex, 1);
+
+    const modifiedTables = ['purchases', 'products', 'stock_ledger', 'recycle_bin'];
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
+
+    if (process.env.VERCEL) {
+      await writeDB(req.tenantId, db, modifiedTables);
+    } else {
+      writeDB(req.tenantId, db, modifiedTables).catch(err => {
+        console.error('[Background Firestore write error on purchase delete]:', err);
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Purchase entry deleted and stock reverted successfully',
+      deletedId: purchaseId,
+      product
+    });
+  } catch (err) {
+    console.error('Error deleting purchase:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete purchase' });
   } finally {
     releaseLock();
   }
@@ -1875,7 +2034,10 @@ app.post('/api/orders', async (req, res) => {
       return res.status(404).json({ error: 'Shop not found' });
     }
 
-    // 1. Validate stock availability for all products inside a lock transaction
+    const isSalesman = req.user?.role === 'salesman' || req.body.is_salesman;
+    const isPendingConfirmation = isSalesman || req.body.status === 'pending_confirmation' || req.body.require_confirmation === true;
+
+    // Calculate item pricing & line items
     const orderItemsToCreate = [];
     const stockUpdates = [];
 
@@ -1887,8 +2049,8 @@ app.post('/api/orders', async (req, res) => {
 
       const totalQtyRequested = (Number(item.cases || 0) * product.case_qty_rule) + Number(item.bottles || 0);
       
-      // Stock check
-      if (product.current_stock_bottles < totalQtyRequested) {
+      // If auto-confirming immediately, validate stock availability
+      if (!isPendingConfirmation && product.current_stock_bottles < totalQtyRequested) {
         return res.status(400).json({
           error: `Insufficient stock for ${product.name_en}. Available: ${product.current_stock_bottles} bottles. Requested: ${totalQtyRequested} bottles. Order cancelled to prevent overbooking.`
         });
@@ -1904,7 +2066,7 @@ app.post('/api/orders', async (req, res) => {
 
       // Price mapping
       const rate = shop.shop_type === 'wholesale' ? product.wholesale_price : product.retail_price;
-      const amount = totalQtyRequested * (rate / product.case_qty_rule); // rate is based on cases/bottles proportionately
+      const amount = totalQtyRequested * (rate / product.case_qty_rule);
 
       orderItemsToCreate.push({
         id: item.id || `oi_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -1916,41 +2078,43 @@ app.post('/api/orders', async (req, res) => {
       });
     }
 
-    // 2. Commit stock deductions (we only reach here if all stock was verified!)
-    for (const update of stockUpdates) {
-      const { product, qtyToSubtract, casesChanged, bottlesChanged } = update;
-      product.current_stock_bottles -= qtyToSubtract;
+    // Deduct stock only if not pending confirmation
+    if (!isPendingConfirmation) {
+      for (const update of stockUpdates) {
+        const { product, qtyToSubtract, casesChanged, bottlesChanged } = update;
+        product.current_stock_bottles -= qtyToSubtract;
 
-      // Add to Ledger
-      db.stock_ledger.push({
-        id: `sl_${Date.now()}_${product.id}`,
-        product_id: product.id,
-        transaction_type: 'sale',
-        cases_change: -casesChanged,
-        bottles_change: -bottlesChanged,
-        running_stock_bottles: product.current_stock_bottles,
-        timestamp: new Date().toISOString()
-      });
+        // Add to Ledger
+        db.stock_ledger.push({
+          id: `sl_${Date.now()}_${product.id}`,
+          product_id: product.id,
+          transaction_type: 'sale',
+          cases_change: -casesChanged,
+          bottles_change: -bottlesChanged,
+          running_stock_bottles: product.current_stock_bottles,
+          timestamp: new Date().toISOString()
+        });
 
-      // Stock Alerts
-      if (product.current_stock_bottles === 0) {
-        db.notifications.push({
-          id: `n_${Date.now()}_out`,
-          type: 'out_of_stock',
-          message_en: `${product.name_en} is Out of Stock!`,
-          message_ta: `${product.name_ta} கையிருப்பு முற்றிலும் தீர்ந்துவிட்டது!`,
-          status: 'unread',
-          created_at: new Date().toISOString()
-        });
-      } else if (product.current_stock_bottles <= product.min_stock) {
-        db.notifications.push({
-          id: `n_${Date.now()}_low`,
-          type: 'low_stock',
-          message_en: `${product.name_en} stock is low (${product.current_stock_bottles} bottles remaining).`,
-          message_ta: `${product.name_ta} கையிருப்பு குறைவாக உள்ளது (${product.current_stock_bottles} பாட்டில்கள் மட்டுமே உள்ளன).`,
-          status: 'unread',
-          created_at: new Date().toISOString()
-        });
+        // Stock Alerts
+        if (product.current_stock_bottles === 0) {
+          db.notifications.push({
+            id: `n_${Date.now()}_out`,
+            type: 'out_of_stock',
+            message_en: `${product.name_en} is Out of Stock!`,
+            message_ta: `${product.name_ta} கையிருப்பு முற்றிலும் தீர்ந்துவிட்டது!`,
+            status: 'unread',
+            created_at: new Date().toISOString()
+          });
+        } else if (product.current_stock_bottles <= product.min_stock) {
+          db.notifications.push({
+            id: `n_${Date.now()}_low`,
+            type: 'low_stock',
+            message_en: `${product.name_en} stock is low (${product.current_stock_bottles} bottles remaining).`,
+            message_ta: `${product.name_ta} கையிருப்பு குறைவாக உள்ளது (${product.current_stock_bottles} பாட்டில்கள் மட்டுமே உள்ளன).`,
+            status: 'unread',
+            created_at: new Date().toISOString()
+          });
+        }
       }
     }
 
@@ -1991,12 +2155,14 @@ app.post('/api/orders', async (req, res) => {
     const actualDeliveryDate = delivery_date || actualOrderDate;
     const actualInvoiceDate = delivery_date || invoice_date || actualDeliveryDate;
 
+    const initialStatus = isPendingConfirmation ? 'pending_confirmation' : 'confirmed';
+
     const newOrder = {
       id: req.body.id || `ord_${Date.now()}`,
       invoice_number: invoiceNum,
       route_id,
       shop_id,
-      salesman_id,
+      salesman_id: salesman_id || (req.user ? req.user.id : ''),
       order_date: actualOrderDate,
       delivery_date: actualDeliveryDate,
       invoice_date: actualInvoiceDate,
@@ -2004,7 +2170,7 @@ app.post('/api/orders', async (req, res) => {
       discount: discountAmt,
       net_amount: netAmount,
       previous_outstanding: prevOutstanding,
-      status: 'pending',
+      status: initialStatus,
       delivery_man_id: (db.routes || []).find(r => r.id === route_id)?.delivery_man_id || ''
     };
 
@@ -2016,42 +2182,56 @@ app.post('/api/orders', async (req, res) => {
       db.order_items.push(oi);
     });
 
-    // Create delivery entry
-    if (!db.deliveries) db.deliveries = [];
-    const newDelivery = {
-      id: req.body.delivery_id || `del_${Date.now()}`,
-      order_id: newOrder.id,
-      delivery_man_id: newOrder.delivery_man_id,
-      status: 'pending',
-      delivery_time: null,
-      remarks: ''
-    };
-    db.deliveries.push(newDelivery);
+    let newDelivery = null;
 
-    // Outstanding Alert for Delivery Man (updates only when items are delivered, or starts tracking outstanding now)
-    // The business logic: Outstanding is generated. We update the shop's outstanding after delivery completion or when placing?
-    // Let's increase the outstanding on order placement, and then collect it.
-    shop.outstanding_amount = Number(shop.outstanding_amount || 0) + netAmount;
-    if (!db.outstanding_history) db.outstanding_history = [];
-    db.outstanding_history.push({
-      id: `oh_${Date.now()}`,
-      shop_id: shop_id,
-      change_amount: netAmount,
-      balance_amount: shop.outstanding_amount,
-      description: `Order ${invoiceNum} placed`,
-      date: new Date().toISOString()
-    });
+    if (isPendingConfirmation) {
+      // Do NOT create delivery entry yet (Requirement 3: "Do not move unconfirmed orders to the Deliveries page")
+      // Do NOT increment shop outstanding yet (committed upon Admin confirmation)
 
-    // Create notifications for deliveries
-    if (!db.notifications) db.notifications = [];
-    db.notifications.push({
-      id: `n_del_${Date.now()}`,
-      type: 'pending_delivery',
-      message_en: `New pending delivery for ${shop.name_en || shop.name || ''}. Invoice: ${invoiceNum}`,
-      message_ta: `${shop.name_ta || shop.name || ''} கடைக்கு புதிய டெலிவரி. விலைப்பட்டியல்: ${invoiceNum}`,
-      status: 'unread',
-      created_at: new Date().toISOString()
-    });
+      // Notify Admin
+      db.notifications.push({
+        id: `n_ord_conf_${Date.now()}`,
+        type: 'pending_confirmation',
+        message_en: `New order ${invoiceNum} for ${shop.name_en || shop.name || ''} placed by Salesman is pending Admin confirmation.`,
+        message_ta: `${shop.name_ta || shop.name || ''} கடைக்கான புதிய ஆர்டர் ${invoiceNum} விற்பனையாளரால் சமர்ப்பிக்கப்பட்டது, நிர்வாகி உறுதிப்படுத்தலுக்கு காத்திருக்கிறது.`,
+        status: 'unread',
+        created_at: new Date().toISOString()
+      });
+    } else {
+      // Confirmed: Create delivery entry
+      if (!db.deliveries) db.deliveries = [];
+      newDelivery = {
+        id: req.body.delivery_id || `del_${Date.now()}`,
+        order_id: newOrder.id,
+        delivery_man_id: newOrder.delivery_man_id,
+        status: 'pending',
+        delivery_time: null,
+        remarks: ''
+      };
+      db.deliveries.push(newDelivery);
+
+      // Increase shop outstanding on confirmation
+      shop.outstanding_amount = Number(shop.outstanding_amount || 0) + netAmount;
+      if (!db.outstanding_history) db.outstanding_history = [];
+      db.outstanding_history.push({
+        id: `oh_${Date.now()}`,
+        shop_id: shop_id,
+        change_amount: netAmount,
+        balance_amount: shop.outstanding_amount,
+        description: `Order ${invoiceNum} placed and confirmed`,
+        date: new Date().toISOString()
+      });
+
+      // Notifications for delivery
+      db.notifications.push({
+        id: `n_del_${Date.now()}`,
+        type: 'pending_delivery',
+        message_en: `New pending delivery for ${shop.name_en || shop.name || ''}. Invoice: ${invoiceNum}`,
+        message_ta: `${shop.name_ta || shop.name || ''} கடைக்கு புதிய டெலிவரி. விலைப்பட்டியல்: ${invoiceNum}`,
+        status: 'unread',
+        created_at: new Date().toISOString()
+      });
+    }
 
     const modifiedTables = [
       'orders',
@@ -2068,9 +2248,6 @@ app.post('/api/orders', async (req, res) => {
     cachedTimestamps[req.tenantId] = Date.now();
     lastMetaCheck[req.tenantId] = Date.now();
 
-    // Persist to Firestore:
-    // In Vercel serverless, await writeDB so execution context isn't frozen before saving.
-    // In local persistent Node server, write in background so user experiences instant response.
     if (process.env.VERCEL) {
       await writeDB(req.tenantId, db, modifiedTables);
     } else {
@@ -2089,6 +2266,287 @@ app.post('/api/orders', async (req, res) => {
   } catch (err) {
     console.error('Error placing order:', err);
     res.status(500).json({ error: err && err.message ? `Error placing order: ${err.message}` : 'Failed to place order' });
+  } finally {
+    releaseLock();
+  }
+});
+
+// Admin Confirm Order Endpoint (Requirements 2, 3, 4, 6, 7)
+app.post('/api/orders/:id/confirm', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const order = (db.orders || []).find(o => o.id === req.params.id);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // Prevent duplicate confirmation (Requirement 6)
+    if (order.status !== 'pending_confirmation') {
+      return res.status(400).json({ error: `Order is already in '${order.status}' status and cannot be confirmed again.` });
+    }
+
+    const orderItems = (db.order_items || []).filter(oi => oi.order_id === order.id);
+    if (orderItems.length === 0) {
+      return res.status(400).json({ error: 'Order has no line items to confirm' });
+    }
+
+    const shop = (db.shops || []).find(s => s.id === order.shop_id);
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop associated with order not found' });
+    }
+
+    // Validate available stock for all products safely before committing
+    const shortages = [];
+    const stockUpdates = [];
+
+    for (const item of orderItems) {
+      const product = (db.products || []).find(p => p.id === item.product_id);
+      if (!product) {
+        return res.status(400).json({ error: `Product not found: ${item.product_id}` });
+      }
+
+      const caseRule = product.case_qty_rule || 24;
+      const requestedBottles = (Number(item.cases || 0) * caseRule) + Number(item.bottles || 0);
+
+      if (product.current_stock_bottles < requestedBottles) {
+        const shortageBottles = requestedBottles - product.current_stock_bottles;
+        const shortageCases = Math.floor(shortageBottles / caseRule);
+        const remBottles = shortageBottles % caseRule;
+        shortages.push({
+          product_id: product.id,
+          product_name: product.name_en || product.name,
+          product_name_ta: product.name_ta || product.name,
+          available_bottles: product.current_stock_bottles,
+          requested_bottles: requestedBottles,
+          shortage_bottles: shortageBottles,
+          shortage_text: `${product.name_en}: Available ${product.current_stock_bottles} bottles, Requested ${requestedBottles} bottles (Shortage: ${shortageCases > 0 ? `${shortageCases} cases, ` : ''}${remBottles} bottles)`
+        });
+      } else {
+        stockUpdates.push({
+          product,
+          qtyToSubtract: requestedBottles,
+          casesChanged: Number(item.cases || 0),
+          bottlesChanged: Number(item.bottles || 0)
+        });
+      }
+    }
+
+    // If shortage exists, show shortage clearly and prevent confirmation (Requirements 6 & 7)
+    if (shortages.length > 0) {
+      return res.status(400).json({
+        error: `Insufficient stock to confirm order:\n` + shortages.map(s => `• ${s.shortage_text}`).join('\n'),
+        shortages
+      });
+    }
+
+    // Deduct stock safely and record in stock ledger
+    for (const update of stockUpdates) {
+      const { product, qtyToSubtract, casesChanged, bottlesChanged } = update;
+      product.current_stock_bottles -= qtyToSubtract;
+
+      if (!db.stock_ledger) db.stock_ledger = [];
+      db.stock_ledger.push({
+        id: `sl_${Date.now()}_${product.id}`,
+        product_id: product.id,
+        transaction_type: 'sale',
+        cases_change: -casesChanged,
+        bottles_change: -bottlesChanged,
+        running_stock_bottles: product.current_stock_bottles,
+        timestamp: new Date().toISOString(),
+        reference: `Order ${order.invoice_number}`
+      });
+
+      // Stock Alerts
+      if (!db.notifications) db.notifications = [];
+      if (product.current_stock_bottles === 0) {
+        db.notifications.push({
+          id: `n_${Date.now()}_out`,
+          type: 'out_of_stock',
+          message_en: `${product.name_en} is Out of Stock!`,
+          message_ta: `${product.name_ta} கையிருப்பு முற்றிலும் தீர்ந்துவிட்டது!`,
+          status: 'unread',
+          created_at: new Date().toISOString()
+        });
+      } else if (product.current_stock_bottles <= product.min_stock) {
+        db.notifications.push({
+          id: `n_${Date.now()}_low`,
+          type: 'low_stock',
+          message_en: `${product.name_en} stock is low (${product.current_stock_bottles} bottles remaining).`,
+          message_ta: `${product.name_ta} கையிருப்பு குறைவாக உள்ளது (${product.current_stock_bottles} பாட்டில்கள் மட்டுமே உள்ளன).`,
+          status: 'unread',
+          created_at: new Date().toISOString()
+        });
+      }
+    }
+
+    // Update order status to 'confirmed' (Requirement 4)
+    order.status = 'confirmed';
+    order.confirmed_at = new Date().toISOString();
+    order.confirmed_by = req.user ? req.user.name : 'Admin';
+
+    // Automatically move to Deliveries page (Requirement 4)
+    if (!db.deliveries) db.deliveries = [];
+    let delivery = db.deliveries.find(d => d.order_id === order.id);
+    if (!delivery) {
+      const routeDeliveryManId = (db.routes || []).find(r => r.id === order.route_id)?.delivery_man_id || '';
+      delivery = {
+        id: `del_${Date.now()}_${order.id}`,
+        order_id: order.id,
+        delivery_man_id: order.delivery_man_id || routeDeliveryManId,
+        status: 'pending',
+        delivery_time: null,
+        remarks: ''
+      };
+      db.deliveries.push(delivery);
+    } else {
+      delivery.status = 'pending';
+    }
+
+    // Update shop outstanding
+    shop.outstanding_amount = Number(shop.outstanding_amount || 0) + Number(order.net_amount || 0);
+    if (!db.outstanding_history) db.outstanding_history = [];
+    db.outstanding_history.push({
+      id: `oh_${Date.now()}`,
+      shop_id: shop.id,
+      change_amount: order.net_amount,
+      balance_amount: shop.outstanding_amount,
+      description: `Order ${order.invoice_number} confirmed by Admin`,
+      date: new Date().toISOString()
+    });
+
+    // Notify delivery personnel
+    if (!db.notifications) db.notifications = [];
+    db.notifications.push({
+      id: `n_del_${Date.now()}`,
+      type: 'pending_delivery',
+      message_en: `New confirmed delivery task for ${shop.name_en || shop.name || ''}. Invoice: ${order.invoice_number}`,
+      message_ta: `${shop.name_ta || shop.name || ''} கடைக்கு உறுதிப்படுத்தப்பட்ட புதிய விநியோகப் பணி. விலைப்பட்டியல்: ${order.invoice_number}`,
+      status: 'unread',
+      created_at: new Date().toISOString()
+    });
+
+    const modifiedTables = [
+      'orders',
+      'products',
+      'stock_ledger',
+      'deliveries',
+      'shops',
+      'outstanding_history',
+      'notifications'
+    ];
+
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
+
+    if (process.env.VERCEL) {
+      await writeDB(req.tenantId, db, modifiedTables);
+    } else {
+      writeDB(req.tenantId, db, modifiedTables).catch(err => {
+        console.error('[Background Firestore write error on confirm]:', err);
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Order #${order.invoice_number} confirmed successfully and moved to Deliveries!`,
+      order,
+      delivery,
+      products: db.products
+    });
+  } catch (err) {
+    console.error('Error confirming order:', err);
+    res.status(500).json({ error: err.message || 'Failed to confirm order' });
+  } finally {
+    releaseLock();
+  }
+});
+
+// Admin / Salesman Cancel Order Endpoint
+app.post('/api/orders/:id/cancel', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId);
+    const order = (db.orders || []).find(o => o.id === req.params.id);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const previousStatus = order.status;
+    order.status = 'cancelled';
+    order.cancelled_at = new Date().toISOString();
+    order.cancellation_reason = req.body.reason || 'Cancelled';
+
+    // Remove any unfulfilled delivery
+    if (db.deliveries) {
+      db.deliveries = db.deliveries.filter(d => d.order_id !== order.id);
+    }
+
+    // If order was already confirmed, return deducted stock and outstanding
+    if (previousStatus === 'confirmed') {
+      const orderItems = (db.order_items || []).filter(oi => oi.order_id === order.id);
+      for (const item of orderItems) {
+        const prod = (db.products || []).find(p => p.id === item.product_id);
+        if (prod) {
+          const caseRule = prod.case_qty_rule || 24;
+          const bottlesToReturn = (Number(item.cases || 0) * caseRule) + Number(item.bottles || 0);
+          prod.current_stock_bottles += bottlesToReturn;
+
+          if (!db.stock_ledger) db.stock_ledger = [];
+          db.stock_ledger.push({
+            id: `sl_${Date.now()}_ret_${prod.id}`,
+            product_id: prod.id,
+            transaction_type: 'delivery_return',
+            cases_change: Number(item.cases || 0),
+            bottles_change: Number(item.bottles || 0),
+            running_stock_bottles: prod.current_stock_bottles,
+            timestamp: new Date().toISOString(),
+            reference: `Cancelled Order ${order.invoice_number}`
+          });
+        }
+      }
+
+      const shop = (db.shops || []).find(s => s.id === order.shop_id);
+      if (shop) {
+        shop.outstanding_amount = Math.max(0, Number(shop.outstanding_amount || 0) - Number(order.net_amount || 0));
+        if (!db.outstanding_history) db.outstanding_history = [];
+        db.outstanding_history.push({
+          id: `oh_${Date.now()}_cancel`,
+          shop_id: shop.id,
+          change_amount: -order.net_amount,
+          balance_amount: shop.outstanding_amount,
+          description: `Outstanding reverted for Cancelled Order ${order.invoice_number}`,
+          date: new Date().toISOString()
+        });
+      }
+    }
+
+    const modifiedTables = [
+      'orders',
+      'products',
+      'stock_ledger',
+      'deliveries',
+      'shops',
+      'outstanding_history'
+    ];
+
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
+
+    if (process.env.VERCEL) {
+      await writeDB(req.tenantId, db, modifiedTables);
+    } else {
+      writeDB(req.tenantId, db, modifiedTables).catch(err => {
+        console.error('[Background Firestore write error on cancel]:', err);
+      });
+    }
+
+    res.json({ success: true, message: `Order #${order.invoice_number} cancelled successfully`, order });
+  } catch (err) {
+    console.error('Error cancelling order:', err);
+    res.status(500).json({ error: err.message || 'Failed to cancel order' });
   } finally {
     releaseLock();
   }
@@ -2431,19 +2889,47 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
           }, 0);
       }
 
-      db.delivery_audit_trail.push({
-        id: `dat_${Date.now()}`,
-        order_number: order ? order.invoice_number : '',
-        route_name: routeObj ? routeObj.name_en : '',
-        shop_name: shop ? shop.name_en : '',
-        delivery_person: deliveryManObj ? deliveryManObj.name : 'Delivery Man',
-        status: finalStatus,
-        reason: reason || '',
-        remarks: remarks || '',
-        timestamp: new Date().toISOString(),
-        returned_quantity: returnedQty
-      });
+      // Atomic payment handling upon delivery
+      if (req.body.payments && Array.isArray(req.body.payments) && req.body.payments.length > 0) {
+        if (!db.payments) db.payments = [];
+        const now = Date.now();
+        let totalBatchAmount = 0;
+
+        req.body.payments.forEach((pay, pIdx) => {
+          const colAmt = Number(pay.collected_amount || 0);
+          if (colAmt > 0) {
+            totalBatchAmount += colAmt;
+            db.payments.push({
+              id: `pay_${now}_${pIdx}`,
+              shop_id: pay.shop_id || (shop ? shop.id : ''),
+              order_id: order ? order.id : (delivery.order_id || ''),
+              collected_amount: colAmt,
+              payment_mode: pay.payment_mode || 'cash',
+              transaction_number: pay.transaction_number || `TXN-${now}-${pIdx}`,
+              reference_number: pay.reference_number || '',
+              payment_date: pay.payment_date || new Date().toISOString()
+            });
+          }
+        });
+
+        if (shop && totalBatchAmount > 0) {
+          shop.outstanding_amount = Math.max(0, Number(shop.outstanding_amount || 0) - totalBatchAmount);
+          if (!db.outstanding_history) db.outstanding_history = [];
+          db.outstanding_history.push({
+            id: `oh_${now}`,
+            shop_id: shop.id,
+            change_amount: -totalBatchAmount,
+            balance_amount: shop.outstanding_amount,
+            description: `Payment received upon delivery: ${req.body.payments.map(p => `${(p.payment_mode || 'cash').toUpperCase()}(₹${p.collected_amount})`).join(', ')}`,
+            date: new Date().toISOString()
+          });
+        }
+      }
     }
+
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
 
     await writeDB(req.tenantId, db);
     res.json(delivery);
@@ -2557,8 +3043,9 @@ function autoAllocatePaymentsAndFulfillOrders(db, shopId) {
   // STEP 1: Clear Previous Outstanding Amount Balance FIRST!
   unassignedPool = Math.max(0, unassignedPool - ledgerBalance);
 
-  // STEP 2: Allocate remaining payment pool to Oldest Invoice (FIFO)
   for (const order of pendingOrders) {
+    if (order.status === 'pending_confirmation') continue;
+
     const directPayments = (db.payments || []).filter(p => p.order_id === order.id);
     const directPaid = directPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
     const netAmt = Number(order.net_amount || 0);
@@ -2576,16 +3063,16 @@ function autoAllocatePaymentsAndFulfillOrders(db, shopId) {
     const del = (db.deliveries || []).find(d => d.order_id === order.id);
 
     if (remainingDue <= 0) {
-      // FULLY PAID: Fulfill invoice and close it!
+      // FULLY PAID
       if (order.status === 'pending' || (del && del.status === 'pending')) {
         fulfillOrderInDb(db, order, shop);
       }
     } else {
-      // PARTIALLY PAID or UNPAID: Do NOT reset already delivered, not_delivered, or returned orders back to pending!
-      if (order.status !== 'delivered' && order.status !== 'not_delivered' && order.status !== 'returned') {
+      // PARTIALLY PAID or UNPAID: Do NOT reset already delivered, confirmed, not_delivered, or returned orders!
+      if (order.status === 'pending') {
         order.status = 'pending';
       }
-      if (del && del.status !== 'delivered' && del.status !== 'not_delivered' && del.status !== 'returned') {
+      if (del && del.status === 'pending') {
         del.status = 'pending';
       }
     }
@@ -2639,7 +3126,7 @@ app.post('/api/payments', async (req, res) => {
         savedPayments.push(newPayment);
       });
 
-      shop.outstanding_amount -= totalBatchAmount;
+      shop.outstanding_amount = Math.max(0, Number(shop.outstanding_amount || 0) - totalBatchAmount);
 
       // Log in outstanding history
       db.outstanding_history.push({
@@ -2668,7 +3155,7 @@ app.post('/api/payments', async (req, res) => {
     }
 
     const colAmt = Number(collected_amount || 0);
-    shop.outstanding_amount -= colAmt;
+    shop.outstanding_amount = Math.max(0, Number(shop.outstanding_amount || 0) - colAmt);
 
     const newPayment = {
       id: `pay_${Date.now()}`,
@@ -2969,63 +3456,6 @@ app.post('/api/products/bulk-delete', async (req, res) => {
   }
 });
 
-
-// 3. Delete Purchase (Supplier Stock Entry Rollback)
-app.delete('/api/purchases/:id', async (req, res) => {
-  await acquireLock();
-  try {
-    const db = await readDB(req.tenantId);
-    const purchaseId = req.params.id;
-    const purchase = db.purchases.find(p => p.id === purchaseId);
-    if (!purchase) {
-      return res.status(404).json({ error: 'Purchase record not found' });
-    }
-    const product = db.products.find(p => p.id === purchase.product_id);
-    if (!product) {
-      return res.status(404).json({ error: 'Associated product not found' });
-    }
-
-    const qtyToSubtract = (purchase.cases * product.case_qty_rule) + purchase.bottles;
-    if (product.current_stock_bottles < qtyToSubtract) {
-      return res.status(400).json({
-        error: `Cannot delete purchase. Subtracting ${qtyToSubtract} bottles would cause negative stock. Current available: ${product.current_stock_bottles} bottles.`
-      });
-    }
-
-    // Rollback stock
-    product.current_stock_bottles -= qtyToSubtract;
-
-    // Delete purchase record
-    db.purchases = db.purchases.filter(p => p.id !== purchaseId);
-
-    // Ledger rollback log
-    const ledgerEntry = {
-      id: `sl_${Date.now()}_del`,
-      product_id: product.id,
-      transaction_type: 'purchase_cancel',
-      cases_change: -purchase.cases,
-      bottles_change: -purchase.bottles,
-      running_stock_bottles: product.current_stock_bottles,
-      timestamp: new Date().toISOString()
-    };
-    db.stock_ledger.push(ledgerEntry);
-
-    if (!db.recycle_bin) db.recycle_bin = [];
-    db.recycle_bin.push({
-      id: `rb_${Date.now()}_pc`,
-      table: 'purchases',
-      original_id: purchaseId,
-      data: { purchase, ledgerEntry },
-      deleted_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-    });
-
-    await writeDB(req.tenantId, db);
-    res.json({ success: true });
-  } finally {
-    releaseLock();
-  }
-});
 
 // 4. Cancel & Delete Order (Sales Order Rollback)
 app.delete('/api/orders/:id', async (req, res) => {
@@ -3707,6 +4137,7 @@ app.post('/api/rough-bills', async (req, res) => {
       bill_date: req.body.bill_date || new Date().toISOString(),
       customer_name: (req.body.customer_name && req.body.customer_name.trim()) ? req.body.customer_name.trim() : 'General Customer',
       customer_phone: req.body.customer_phone || '',
+      customer_gst: (req.body.customer_gst || '').trim().toUpperCase(),
       customer_address: req.body.customer_address || 'Walk-in Counter',
       route_name: req.body.route_name || 'Walk-in / நேரடி விற்பனை',
       salesman_name: req.body.salesman_name || 'Counter Sales',

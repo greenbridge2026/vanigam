@@ -581,6 +581,7 @@ export default function App() {
           <OrderTaking
             t={t}
             lang={lang}
+            currentUser={session?.user || session}
             editingOrder={editingOrder}
             initialSubTab={orderTakingSubTab}
             onSubTabChange={(sub) => setOrderTakingSubTab(sub)}

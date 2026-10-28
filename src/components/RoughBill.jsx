@@ -24,6 +24,7 @@ export default function RoughBill({ t, lang, onBack }) {
   const [customerName, setCustomerName] = useState('General Customer');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('Walk-in Counter');
+  const [customerGst, setCustomerGst] = useState('');
   const [paymentMode, setPaymentMode] = useState('Cash');
 
   // Items in bill
@@ -233,6 +234,7 @@ export default function RoughBill({ t, lang, onBack }) {
       customer_name: customerName || 'General Customer',
       customer_phone: customerPhone,
       customer_address: customerAddress,
+      customer_gst: customerGst,
       route_name: 'Walk-in / நேரடி விற்பனை',
       salesman_name: 'Counter Sales',
       items: items,
@@ -383,6 +385,7 @@ export default function RoughBill({ t, lang, onBack }) {
                               setCustomerName(b.customer_name || 'General Customer');
                               setCustomerPhone(b.customer_phone || '');
                               setCustomerAddress(b.customer_address || 'Walk-in Counter');
+                              setCustomerGst(b.customer_gst || '');
                               setItems(b.items || []);
                               setDiscount(b.discount || 0);
                               setManualFinalAmount(b.final_amount || '');
@@ -523,6 +526,32 @@ export default function RoughBill({ t, lang, onBack }) {
                       fontSize: '0.95rem'
                     }}
                   />
+                </div>
+
+                {/* Customer GST Number Field */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.35rem', color: 'var(--text-muted)' }}>
+                    {lang === 'ta' ? 'ஜிஎஸ்டி எண் (விருப்பத்தேர்வு)' : 'Customer GST No (Optional)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={customerGst}
+                    onChange={(e) => setCustomerGst(e.target.value.toUpperCase())}
+                    placeholder="e.g. 33AAAAA0000A1Z5"
+                    style={{
+                      width: '100%',
+                      padding: '0.55rem 0.75rem',
+                      borderRadius: '6px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-main)',
+                      fontSize: '0.95rem',
+                      textTransform: 'uppercase'
+                    }}
+                  />
+                  <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', display: 'block', marginTop: '3px' }}>
+                    {lang === 'ta' ? 'வாடிக்கையாளரின் ஜிஎஸ்டி எண்' : 'Walk-in customer GSTIN for bill'}
+                  </small>
                 </div>
               </div>
             </div>
@@ -1199,10 +1228,10 @@ export default function RoughBill({ t, lang, onBack }) {
                     <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'தொடர்பு எண்:' : 'Mobile No:'}</span>
                     <strong style={{ color: '#000000', fontWeight: '900' }}>{customerPhone || 'N/A'}</strong>
                   </div>
-                  {hasGst && (
+                  {(customerGst || hasGst) && (
                     <div style={{ display: 'flex' }}>
                       <span style={{ width: lang === 'ta' ? '120px' : '100px', color: '#000000', fontWeight: '700', flexShrink: 0 }}>{lang === 'ta' ? 'ஜிஎஸ்டி எண்:' : 'Customer GSTIN:'}</span>
-                      <strong style={{ color: '#000000', fontWeight: '900' }}>N/A</strong>
+                      <strong style={{ color: '#000000', fontWeight: '900' }}>{customerGst || 'N/A'}</strong>
                     </div>
                   )}
                   <div style={{ display: 'flex' }}>

@@ -338,6 +338,12 @@ export const api = {
       body: JSON.stringify(purchaseData)
     });
     const added = await parseJsonResponse(res, 'Failed to record purchase');
+    if (added && added.product) {
+      const cachedProds = getCached('products');
+      if (cachedProds && Array.isArray(cachedProds)) {
+        setCached('products', cachedProds.map(p => p.id === added.product.id ? added.product : p));
+      }
+    }
     invalidateCache(['purchases', 'products', 'stock_ledger']);
     return added;
   },
@@ -348,6 +354,12 @@ export const api = {
       body: JSON.stringify(purchaseData)
     });
     const updated = await parseJsonResponse(res, 'Failed to update purchase entry');
+    if (updated && updated.product) {
+      const cachedProds = getCached('products');
+      if (cachedProds && Array.isArray(cachedProds)) {
+        setCached('products', cachedProds.map(p => p.id === updated.product.id ? updated.product : p));
+      }
+    }
     invalidateCache(['purchases', 'products', 'stock_ledger']);
     return updated;
   },
@@ -429,6 +441,25 @@ export const api = {
     invalidateCache(['orders', 'order_items', 'products', 'deliveries', 'shops', 'stock_ledger', 'outstanding_history']);
     return result;
   },
+  async confirmOrder(id) {
+    const res = await apiFetch(`${API_BASE}/orders/${id}/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const result = await parseJsonResponse(res, 'Failed to confirm order');
+    invalidateCache(['orders', 'order_items', 'products', 'deliveries', 'shops', 'stock_ledger', 'notifications', 'outstanding_history']);
+    return result;
+  },
+  async cancelOrder(id, reason = '') {
+    const res = await apiFetch(`${API_BASE}/orders/${id}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+    const result = await parseJsonResponse(res, 'Failed to cancel order');
+    invalidateCache(['orders', 'order_items', 'products', 'deliveries', 'shops', 'stock_ledger', 'outstanding_history']);
+    return result;
+  },
 
   // Deliveries
   async getDeliveries() {
@@ -441,6 +472,17 @@ export const api = {
       body: JSON.stringify(payload)
     });
     const result = await parseJsonResponse(res, 'Failed to complete delivery');
+
+    // Optimistically update cached deliveries immediately
+    const cachedDeliveries = getCached('deliveries');
+    if (cachedDeliveries && Array.isArray(cachedDeliveries)) {
+      setCached('deliveries', cachedDeliveries.map(d => d.id === id ? { ...d, status: payload.status || 'delivered', remarks: payload.remarks || '' } : d));
+    }
+    const cachedOrders = getCached('orders');
+    if (cachedOrders && Array.isArray(cachedOrders) && result?.order_id) {
+      setCached('orders', cachedOrders.map(o => o.id === result.order_id ? { ...o, status: payload.status || 'delivered' } : o));
+    }
+
     invalidateCache(['deliveries', 'orders', 'shops', 'payments', 'outstanding_history', 'stock_ledger']);
     return result;
   },

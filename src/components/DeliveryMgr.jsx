@@ -569,8 +569,6 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
             });
           }
         }
-
-        await api.createPayment({ payments: paymentsToSubmit });
       }
 
       await api.completeDelivery(del.id, {
@@ -578,7 +576,8 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         reason: selectedReason,
         remarks: finalRemarks,
         delivery_date: deliveryDateIso,
-        invoice_date: deliveryDateIso
+        invoice_date: deliveryDateIso,
+        payments: paymentsToSubmit
       });
 
       // Reload dataset in background to ensure sync
@@ -766,11 +765,11 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     return `upi://pay?pa=${encodeURIComponent(pa)}&pn=${encodeURIComponent(pn)}&am=${am}&cu=INR&tn=${encodeURIComponent(tn)}`;
   };
 
-  // Ensure every active regular order has a visible delivery entry even if async sync is in flight
+  // Ensure every active regular order has a visible delivery entry even if async sync is in flight (excluding unconfirmed orders)
   const combinedDeliveries = [...deliveries];
   const existingDeliveryOrderIds = new Set(deliveries.map(d => d.order_id));
   (orders || []).forEach(o => {
-    if (o && o.status !== 'cancelled' && !existingDeliveryOrderIds.has(o.id)) {
+    if (o && o.status !== 'cancelled' && o.status !== 'pending_confirmation' && !existingDeliveryOrderIds.has(o.id)) {
       combinedDeliveries.unshift({
         id: `del_${o.id}`,
         order_id: o.id,
@@ -783,10 +782,11 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   });
 
   const filteredDeliveries = combinedDeliveries.filter(d => {
-    if (statusFilter !== 'all' && d.status !== statusFilter) return false;
-    
     const order = orders.find(o => o.id === d.order_id);
     if (!order) return false;
+    if (order.status === 'pending_confirmation') return false;
+
+    if (statusFilter !== 'all' && d.status !== statusFilter) return false;
 
     if (routeFilter !== 'all' && order.route_id !== routeFilter) return false;
 

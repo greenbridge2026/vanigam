@@ -5,7 +5,7 @@ import { calculateOrderGstBreakdown } from '../utils/gstUtils';
 import { translateShopName, translateRouteName, translateProductName } from '../translations';
 import RoughBill from './RoughBill';
 
-export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onOrderUpdated, onCancelEdit, initialSubTab = 'regular', onSubTabChange }) {
+export default function OrderTaking({ t, lang, currentUser, onOrderCreated, editingOrder, onOrderUpdated, onCancelEdit, initialSubTab = 'regular', onSubTabChange }) {
   const [activeSubTab, setActiveSubTab] = useState(initialSubTab || 'regular');
 
   useEffect(() => {
@@ -35,6 +35,32 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
   const [loading, setLoading] = useState(() => !api.getCached('products') || api.getCached('products').length === 0);
   const [submitting, setSubmitting] = useState(false);
   const [orderPlacedPopupInfo, setOrderPlacedPopupInfo] = useState(null);
+  const [confirmingOrderId, setConfirmingOrderId] = useState(null);
+  const [cancellingOrderId, setCancellingOrderId] = useState(null);
+
+  const handleCloseOrderPlacedPopup = () => {
+    if (orderPlacedPopupInfo && typeof orderPlacedPopupInfo.onConfirm === 'function') {
+      try {
+        orderPlacedPopupInfo.onConfirm();
+      } catch (err) {
+        console.error('Error executing popup onConfirm:', err);
+      }
+    }
+    setOrderPlacedPopupInfo(null);
+  };
+
+  // Keyboard shortcut: Escape or Enter closes the order placed popup
+  useEffect(() => {
+    if (!orderPlacedPopupInfo) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        e.preventDefault();
+        handleCloseOrderPlacedPopup();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [orderPlacedPopupInfo]);
 
   // Route dropdown & keyboard navigation states
   const [routeSearchQuery, setRouteSearchQuery] = useState('');
@@ -375,6 +401,46 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
     return Math.round(subtotal);
   };
 
+  const handleConfirmOrder = async (orderId) => {
+    setConfirmingOrderId(orderId);
+    try {
+      await api.confirmOrder(orderId);
+      alert(lang === 'ta' ? 'ஆர்டர் உறுதிசெய்யப்பட்டு விநியோகப் பக்கத்திற்கு நகர்த்தப்பட்டது!' : 'Order confirmed successfully! Moved to Deliveries.');
+      const [oData, pData, oiData] = await Promise.all([
+        api.getOrders(),
+        api.getProducts(),
+        api.getOrderItems()
+      ]);
+      setOrders(oData || []);
+      setProducts(pData || []);
+      setOrderItems(oiData || []);
+    } catch (err) {
+      alert(err.message || 'Failed to confirm order');
+    } finally {
+      setConfirmingOrderId(null);
+    }
+  };
+
+  const handleCancelPendingOrder = async (orderId) => {
+    const reason = window.prompt(lang === 'ta' ? 'ஆர்டரை ரத்து செய்வதற்கான காரணத்தை உள்ளிடவும்:' : 'Enter reason for cancelling order:');
+    if (reason === null) return;
+    setCancellingOrderId(orderId);
+    try {
+      await api.cancelOrder(orderId, reason);
+      alert(lang === 'ta' ? 'ஆர்டர் ரத்து செய்யப்பட்டது.' : 'Order cancelled.');
+      const [oData, pData] = await Promise.all([
+        api.getOrders(),
+        api.getProducts()
+      ]);
+      setOrders(oData || []);
+      setProducts(pData || []);
+    } catch (err) {
+      alert(err.message || 'Failed to cancel order');
+    } finally {
+      setCancellingOrderId(null);
+    }
+  };
+
   const handlePlaceOrder = async () => {
     if (!selectedShop) return alert('Select a shop / கடையைத் தேர்வு செய்க');
     
@@ -461,12 +527,15 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
         const discountAmt = Number(discount || 0);
         const netAmount = Math.max(0, totalAmount - discountAmt);
 
+        const isSalesman = currentUser?.role === 'salesman' || currentUser?.role === 'sales';
+        const initialStatus = isSalesman ? 'pending_confirmation' : 'pending';
+
         const optimisticOrder = {
           id: tempOrderId,
           invoice_number: invoiceNum,
           route_id: selectedRoute || (shopObj ? shopObj.route_id : ''),
           shop_id: selectedShop,
-          salesman_id: 'u2',
+          salesman_id: currentUser?.id || 'u2',
           order_date: orderDateIso,
           delivery_date: deliveryDateIso,
           invoice_date: deliveryDateIso,
@@ -474,7 +543,7 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           discount: discountAmt,
           net_amount: netAmount,
           previous_outstanding: Number(shopObj?.outstanding_amount || 0),
-          status: 'pending',
+          status: initialStatus,
           delivery_man_id: (api.getCached('routes') || []).find(r => r.id === (selectedRoute || shopObj?.route_id))?.delivery_man_id || ''
         };
 
@@ -494,7 +563,10 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           delivery_id: tempDeliveryId,
           shop_id: selectedShop,
           route_id: selectedRoute || (shopObj ? shopObj.route_id : ''),
-          salesman_id: 'u2',
+          salesman_id: currentUser?.id || 'u2',
+          is_salesman: isSalesman,
+          status: initialStatus,
+          require_confirmation: isSalesman,
           items: orderItemsList,
           discount: discountAmt,
           order_date: orderDateIso,
@@ -502,31 +574,48 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           invoice_date: deliveryDateIso
         };
 
-        // 1. Immediately deduct product stock in local state & cache for instant 0ms reduction
-        const updatedProds = products.map(p => {
-          const cartItem = cart[p.id];
-          if (cartItem) {
-            const deducted = (Number(cartItem.cases || 0) * p.case_qty_rule) + Number(cartItem.bottles || 0);
-            return { ...p, current_stock_bottles: Math.max(0, p.current_stock_bottles - deducted) };
-          }
-          return p;
-        });
-        setProducts(updatedProds);
-        api.setCached('products', updatedProds);
+        // 1. If NOT salesman, immediately deduct product stock in local state & cache for instant 0ms reduction
+        if (!isSalesman) {
+          const updatedProds = products.map(p => {
+            const cartItem = cart[p.id];
+            if (cartItem) {
+              const deducted = (Number(cartItem.cases || 0) * p.case_qty_rule) + Number(cartItem.bottles || 0);
+              return { ...p, current_stock_bottles: Math.max(0, p.current_stock_bottles - deducted) };
+            }
+            return p;
+          });
+          setProducts(updatedProds);
+          api.setCached('products', updatedProds);
+        }
 
-        // 2. Populate orders, order_items & deliveries in clientCache immediately
+        // 2. Populate orders & order_items in clientCache immediately
         api.setCached('orders', [optimisticOrder, ...cachedOrders.filter(o => o.id !== tempOrderId)]);
+        setOrders(prev => [optimisticOrder, ...prev.filter(o => o.id !== tempOrderId)]);
         const cachedItems = api.getCached('order_items') || [];
         api.setCached('order_items', [...orderItemsList, ...cachedItems.filter(i => i.order_id !== tempOrderId)]);
-        const cachedDeliveries = api.getCached('deliveries') || [];
-        api.setCached('deliveries', [optimisticDelivery, ...cachedDeliveries.filter(d => d.order_id !== tempOrderId)]);
+        setOrderItems(prev => [...orderItemsList, ...prev.filter(i => i.order_id !== tempOrderId)]);
+
+        if (!isSalesman) {
+          const cachedDeliveries = api.getCached('deliveries') || [];
+          api.setCached('deliveries', [optimisticDelivery, ...cachedDeliveries.filter(d => d.order_id !== tempOrderId)]);
+        }
 
         // 3. Clear cart and input states
         setCart({});
         setDiscount(0);
 
-        // 4. Instantly switch to Billing screen with 0ms delay!
-        if (onOrderCreated) {
+        // 4. Instantly notify user
+        if (isSalesman) {
+          setOrderPlacedPopupInfo({
+            title: lang === 'ta' ? 'ஆர்டர் அனுப்பப்பட்டது' : 'Order Placed (Pending Confirmation)',
+            message: lang === 'ta'
+              ? `விலைப்பட்டியல் #${invoiceNum} நிர்வாகி (Admin) ஒப்புதலுக்காக அனுப்பப்பட்டுள்ளது. நிர்வாகி இருப்பை உறுதி செய்த பின்னரே விநியோகப் பக்கத்திற்கு செல்லும்.`
+              : `Order #${invoiceNum} placed by Salesman! Status: Pending Confirmation. Admin will review available stock and confirm before it moves to Deliveries.`,
+            onConfirm: () => {
+              setOrderPlacedPopupInfo(null);
+            }
+          });
+        } else if (onOrderCreated) {
           onOrderCreated(tempOrderId, optimisticOrder, orderItemsList);
         }
 
@@ -726,34 +815,66 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
     <div>
       {/* Top Modal / Popup: Order Placed with OK */}
       {orderPlacedPopupInfo && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.65)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 99999,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'flex-start',
-          paddingTop: '40px'
-        }}>
-          <div style={{
-            background: 'var(--bg-card, #0f172a)',
-            border: '2px solid var(--accent-cyan, #06b6d4)',
-            borderRadius: '14px',
-            boxShadow: '0 20px 45px rgba(0, 0, 0, 0.7), 0 0 25px rgba(6, 182, 212, 0.35)',
-            padding: '1.5rem 2rem',
-            width: '90%',
-            maxWidth: '440px',
-            textAlign: 'center',
+        <div
+          id="order-placed-popup-overlay"
+          onClick={handleCloseOrderPlacedPopup}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 99999,
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            animation: 'fadeInDown 0.25s ease-out'
-          }}>
+            justifyContent: 'center',
+            alignItems: 'flex-start',
+            paddingTop: '60px'
+          }}
+        >
+          <div
+            id="order-placed-popup-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'relative',
+              background: 'var(--bg-card, #0f172a)',
+              border: '2px solid var(--accent-cyan, #06b6d4)',
+              borderRadius: '14px',
+              boxShadow: '0 20px 45px rgba(0, 0, 0, 0.7), 0 0 25px rgba(6, 182, 212, 0.35)',
+              padding: '1.75rem 2rem',
+              width: '90%',
+              maxWidth: '460px',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              animation: 'fadeInDown 0.25s ease-out'
+            }}
+          >
+            {/* Top right close button */}
+            <button
+              type="button"
+              id="order-placed-popup-close-x"
+              onClick={handleCloseOrderPlacedPopup}
+              style={{
+                position: 'absolute',
+                top: '12px',
+                right: '14px',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted, #94a3b8)',
+                fontSize: '1.3rem',
+                cursor: 'pointer',
+                lineHeight: 1,
+                padding: '4px 8px',
+                borderRadius: '6px'
+              }}
+              title={lang === 'ta' ? 'மூடு' : 'Close'}
+            >
+              ✕
+            </button>
+
             <div style={{
               width: '56px',
               height: '56px',
@@ -768,20 +889,21 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
             }}>
               ✅
             </div>
-            <h3 style={{ margin: '0 0 0.4rem 0', fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-main, #ffffff)' }}>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-main, #ffffff)' }}>
               {orderPlacedPopupInfo.title}
             </h3>
-            <p style={{ margin: '0 0 1.25rem 0', fontSize: '0.92rem', color: 'var(--text-muted, #94a3b8)', lineHeight: 1.4 }}>
+            <p style={{ margin: '0 0 1.35rem 0', fontSize: '0.92rem', color: 'var(--text-muted, #94a3b8)', lineHeight: 1.45 }}>
               {orderPlacedPopupInfo.message}
             </p>
             <button
               type="button"
-              onClick={orderPlacedPopupInfo.onConfirm}
+              id="order-placed-popup-ok-btn"
+              onClick={handleCloseOrderPlacedPopup}
               className="btn btn-primary"
               style={{
                 minWidth: '130px',
-                padding: '0.55rem 2rem',
-                fontSize: '0.95rem',
+                padding: '0.65rem 2.2rem',
+                fontSize: '0.98rem',
                 fontWeight: 800,
                 cursor: 'pointer',
                 borderRadius: '8px',
@@ -867,10 +989,239 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
         >
           🧾 {lang === 'ta' ? 'ரஃப் பில் (Rough Bill - Walk-in)' : 'Rough Bill (Walk-in Quick Billing)'}
         </button>
+
+        <button
+          type="button"
+          onClick={() => handleSubTabSwitch('confirmation')}
+          className={`btn ${activeSubTab === 'confirmation' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{
+            fontSize: '0.88rem',
+            fontWeight: '700',
+            padding: '0.45rem 1.1rem',
+            borderRadius: '20px',
+            background: activeSubTab === 'confirmation' ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.05)',
+            color: activeSubTab === 'confirmation' ? '#0f172a' : 'var(--text-main)',
+            border: activeSubTab === 'confirmation' ? 'none' : '1px solid var(--border-color)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem'
+          }}
+        >
+          <span>⚡ {lang === 'ta' ? 'ஆர்டர் உறுதிப்படுத்தல்' : 'Order Confirmation'}</span>
+          {(orders || []).filter(o => o.status === 'pending_confirmation').length > 0 && (
+            <span style={{
+              background: activeSubTab === 'confirmation' ? '#b91c1c' : 'var(--warning)',
+              color: '#fff',
+              padding: '1px 7px',
+              borderRadius: '10px',
+              fontSize: '0.75rem',
+              fontWeight: '800'
+            }}>
+              {(orders || []).filter(o => o.status === 'pending_confirmation').length}
+            </span>
+          )}
+        </button>
       </div>
 
       {activeSubTab === 'rough_bill' ? (
         <RoughBill t={t} lang={lang} onBack={() => handleSubTabSwitch('regular')} />
+      ) : activeSubTab === 'confirmation' ? (
+        <div className="glass-card" style={{ padding: '1.5rem', marginBottom: '2rem' }}>
+          <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div>
+              <h2 style={{ fontSize: '1.35rem', fontWeight: '800', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                ⚡ {lang === 'ta' ? 'நிர்வாகி ஆர்டர் உறுதிப்படுத்தல் & இருப்பு சரிபார்ப்பு' : 'Admin Order Confirmation & Stock Validation'}
+              </h2>
+              <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                {lang === 'ta'
+                  ? 'விற்பனையாளர்கள் எடுத்த ஆர்டர்களை மதிப்பாய்வு செய்து, இருப்பு இருப்பதை உறுதிசெய்து, விநியோகப் பக்கத்திற்கு அனுப்பவும்.'
+                  : 'Review orders placed by salesmen, validate warehouse stock, and confirm orders to move to Deliveries.'}
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span className="badge" style={{ background: 'rgba(234, 179, 8, 0.15)', color: 'var(--warning)', border: '1px solid var(--warning)', fontSize: '0.85rem', padding: '0.35rem 0.75rem' }}>
+                ⏳ {(orders || []).filter(o => o.status === 'pending_confirmation').length} {lang === 'ta' ? 'உறுதிப்படுத்தல் நிலுவையில்' : 'Pending Confirmation'}
+              </span>
+            </div>
+          </div>
+
+          {(orders || []).filter(o => o.status === 'pending_confirmation').length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>✅</div>
+              <h3 style={{ fontSize: '1.2rem', color: 'var(--text-main)', marginBottom: '0.5rem' }}>
+                {lang === 'ta' ? 'உறுதிப்படுத்த நிலுவையில் உள்ள ஆர்டர்கள் எதுவும் இல்லை' : 'No Pending Orders Awaiting Confirmation'}
+              </h3>
+              <p style={{ fontSize: '0.9rem', maxWidth: '500px', margin: '0 auto' }}>
+                {lang === 'ta'
+                  ? 'விற்பனையாளர்கள் புதிய ஆர்டர்களை எடுக்கும்போது, அவை இங்கே காண்பிக்கப்படும்.'
+                  : 'When salesmen place orders from the field, they will appear here for review and confirmation before moving to Deliveries.'}
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {(orders || []).filter(o => o.status === 'pending_confirmation').map(ord => {
+                const shop = shops.find(s => s.id === ord.shop_id);
+                const route = routes.find(r => r.id === ord.route_id);
+                const itemsForOrder = orderItems.filter(oi => oi.order_id === ord.id);
+
+                let hasShortage = false;
+                const itemsAnalysis = itemsForOrder.map(item => {
+                  const prod = products.find(p => p.id === item.product_id);
+                  const caseRule = prod?.case_qty_rule || 24;
+                  const reqBottles = (Number(item.cases || 0) * caseRule) + Number(item.bottles || 0);
+                  const availBottles = prod ? Number(prod.current_stock_bottles || 0) : 0;
+                  const isItemShort = availBottles < reqBottles;
+                  if (isItemShort) hasShortage = true;
+
+                  const shortageDiff = Math.max(0, reqBottles - availBottles);
+                  const shortageCases = Math.floor(shortageDiff / caseRule);
+                  const shortageRemBottles = shortageDiff % caseRule;
+
+                  return {
+                    ...item,
+                    product: prod,
+                    caseRule,
+                    reqBottles,
+                    availBottles,
+                    isItemShort,
+                    shortageDiff,
+                    shortageCases,
+                    shortageRemBottles
+                  };
+                });
+
+                return (
+                  <div key={ord.id} className="glass-card" style={{ padding: '1.25rem', border: hasShortage ? '1.5px solid rgba(239, 68, 68, 0.4)' : '1.5px solid rgba(16, 185, 129, 0.4)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
+                          <span style={{ fontSize: '1.15rem', fontWeight: '800', color: 'var(--accent-cyan)' }}>
+                            {ord.invoice_number || ord.id}
+                          </span>
+                          <span className="badge" style={{ background: 'rgba(234, 179, 8, 0.2)', color: 'var(--warning)', fontWeight: '700' }}>
+                            ⏳ {lang === 'ta' ? 'உறுதிப்படுத்தல் நிலுவையில்' : 'Pending Confirmation'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                          <strong>{shop ? (lang === 'ta' ? shop.name_ta || shop.name_en : shop.name_en) : 'Unknown Shop'}</strong>
+                          {route && ` • ${lang === 'ta' ? route.name_ta || route.name_en : route.name_en}`}
+                          {ord.order_date && ` • 📅 ${new Date(ord.order_date).toLocaleDateString('en-GB')}`}
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--success)' }}>
+                          ₹{ord.net_amount || ord.total_amount || 0}
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          {itemsForOrder.length} {lang === 'ta' ? 'பொருட்கள்' : 'items'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Items table with Live Stock Comparison */}
+                    <div style={{ overflowX: 'auto', marginBottom: '1rem' }}>
+                      <table className="custom-table" style={{ fontSize: '0.85rem' }}>
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>{lang === 'ta' ? 'தயாரிப்பு' : 'Product'}</th>
+                            <th>{lang === 'ta' ? 'ஆர்டர் அளவு' : 'Ordered Qty'}</th>
+                            <th>{lang === 'ta' ? 'மொத்த பாட்டில்கள்' : 'Total Bottles'}</th>
+                            <th>{lang === 'ta' ? 'கிடைக்கும் இருப்பு' : 'Available Stock'}</th>
+                            <th>{lang === 'ta' ? 'இருப்பு நிலை' : 'Stock Status'}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {itemsAnalysis.map((item, idx) => {
+                            const pName = item.product ? (lang === 'ta' ? item.product.name_ta || item.product.name_en : item.product.name_en) : 'Product';
+                            const pSize = item.product ? item.product.size : '';
+                            return (
+                              <tr key={item.id || idx}>
+                                <td>{idx + 1}</td>
+                                <td>
+                                  <strong>{pName}</strong> <span style={{ color: 'var(--accent-cyan)' }}>({pSize})</span>
+                                </td>
+                                <td>
+                                  {item.cases > 0 ? `${item.cases} C ` : ''}
+                                  {item.bottles > 0 ? `${item.bottles} B` : ''}
+                                </td>
+                                <td>{item.reqBottles} Bottles</td>
+                                <td>
+                                  {Math.floor(item.availBottles / item.caseRule)} Cases ({item.availBottles} Bottles)
+                                </td>
+                                <td>
+                                  {item.isItemShort ? (
+                                    <span className="badge badge-danger" style={{ fontWeight: '700' }}>
+                                      ⚠️ Shortage: {item.shortageCases > 0 ? `${item.shortageCases} C, ` : ''}{item.shortageRemBottles} B short
+                                    </span>
+                                  ) : (
+                                    <span className="badge badge-success" style={{ fontWeight: '700' }}>
+                                      ✅ In Stock
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Stock Alert Summary */}
+                    {hasShortage ? (
+                      <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', padding: '0.75rem 1rem', borderRadius: '6px', marginBottom: '1rem', color: '#fca5a5', fontSize: '0.85rem' }}>
+                        <strong>⚠️ {lang === 'ta' ? 'இருப்பு பற்றாக்குறை உள்ளது!' : 'Insufficient Stock Shortage Detected:'}</strong>
+                        <div style={{ marginTop: '0.25rem' }}>
+                          {lang === 'ta'
+                            ? 'சில பொருட்களுக்கு போதுமான இருப்பு இல்லை. தயவுசெய்து கொள்முதல் பதிவில் (Purchase Entry) சரக்கை சேர்த்த பிறகு இந்த ஆர்டரை உறுதி செய்யவும்.'
+                            : 'Stock shortage detected. Confirmation is blocked to prevent overselling. Add inventory via Purchase Entry before confirming.'}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid var(--success)', padding: '0.6rem 1rem', borderRadius: '6px', marginBottom: '1rem', color: '#86efac', fontSize: '0.85rem' }}>
+                        <strong>✅ {lang === 'ta' ? 'அனைத்து பொருட்களுக்கும் போதுமான இருப்பு உள்ளது.' : 'All items are available in stock.'}</strong>
+                        <span> {lang === 'ta' ? 'இந்த ஆர்டரை உறுதி செய்து உடனடியாக விநியோகத்திற்கு நகர்த்தலாம்.' : 'Ready to confirm. Will automatically move to Deliveries page.'}</span>
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => handleCancelPendingOrder(ord.id)}
+                        disabled={cancellingOrderId === ord.id}
+                        style={{ color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                      >
+                        {cancellingOrderId === ord.id ? 'Cancelling...' : `❌ ${lang === 'ta' ? 'ஆர்டர் ரத்து செய்' : 'Cancel Order'}`}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => handleConfirmOrder(ord.id)}
+                        disabled={hasShortage || confirmingOrderId === ord.id}
+                        style={{
+                          background: hasShortage ? 'rgba(255,255,255,0.1)' : 'var(--success)',
+                          borderColor: hasShortage ? 'var(--border-color)' : 'var(--success)',
+                          color: hasShortage ? 'var(--text-muted)' : '#000',
+                          cursor: hasShortage ? 'not-allowed' : 'pointer',
+                          fontWeight: '800'
+                        }}
+                      >
+                        {confirmingOrderId === ord.id 
+                          ? '⏳ Confirming...' 
+                          : `⚡ ${lang === 'ta' ? 'ஆர்டரை உறுதி செய் (விநியோகத்திற்கு நகர்த்து)' : 'Confirm Order (Move to Deliveries)'}`}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       ) : (
         <>
           <div style={{ marginBottom: '0.75rem' }}>
@@ -1146,19 +1497,6 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
                 )}
               </div>
             )}
-            {/* Order Date */}
-            <div className="form-group" style={{ minWidth: '150px', flex: '0 0 auto', margin: 0 }}>
-              <label style={{ fontWeight: '600', fontSize: '0.85rem', marginBottom: '0.25rem', display: 'block' }}>
-                📅 {lang === 'ta' ? 'ஆர்டர் தேதி' : 'Order Date'}
-              </label>
-              <input
-                type="date"
-                className="form-input"
-                value={orderDate}
-                onChange={e => setOrderDate(e.target.value)}
-                style={{ fontSize: '0.9rem', width: '100%', padding: '0.45rem 0.75rem' }}
-              />
-            </div>
           </div>
         </div>
       </div>
