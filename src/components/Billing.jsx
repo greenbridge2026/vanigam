@@ -8,13 +8,21 @@ import { translateShopName, translateRouteName, translateProductName, translateA
 export default function Billing({ orderId, initialData, t, lang, onBack }) {
   const [order, setOrder] = useState(() => initialData?.order || null);
   const [orderItems, setOrderItems] = useState(() => initialData?.items || []);
-  const [products, setProducts] = useState([]);
-  const [shop, setShop] = useState(null);
-  const [route, setRoute] = useState(null);
-  const [payments, setPayments] = useState([]);
-  const [allOrders, setAllOrders] = useState([]);
-  const [allPayments, setAllPayments] = useState([]);
-  const [loading, setLoading] = useState(!initialData?.order);
+  const [products, setProducts] = useState(() => api.getCached('products') || []);
+  const [shop, setShop] = useState(() => {
+    const sId = initialData?.order?.shop_id;
+    if (!sId) return null;
+    return (api.getCached('shops') || []).find(s => s.id === sId) || null;
+  });
+  const [route, setRoute] = useState(() => {
+    const rId = initialData?.order?.route_id;
+    if (!rId) return null;
+    return (api.getCached('routes') || []).find(r => r.id === rId) || null;
+  });
+  const [payments, setPayments] = useState(() => api.getCached('payments') || []);
+  const [allOrders, setAllOrders] = useState(() => api.getCached('orders') || []);
+  const [allPayments, setAllPayments] = useState(() => api.getCached('payments') || []);
+  const [loading, setLoading] = useState(() => !initialData?.order && !(api.getCached('orders') || []).find(o => o.id === orderId));
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [modalPaymentRows, setModalPaymentRows] = useState([
     {

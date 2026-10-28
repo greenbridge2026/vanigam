@@ -4,17 +4,17 @@ import { translateShopName, translateRouteName, translateProductName } from '../
 import * as XLSX from 'xlsx';
 
 export default function VehicleLoading({ t, lang, session }) {
-  const [routes, setRoutes] = useState([]);
-  const [shops, setShops] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [orderItems, setOrderItems] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
-  const [dispatches, setDispatches] = useState([]);
-  const [deliveries, setDeliveries] = useState([]);
-  const [users, setUsers] = useState([]);
+  const [routes, setRoutes] = useState(() => api.getCached('routes') || []);
+  const [shops, setShops] = useState(() => api.getCached('shops') || []);
+  const [products, setProducts] = useState(() => api.getCached('products') || []);
+  const [orders, setOrders] = useState(() => api.getCached('orders') || []);
+  const [orderItems, setOrderItems] = useState(() => api.getCached('order_items') || []);
+  const [vehicles, setVehicles] = useState(() => api.getCached('vehicles') || []);
+  const [dispatches, setDispatches] = useState(() => api.getCached('vehicle_dispatches') || []);
+  const [deliveries, setDeliveries] = useState(() => api.getCached('deliveries') || []);
+  const [users, setUsers] = useState(() => api.getCached('users') || []);
   
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !api.getCached('routes') || api.getCached('routes').length === 0);
   const [submitting, setSubmitting] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState('summary'); // 'summary' | 'tracking' | 'reports'
 

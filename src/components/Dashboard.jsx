@@ -4,11 +4,11 @@ import { translateShopName, translateRouteName } from '../translations';
 
 export default function Dashboard({ t, lang, onNavigate }) {
   const [summary, setSummary] = useState(null);
-  const [products, setProducts] = useState([]);
-  const [routes, setRoutes] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [shops, setShops] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState(() => api.getCached('products') || []);
+  const [routes, setRoutes] = useState(() => api.getCached('routes') || []);
+  const [orders, setOrders] = useState(() => api.getCached('orders') || []);
+  const [shops, setShops] = useState(() => api.getCached('shops') || []);
+  const [loading, setLoading] = useState(() => !api.getCached('orders') || !api.getCached('products'));
 
   useEffect(() => {
     async function loadData() {

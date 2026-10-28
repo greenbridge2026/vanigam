@@ -99,9 +99,10 @@ export default function App() {
   });
 
   useEffect(() => {
-    async function loadSettings() {
+    async function initApp() {
       if (!session) return;
       try {
+        api.preloadCoreTables();
         const data = await api.getSettings();
         if (data) {
           setSettings(data);
@@ -111,7 +112,7 @@ export default function App() {
         console.error('Failed to load settings in App:', err);
       }
     }
-    loadSettings();
+    initApp();
   }, [session]);
 
   useEffect(() => {

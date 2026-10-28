@@ -7,17 +7,17 @@ import AuditorReport from './AuditorReport';
 
 export default function Reports({ t, lang, onBillSelected, session }) {
   const [activeTab, setActiveTab] = useState('daily_sales');
-  const [orders, setOrders] = useState([]);
-  const [orderItems, setOrderItems] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [shops, setShops] = useState([]);
-  const [routes, setRoutes] = useState([]);
-  const [payments, setPayments] = useState([]);
-  const [purchases, setPurchases] = useState([]);
-  const [deliveries, setDeliveries] = useState([]);
-  const [deliveryAuditTrail, setDeliveryAuditTrail] = useState([]);
+  const [orders, setOrders] = useState(() => api.getCached('orders') || []);
+  const [orderItems, setOrderItems] = useState(() => api.getCached('order_items') || []);
+  const [products, setProducts] = useState(() => api.getCached('products') || []);
+  const [shops, setShops] = useState(() => api.getCached('shops') || []);
+  const [routes, setRoutes] = useState(() => api.getCached('routes') || []);
+  const [payments, setPayments] = useState(() => api.getCached('payments') || []);
+  const [purchases, setPurchases] = useState(() => api.getCached('purchases') || []);
+  const [deliveries, setDeliveries] = useState(() => api.getCached('deliveries') || []);
+  const [deliveryAuditTrail, setDeliveryAuditTrail] = useState(() => api.getCached('delivery_audit_trail') || []);
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !api.getCached('orders') || api.getCached('orders').length === 0);
 
   // Expandable shop outstanding details
   const [expandedShopId, setExpandedShopId] = useState(null);

@@ -4,11 +4,11 @@ import { translateShopName } from '../translations';
 import { calculateOrderPaymentInfo } from '../utils/paymentUtils';
 
 export default function OutstandingCollection({ t, lang, onBillSelected }) {
-  const [routes, setRoutes] = useState([]);
-  const [shops, setShops] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [payments, setPayments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [routes, setRoutes] = useState(() => api.getCached('routes') || []);
+  const [shops, setShops] = useState(() => api.getCached('shops') || []);
+  const [orders, setOrders] = useState(() => api.getCached('orders') || []);
+  const [payments, setPayments] = useState(() => api.getCached('payments') || []);
+  const [loading, setLoading] = useState(() => !api.getCached('shops') || api.getCached('shops').length === 0);
 
   // Form states
   const [selectedRouteId, setSelectedRouteId] = useState('all');

@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 
 export default function RecycleBin({ t, lang }) {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState(() => api.getCached('recycle_bin') || []);
+  const [loading, setLoading] = useState(() => !api.getCached('recycle_bin') || api.getCached('recycle_bin').length === 0);
 
   useEffect(() => {
     loadRecycleBin();

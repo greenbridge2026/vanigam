@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import api from '../api';
 
 export default function StockMgr({ t, lang }) {
-  const [products, setProducts] = useState([]);
-  const [purchases, setPurchases] = useState([]);
-  const [orderItems, setOrderItems] = useState([]);
-  const [ledger, setLedger] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState(() => api.getCached('products') || []);
+  const [purchases, setPurchases] = useState(() => api.getCached('purchases') || []);
+  const [orderItems, setOrderItems] = useState(() => api.getCached('order_items') || []);
+  const [ledger, setLedger] = useState(() => api.getCached('stock_ledger') || []);
+  const [loading, setLoading] = useState(() => !api.getCached('products') || api.getCached('products').length === 0);
 
   useEffect(() => {
     async function loadData() {

@@ -5,9 +5,9 @@ import * as XLSX from 'xlsx';
 import { translateProductName, sanitizeTamilBeverageTerms } from '../translations';
 
 export default function ProductMgr({ t, lang }) {
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState(() => api.getCached('products') || []);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !api.getCached('products') || api.getCached('products').length === 0);
 
   // Form Fields
   const [nameEn, setNameEn] = useState('');

@@ -1,7 +1,31 @@
 import { db, isFirebaseConfigured } from './firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 
 const API_BASE = '/api';
+
+// High-Speed In-Memory Client Cache for Instant Navigation
+const clientCache = new Map();
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds fresh TTL
+
+export function getCached(tableName) {
+  const entry = clientCache.get(tableName);
+  return entry ? entry.data : null;
+}
+
+export function setCached(tableName, data) {
+  clientCache.set(tableName, { data, timestamp: Date.now() });
+}
+
+export function invalidateCache(tableNames) {
+  if (!tableNames) {
+    clientCache.clear();
+    return;
+  }
+  const keys = Array.isArray(tableNames) ? tableNames : [tableNames];
+  for (const k of keys) {
+    clientCache.delete(k);
+  }
+}
 
 function apiFetch(url, options = {}, targetTenantId = null) {
   const headers = { ...options.headers };
@@ -43,15 +67,25 @@ async function parseJsonResponse(res, defaultErrMsg = 'API Request Failed') {
   return parsed;
 }
 
-// Helper to load table data: fast path from local backend, fallback to Firestore
-async function getTableData(tableName, fallbackUrl, targetTenantId = null) {
+// Helper to load table data: fast path from local backend with instant client caching
+async function getTableData(tableName, fallbackUrl, targetTenantId = null, forceRefresh = false) {
   const tenantId = targetTenantId || localStorage.getItem('tenantId') || 'GSK_AGENCY';
   
+  // Instant Cache Hit (< 1ms)
+  if (!forceRefresh) {
+    const cached = clientCache.get(tableName);
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+      return cached.data;
+    }
+  }
+
   // Fast Path: Fetch from local Express backend (in-memory cached, < 5ms response)
   try {
     const res = await apiFetch(fallbackUrl, {}, tenantId);
     if (res.ok) {
-      return await parseJsonResponse(res, `Failed to load ${tableName}`);
+      const data = await parseJsonResponse(res, `Failed to load ${tableName}`);
+      clientCache.set(tableName, { data: data || [], timestamp: Date.now() });
+      return data || [];
     }
   } catch (err) {
     // If local server unreachable, fall back to direct Firestore
@@ -63,7 +97,25 @@ async function getTableData(tableName, fallbackUrl, targetTenantId = null) {
       const docRef = doc(db, 'tenants', tenantId, 'tables', tableName);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
-        return docSnap.data().data || [];
+        const docData = docSnap.data();
+        let result = [];
+        if (docData && docData.is_chunked) {
+          const totalChunks = docData.total_chunks || 1;
+          const chunkPromises = [];
+          for (let i = 0; i < totalChunks; i++) {
+            chunkPromises.push(getDoc(doc(db, 'tenants', tenantId, 'tables', `${tableName}__chunk_${i}`)));
+          }
+          const chunkSnaps = await Promise.all(chunkPromises);
+          for (const cSnap of chunkSnaps) {
+            if (cSnap.exists()) {
+              result.push(...(cSnap.data()?.data || []));
+            }
+          }
+        } else {
+          result = docData?.data || [];
+        }
+        clientCache.set(tableName, { data: result, timestamp: Date.now() });
+        return result;
       }
       return [];
     } catch (err) {
@@ -71,13 +123,37 @@ async function getTableData(tableName, fallbackUrl, targetTenantId = null) {
     }
   }
 
-  return [];
+  const fallback = clientCache.get(tableName);
+  return fallback ? fallback.data : [];
 }
 
 export const api = {
+  getCached,
+  setCached,
+  invalidateCache,
+
+  // Preload all core tables on app start so all pages render instantly
+  async preloadCoreTables() {
+    try {
+      await Promise.allSettled([
+        getTableData('routes', `${API_BASE}/routes`),
+        getTableData('shops', `${API_BASE}/shops`),
+        getTableData('products', `${API_BASE}/products`),
+        getTableData('orders', `${API_BASE}/orders`),
+        getTableData('order_items', `${API_BASE}/orders/items`),
+        getTableData('deliveries', `${API_BASE}/deliveries`),
+        getTableData('payments', `${API_BASE}/payments`),
+        getTableData('settings', `${API_BASE}/settings`)
+      ]);
+    } catch (e) {
+      console.warn('Preload notice:', e);
+    }
+  },
+
   // Auth
   async login(tenantId, username, password) {
     localStorage.setItem('tenantId', tenantId);
+    clientCache.clear();
     const res = await apiFetch(`${API_BASE}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -129,17 +205,7 @@ export const api = {
       body: JSON.stringify(routeData)
     });
     const added = await parseJsonResponse(res, 'Failed to create route');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
-        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
-        await setDoc(docRef, { data: freshRoutes }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing created route to Firestore client failed:', e);
-      }
-    }
+    invalidateCache('routes');
     return added;
   },
   async updateRoute(id, routeData) {
@@ -149,17 +215,7 @@ export const api = {
       body: JSON.stringify(routeData)
     });
     const updated = await parseJsonResponse(res, 'Failed to update route');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
-        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
-        await setDoc(docRef, { data: freshRoutes }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing updated route to Firestore client failed:', e);
-      }
-    }
+    invalidateCache('routes');
     return updated;
   },
   async deleteRoute(id) {
@@ -167,17 +223,7 @@ export const api = {
       method: 'DELETE'
     });
     const result = await parseJsonResponse(res, 'Failed to delete route');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
-        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
-        await setDoc(docRef, { data: freshRoutes }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing deleted route to Firestore client failed:', e);
-      }
-    }
+    invalidateCache('routes');
     return result;
   },
   async bulkDeleteRoutes(ids) {
@@ -187,17 +233,7 @@ export const api = {
       body: JSON.stringify({ ids })
     });
     const result = await parseJsonResponse(res, 'Failed to bulk delete routes');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
-        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
-        await setDoc(docRef, { data: freshRoutes }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing bulk deleted routes to Firestore client failed:', e);
-      }
-    }
+    invalidateCache('routes');
     return result;
   },
   async importRoutes(routesList) {
@@ -207,17 +243,7 @@ export const api = {
       body: JSON.stringify(routesList)
     });
     const result = await parseJsonResponse(res, 'Failed to import routes');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resRoutes = await apiFetch(`${API_BASE}/routes`, {}, tenantId);
-        const freshRoutes = await parseJsonResponse(resRoutes, 'Failed to sync routes');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'routes');
-        await setDoc(docRef, { data: freshRoutes }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing imported routes to Firestore client failed:', e);
-      }
-    }
+    invalidateCache('routes');
     return result;
   },
 
@@ -232,17 +258,7 @@ export const api = {
       body: JSON.stringify(shopData)
     });
     const added = await parseJsonResponse(res, 'Failed to create shop');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resShops = await apiFetch(`${API_BASE}/shops`, {}, tenantId);
-        const freshShops = await parseJsonResponse(resShops, 'Failed to sync shops');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
-        await setDoc(docRef, { data: freshShops }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing created shop to Firestore client failed:', e);
-      }
-    }
+    invalidateCache('shops');
     return added;
   },
   async updateShop(id, shopData) {
@@ -252,18 +268,18 @@ export const api = {
       body: JSON.stringify(shopData)
     });
     const updated = await parseJsonResponse(res, 'Failed to update shop');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resShops = await apiFetch(`${API_BASE}/shops`, {}, tenantId);
-        const freshShops = await parseJsonResponse(resShops, 'Failed to sync shops');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
-        await setDoc(docRef, { data: freshShops }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing updated shop to Firestore client failed:', e);
-      }
-    }
+    invalidateCache('shops');
     return updated;
+  },
+  async importShops(shopsList) {
+    const res = await apiFetch(`${API_BASE}/shops/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(shopsList)
+    });
+    const result = await parseJsonResponse(res, 'Failed to import shops');
+    invalidateCache('shops');
+    return result;
   },
 
   // Products
@@ -277,17 +293,7 @@ export const api = {
       body: JSON.stringify(productData)
     });
     const added = await parseJsonResponse(res, 'Failed to create product');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
-        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
-        await setDoc(docRef, { data: freshProducts }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing created product to Firestore client failed:', e);
-      }
-    }
+    invalidateCache(['products', 'stock_ledger']);
     return added;
   },
   async updateProduct(id, productData) {
@@ -297,17 +303,7 @@ export const api = {
       body: JSON.stringify(productData)
     });
     const updated = await parseJsonResponse(res, 'Failed to update product');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
-        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
-        await setDoc(docRef, { data: freshProducts }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing updated product to Firestore client failed:', e);
-      }
-    }
+    invalidateCache(['products', 'stock_ledger']);
     return updated;
   },
   async importProducts(productsList) {
@@ -317,55 +313,17 @@ export const api = {
       body: JSON.stringify(productsList)
     });
     const result = await parseJsonResponse(res, 'Failed to import products');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
-        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
-        await setDoc(docRef, { data: freshProducts }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing imported products to Firestore client failed:', e);
-      }
-    }
+    invalidateCache(['products', 'stock_ledger']);
     return result;
   },
-  async autoTranslateProducts() {
-    const res = await apiFetch(`${API_BASE}/products/auto-translate-all`, {
-      method: 'POST'
-    });
-    const result = await parseJsonResponse(res, 'Failed to auto translate products');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
-        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
-        await setDoc(docRef, { data: freshProducts }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing translated products to Firestore client failed:', e);
-      }
-    }
-    return result;
-  },
-  async importShops(routeId, shopsList) {
-    const res = await apiFetch(`${API_BASE}/shops/import`, {
+  async adjustProductStock(id, payload) {
+    const res = await apiFetch(`${API_BASE}/stock/adjust`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ routeId, shops: shopsList })
+      body: JSON.stringify({ product_id: id, ...payload })
     });
-    const result = await parseJsonResponse(res, 'Failed to import shops');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resShops = await apiFetch(`${API_BASE}/shops`, {}, tenantId);
-        const freshShops = await parseJsonResponse(resShops, 'Failed to sync shops');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
-        await setDoc(docRef, { data: freshShops }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing imported shops to Firestore client failed:', e);
-      }
-    }
+    const result = await parseJsonResponse(res, 'Failed to adjust stock');
+    invalidateCache(['products', 'stock_ledger']);
     return result;
   },
 
@@ -379,7 +337,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(purchaseData)
     });
-    return parseJsonResponse(res, 'Failed to record purchase');
+    const added = await parseJsonResponse(res, 'Failed to record purchase');
+    invalidateCache(['purchases', 'products', 'stock_ledger']);
+    return added;
   },
   async updatePurchase(id, purchaseData) {
     const res = await apiFetch(`${API_BASE}/purchases/${id}`, {
@@ -387,7 +347,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(purchaseData)
     });
-    return parseJsonResponse(res, 'Failed to update purchase entry');
+    const updated = await parseJsonResponse(res, 'Failed to update purchase entry');
+    invalidateCache(['purchases', 'products', 'stock_ledger']);
+    return updated;
   },
 
   // Stock Ledger
@@ -395,6 +357,7 @@ export const api = {
     return getTableData('stock_ledger', `${API_BASE}/stock/ledger`);
   },
 
+  // Orders
   async getOrders() {
     const orders = await getTableData('orders', `${API_BASE}/orders`);
     if (orders && orders.length > 0) {
@@ -404,27 +367,8 @@ export const api = {
         if (dateA !== dateB) return dateA - dateB;
         return (a.id || '').localeCompare(b.id || '');
       });
-
-      let changed = false;
-      orders.forEach((order, index) => {
-        const expectedInvoiceNum = `INV-${1001 + index}`;
-        if (order.invoice_number !== expectedInvoiceNum) {
-          order.invoice_number = expectedInvoiceNum;
-          changed = true;
-        }
-      });
-
-      if (changed && isFirebaseConfigured && db) {
-        try {
-          const tenantId = localStorage.getItem('tenantId') || 'default';
-          const docRef = doc(db, 'tenants', tenantId, 'tables', 'orders');
-          await setDoc(docRef, { data: orders }, { merge: true });
-        } catch (e) {
-          console.warn('Auto-sync reindexed orders to Firestore failed:', e);
-        }
-      }
     }
-    return orders;
+    return orders || [];
   },
   async getOrderItems() {
     return getTableData('order_items', `${API_BASE}/orders/items`);
@@ -446,7 +390,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(orderData)
     });
-    return parseJsonResponse(res, 'Failed to place order');
+    const result = await parseJsonResponse(res, 'Failed to place order');
+    invalidateCache(['orders', 'order_items', 'products', 'deliveries', 'shops', 'stock_ledger', 'notifications', 'outstanding_history']);
+    return result;
   },
   async updateOrder(id, orderData) {
     const res = await apiFetch(`${API_BASE}/orders/${id}`, {
@@ -454,7 +400,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(orderData)
     });
-    return parseJsonResponse(res, 'Failed to update order/invoice');
+    const result = await parseJsonResponse(res, 'Failed to update order/invoice');
+    invalidateCache(['orders', 'order_items', 'products', 'deliveries', 'shops', 'stock_ledger', 'outstanding_history']);
+    return result;
   },
 
   // Deliveries
@@ -467,14 +415,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    return parseJsonResponse(res, 'Failed to complete delivery');
+    const result = await parseJsonResponse(res, 'Failed to complete delivery');
+    invalidateCache(['deliveries', 'orders', 'shops', 'payments', 'outstanding_history', 'stock_ledger']);
+    return result;
   },
   async getDeliveryAuditTrail() {
     return getTableData('delivery_audit_trail', `${API_BASE}/delivery-audit-trail`);
   },
   async getSettings() {
-    const res = await apiFetch(`${API_BASE}/settings`);
-    return parseJsonResponse(res, 'Failed to fetch settings');
+    return getTableData('settings', `${API_BASE}/settings`);
   },
   async updateSettings(settings) {
     const res = await apiFetch(`${API_BASE}/settings`, {
@@ -482,7 +431,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings)
     });
-    return parseJsonResponse(res, 'Failed to update settings');
+    const updated = await parseJsonResponse(res, 'Failed to update settings');
+    invalidateCache('settings');
+    return updated;
   },
 
   // Payments & Collections
@@ -495,7 +446,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(paymentData)
     });
-    return parseJsonResponse(res, 'Failed to register payment');
+    const result = await parseJsonResponse(res, 'Failed to register payment');
+    invalidateCache(['payments', 'shops', 'orders', 'outstanding_history']);
+    return result;
   },
   async getOutstandingHistory() {
     return getTableData('outstanding_history', `${API_BASE}/outstanding/history`);
@@ -509,7 +462,9 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/notifications/mark-read`, {
       method: 'POST'
     });
-    return parseJsonResponse(res, 'Failed to mark notifications read');
+    const result = await parseJsonResponse(res, 'Failed to mark notifications read');
+    invalidateCache('notifications');
+    return result;
   },
 
   // Reports
@@ -518,23 +473,13 @@ export const api = {
     return parseJsonResponse(res, 'Failed to fetch report summary');
   },
 
-  // Corrections & Cancellations
+  // Deletions
   async deleteShop(id) {
     const res = await apiFetch(`${API_BASE}/shops/${id}`, {
       method: 'DELETE'
     });
     const result = await parseJsonResponse(res, 'Failed to delete shop');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resShops = await apiFetch(`${API_BASE}/shops`, {}, tenantId);
-        const freshShops = await parseJsonResponse(resShops, 'Failed to sync shops');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
-        await setDoc(docRef, { data: freshShops }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing deleted shop to Firestore client failed:', e);
-      }
-    }
+    invalidateCache(['shops', 'recycle_bin']);
     return result;
   },
   async bulkDeleteShops(ids, force = false) {
@@ -544,17 +489,7 @@ export const api = {
       body: JSON.stringify({ ids, force })
     });
     const result = await parseJsonResponse(res, 'Failed to bulk delete shops');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resShops = await apiFetch(`${API_BASE}/shops`, {}, tenantId);
-        const freshShops = await parseJsonResponse(resShops, 'Failed to sync shops');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'shops');
-        await setDoc(docRef, { data: freshShops }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing bulk deleted shops to Firestore client failed:', e);
-      }
-    }
+    invalidateCache(['shops', 'recycle_bin']);
     return result;
   },
   async deleteProduct(id) {
@@ -562,17 +497,7 @@ export const api = {
       method: 'DELETE'
     });
     const result = await parseJsonResponse(res, 'Failed to delete product');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
-        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
-        await setDoc(docRef, { data: freshProducts }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing deleted product to Firestore client failed:', e);
-      }
-    }
+    invalidateCache(['products', 'stock_ledger', 'recycle_bin']);
     return result;
   },
   async bulkDeleteProducts(ids) {
@@ -582,31 +507,24 @@ export const api = {
       body: JSON.stringify({ ids })
     });
     const result = await parseJsonResponse(res, 'Failed to bulk delete products');
-    if (isFirebaseConfigured && db) {
-      try {
-        const tenantId = localStorage.getItem('tenantId') || 'GSK_AGENCY';
-        const resProducts = await apiFetch(`${API_BASE}/products`, {}, tenantId);
-        const freshProducts = await parseJsonResponse(resProducts, 'Failed to sync products');
-        const docRef = doc(db, 'tenants', tenantId, 'tables', 'products');
-        await setDoc(docRef, { data: freshProducts }, { merge: true });
-      } catch (e) {
-        console.warn('Syncing bulk deleted products to Firestore client failed:', e);
-      }
-    }
+    invalidateCache(['products', 'stock_ledger', 'recycle_bin']);
     return result;
   },
-
   async deletePurchase(id) {
     const res = await apiFetch(`${API_BASE}/purchases/${id}`, {
       method: 'DELETE'
     });
-    return parseJsonResponse(res, 'Failed to delete purchase');
+    const result = await parseJsonResponse(res, 'Failed to delete purchase');
+    invalidateCache(['purchases', 'products', 'stock_ledger', 'recycle_bin']);
+    return result;
   },
   async deleteOrder(id) {
     const res = await apiFetch(`${API_BASE}/orders/${id}`, {
       method: 'DELETE'
     });
-    return parseJsonResponse(res, 'Failed to cancel/delete order');
+    const result = await parseJsonResponse(res, 'Failed to cancel/delete order');
+    invalidateCache(['orders', 'order_items', 'deliveries', 'shops', 'products', 'stock_ledger', 'recycle_bin']);
+    return result;
   },
 
   // User Access Management
@@ -616,7 +534,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData)
     }, targetTenantId);
-    return parseJsonResponse(res, 'Failed to create user access');
+    const added = await parseJsonResponse(res, 'Failed to create user access');
+    invalidateCache('users');
+    return added;
   },
   async updateUser(id, userData, targetTenantId = null) {
     const res = await apiFetch(`${API_BASE}/users/${id}`, {
@@ -624,13 +544,17 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData)
     }, targetTenantId);
-    return parseJsonResponse(res, 'Failed to update user access');
+    const updated = await parseJsonResponse(res, 'Failed to update user access');
+    invalidateCache('users');
+    return updated;
   },
   async deleteUser(id, targetTenantId = null) {
     const res = await apiFetch(`${API_BASE}/users/${id}`, {
       method: 'DELETE'
     }, targetTenantId);
-    return parseJsonResponse(res, 'Failed to delete user access');
+    const result = await parseJsonResponse(res, 'Failed to delete user access');
+    invalidateCache('users');
+    return result;
   },
 
   // Recycle Bin
@@ -641,16 +565,20 @@ export const api = {
     const res = await apiFetch(`${API_BASE}/recycle-bin/${id}/restore`, {
       method: 'POST'
     });
-    return parseJsonResponse(res, 'Failed to restore item');
+    const result = await parseJsonResponse(res, 'Failed to restore item');
+    invalidateCache(); // Restore affects multiple tables
+    return result;
   },
   async purgeRecycleBinItem(id) {
     const res = await apiFetch(`${API_BASE}/recycle-bin/${id}`, {
       method: 'DELETE'
     });
-    return parseJsonResponse(res, 'Failed to purge item');
+    const result = await parseJsonResponse(res, 'Failed to purge item');
+    invalidateCache('recycle_bin');
+    return result;
   },
 
-  // Vehicle Direct Sales
+  // Vehicles
   async getVehicles() {
     return getTableData('vehicles', `${API_BASE}/vehicles`);
   },
@@ -660,7 +588,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(vehicleData)
     });
-    return parseJsonResponse(res, 'Failed to create vehicle');
+    const result = await parseJsonResponse(res, 'Failed to create vehicle');
+    invalidateCache('vehicles');
+    return result;
   },
   async updateVehicle(id, vehicleData) {
     const res = await apiFetch(`${API_BASE}/vehicles/${id}`, {
@@ -668,13 +598,17 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(vehicleData)
     });
-    return parseJsonResponse(res, 'Failed to update vehicle');
+    const result = await parseJsonResponse(res, 'Failed to update vehicle');
+    invalidateCache('vehicles');
+    return result;
   },
   async deleteVehicle(id) {
     const res = await apiFetch(`${API_BASE}/vehicles/${id}`, {
       method: 'DELETE'
     });
-    return parseJsonResponse(res, 'Failed to delete vehicle');
+    const result = await parseJsonResponse(res, 'Failed to delete vehicle');
+    invalidateCache('vehicles');
+    return result;
   },
   async getVehicleStock() {
     return getTableData('vehicle_stock', `${API_BASE}/vehicles/stock`);
@@ -688,7 +622,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dispatchData)
     });
-    return parseJsonResponse(res, 'Failed to update vehicle dispatch');
+    const result = await parseJsonResponse(res, 'Failed to update vehicle dispatch');
+    invalidateCache(['vehicle_dispatches', 'vehicle_stock']);
+    return result;
   },
   async dispatchVehicleStock(dispatchData) {
     const res = await apiFetch(`${API_BASE}/vehicles/dispatch`, {
@@ -696,7 +632,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dispatchData)
     });
-    return parseJsonResponse(res, 'Failed to dispatch vehicle stock');
+    const result = await parseJsonResponse(res, 'Failed to dispatch vehicle stock');
+    invalidateCache(['vehicle_stock', 'vehicle_dispatches', 'products', 'stock_ledger']);
+    return result;
   },
   async getVehicleSales() {
     return getTableData('vehicle_sales', `${API_BASE}/vehicles/sales`);
@@ -707,7 +645,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(saleData)
     });
-    return parseJsonResponse(res, 'Failed to record direct sale');
+    const result = await parseJsonResponse(res, 'Failed to record direct sale');
+    invalidateCache(['vehicle_sales', 'vehicle_stock', 'shops', 'payments', 'orders']);
+    return result;
   },
   async getVehicleReconciliations() {
     return getTableData('vehicle_reconciliations', `${API_BASE}/vehicles/reconciliations`);
@@ -718,7 +658,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(reconcileData)
     });
-    return parseJsonResponse(res, 'Failed to reconcile vehicle stock');
+    const result = await parseJsonResponse(res, 'Failed to reconcile vehicle stock');
+    invalidateCache(['vehicle_reconciliations', 'vehicle_stock', 'products', 'stock_ledger']);
+    return result;
   },
 
   async translate(text, from, to) {
@@ -731,7 +673,7 @@ export const api = {
     return data ? data.translatedText : '';
   },
 
-  // Rough Bills (Walk-in Quick Billing)
+  // Rough Bills
   async getRoughBills() {
     try {
       const res = await apiFetch(`${API_BASE}/rough-bills`);
@@ -744,7 +686,6 @@ export const api = {
     const local = localStorage.getItem('rough_bills');
     return local ? JSON.parse(local) : [];
   },
-
   async saveRoughBill(bill) {
     try {
       const res = await apiFetch(`${API_BASE}/rough-bills`, {
@@ -768,7 +709,6 @@ export const api = {
     localStorage.setItem('rough_bills', JSON.stringify(local.slice(0, 200)));
     return newBill;
   },
-
   async deleteRoughBill(id) {
     try {
       await apiFetch(`${API_BASE}/rough-bills/${id}`, { method: 'DELETE' });

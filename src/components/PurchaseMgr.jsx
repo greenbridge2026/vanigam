@@ -3,9 +3,9 @@ import api from '../api';
 import ConfirmModal from './ConfirmModal';
 
 export default function PurchaseMgr({ t, lang }) {
-  const [products, setProducts] = useState([]);
-  const [purchases, setPurchases] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState(() => api.getCached('products') || []);
+  const [purchases, setPurchases] = useState(() => api.getCached('purchases') || []);
+  const [loading, setLoading] = useState(() => !api.getCached('products') || api.getCached('products').length === 0);
 
   // Editing State
   const [editingId, setEditingId] = useState(null);

@@ -19,11 +19,11 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
     if (onSubTabChange) onSubTabChange(tab);
   };
 
-  const [routes, setRoutes] = useState([]);
-  const [shops, setShops] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [orderItems, setOrderItems] = useState([]);
+  const [routes, setRoutes] = useState(() => api.getCached('routes') || []);
+  const [shops, setShops] = useState(() => api.getCached('shops') || []);
+  const [products, setProducts] = useState(() => api.getCached('products') || []);
+  const [orders, setOrders] = useState(() => api.getCached('orders') || []);
+  const [orderItems, setOrderItems] = useState(() => api.getCached('order_items') || []);
 
   // Selected fields
   const [selectedRoute, setSelectedRoute] = useState('');
@@ -32,7 +32,7 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
   const [discount, setDiscount] = useState(0);
   const getTodayDateStr = () => new Date().toISOString().split('T')[0];
   const [orderDate, setOrderDate] = useState(getTodayDateStr);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !api.getCached('products') || api.getCached('products').length === 0);
   const [submitting, setSubmitting] = useState(false);
   const [orderPlacedPopupInfo, setOrderPlacedPopupInfo] = useState(null);
 
@@ -429,22 +429,12 @@ export default function OrderTaking({ t, lang, onOrderCreated, editingOrder, onO
           invoice_date: deliveryDateIso
         };
         const result = await api.createOrder(orderPayload);
-        const invNum = result?.order?.invoice_number || `ORD-${result?.order?.id}`;
-        setOrderPlacedPopupInfo({
-          title: lang === 'ta' ? 'ஆர்டர் பதிவு செய்யப்பட்டது' : 'Order Placed',
-          message: lang === 'ta'
-            ? `விலைப்பட்டியல் #${invNum} வெற்றிகரமாக பதிவு செய்யப்பட்டது!`
-            : `Order #${invNum} placed successfully!`,
-          onConfirm: () => {
-            setOrderPlacedPopupInfo(null);
-            if (onOrderCreated && result && result.order) {
-              onOrderCreated(result.order.id, result.order, result.items);
-            } else {
-              setCart({});
-              setDiscount(0);
-            }
-          }
-        });
+        if (onOrderCreated && result && result.order) {
+          onOrderCreated(result.order.id, result.order, result.items);
+        } else {
+          setCart({});
+          setDiscount(0);
+        }
       }
     } catch (err) {
       alert(err.message || (lang === 'ta' ? 'ஆர்டர் சமர்ப்பிப்பதில் பிழை' : 'Error processing order transaction'));

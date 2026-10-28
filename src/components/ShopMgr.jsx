@@ -5,15 +5,15 @@ import * as XLSX from 'xlsx';
 import { translateShopName } from '../translations';
 
 export default function ShopMgr({ t, lang, onBillSelected }) {
-  const [shops, setShops] = useState([]);
-  const [routes, setRoutes] = useState([]);
-  const [orders, setOrders] = useState([]);
+  const [shops, setShops] = useState(() => api.getCached('shops') || []);
+  const [routes, setRoutes] = useState(() => api.getCached('routes') || []);
+  const [orders, setOrders] = useState(() => api.getCached('orders') || []);
   const [editingShop, setEditingShop] = useState(null);
   const [filterRoute, setFilterRoute] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedShopForBills, setSelectedShopForBills] = useState(null);
   const [shopModalTab, setShopModalTab] = useState('bills'); // 'bills' | 'history'
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !api.getCached('shops') || api.getCached('shops').length === 0);
   const [parsedShops, setParsedShops] = useState([]);
   const [importing, setImporting] = useState(false);
   const [importRouteId, setImportRouteId] = useState('');

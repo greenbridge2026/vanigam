@@ -6,12 +6,12 @@ import { translateShopName, translateRouteName } from '../translations';
 import { calculateOrderPaymentInfo } from '../utils/paymentUtils';
 
 export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPrint, onEditOrder }) {
-  const [deliveries, setDeliveries] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [shops, setShops] = useState([]);
-  const [routes, setRoutes] = useState([]);
-  const [payments, setPayments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [deliveries, setDeliveries] = useState(() => api.getCached('deliveries') || []);
+  const [orders, setOrders] = useState(() => api.getCached('orders') || []);
+  const [shops, setShops] = useState(() => api.getCached('shops') || []);
+  const [routes, setRoutes] = useState(() => api.getCached('routes') || []);
+  const [payments, setPayments] = useState(() => api.getCached('payments') || []);
+  const [loading, setLoading] = useState(() => !api.getCached('deliveries') || api.getCached('deliveries').length === 0);
   const [selectedDeliveryIds, setSelectedDeliveryIds] = useState([]);
   const [statusFilter, setStatusFilter] = useState(() => {
     const saved = localStorage.getItem('deliveryStatusFilter');

@@ -6,19 +6,19 @@ import { translateShopName } from '../translations';
 
 export default function VehicleDirectSales({ t, lang, onBillSelected, session }) {
   const [activeSubTab, setActiveSubTab] = useState('sales'); // 'vehicles' | 'dispatch' | 'sales' | 'reconcile' | 'reports'
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !api.getCached('products') || api.getCached('products').length === 0);
   const [submitting, setSubmitting] = useState(false);
 
   // Lists
-  const [vehicles, setVehicles] = useState([]);
-  const [vehicleStock, setVehicleStock] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [shops, setShops] = useState([]);
-  const [routes, setRoutes] = useState([]);
-  const [dispatches, setDispatches] = useState([]);
-  const [reconciliations, setReconciliations] = useState([]);
-  const [sales, setSales] = useState([]);
-  const [users, setUsers] = useState([]);
+  const [vehicles, setVehicles] = useState(() => api.getCached('vehicles') || []);
+  const [vehicleStock, setVehicleStock] = useState(() => api.getCached('vehicle_stock') || []);
+  const [products, setProducts] = useState(() => api.getCached('products') || []);
+  const [shops, setShops] = useState(() => api.getCached('shops') || []);
+  const [routes, setRoutes] = useState(() => api.getCached('routes') || []);
+  const [dispatches, setDispatches] = useState(() => api.getCached('vehicle_dispatches') || []);
+  const [reconciliations, setReconciliations] = useState(() => api.getCached('vehicle_reconciliations') || []);
+  const [sales, setSales] = useState(() => api.getCached('vehicle_sales') || []);
+  const [users, setUsers] = useState(() => api.getCached('users') || []);
 
   // Vehicles Form State
   const [editingVehicle, setEditingVehicle] = useState(null);

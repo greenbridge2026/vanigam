@@ -4,9 +4,9 @@ import api from '../api';
 import ConfirmModal from './ConfirmModal';
 
 export default function RouteMgr({ t, lang }) {
-  const [routes, setRoutes] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [shops, setShops] = useState([]);
+  const [routes, setRoutes] = useState(() => api.getCached('routes') || []);
+  const [users, setUsers] = useState(() => api.getCached('users') || []);
+  const [shops, setShops] = useState(() => api.getCached('shops') || []);
   const [editingRoute, setEditingRoute] = useState(null);
   const [selectedRouteForShops, setSelectedRouteForShops] = useState(null);
   
@@ -21,7 +21,7 @@ export default function RouteMgr({ t, lang }) {
   const [activeField, setActiveField] = useState(null);
   const [salesmanId, setSalesmanId] = useState('');
   const [deliveryManId, setDeliveryManId] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !api.getCached('routes') || api.getCached('routes').length === 0);
 
   useEffect(() => {
     async function loadData() {

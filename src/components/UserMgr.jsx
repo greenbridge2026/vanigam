@@ -3,9 +3,9 @@ import api from '../api';
 import ConfirmModal from './ConfirmModal';
 
 export default function UserMgr({ t, lang }) {
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState(() => api.getCached('users') || []);
   const [editingUser, setEditingUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !api.getCached('users') || api.getCached('users').length === 0);
 
   // Form Fields
   const [name, setName] = useState('');

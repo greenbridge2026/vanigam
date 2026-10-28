@@ -29,6 +29,7 @@ function releaseLock() {
 let cachedDBs = {};        // { [tenantId]: dbData }
 let cachedTimestamps = {}; // { [tenantId]: timestamp }
 let cachedTableSnapshots = {}; // { [tenantId]: { [tableKey]: jsonString } }
+let cachedChunkCounts = {}; // { [tenantId]: { [tableKey]: number } }
 let lastMetaCheck = {}; // { [tenantId]: number }
 let firestoreWriteQueues = {}; // { [tenantId]: Promise }
 
@@ -114,7 +115,7 @@ async function readDB(tenantId) {
   } else {
     try {
       const now = Date.now();
-      const hasFreshCache = cachedDBs[tenantId] && (now - (lastMetaCheck[tenantId] || 0) < 15000);
+      const hasFreshCache = cachedDBs[tenantId] && (now - (lastMetaCheck[tenantId] || 0) < 60000);
       
       let lastUpdated = 0;
       if (!hasFreshCache) {
@@ -144,9 +145,20 @@ async function readDB(tenantId) {
       } else {
         const snapshot = await firestoreDb.collection('tenants').doc(tenantId).collection('tables').get();
         dbData = {};
+        const rawDocs = {};
+        const chunkDocs = {};
+        if (!cachedChunkCounts[tenantId]) cachedChunkCounts[tenantId] = {};
+
         snapshot.forEach(doc => {
-          if (doc.id !== '_metadata') {
-            dbData[doc.id] = doc.data().data || [];
+          if (doc.id === '_metadata') return;
+          if (doc.id.includes('__chunk_')) {
+            const parts = doc.id.split('__chunk_');
+            const tableKey = parts[0];
+            const chunkIndex = parseInt(parts[1], 10);
+            if (!chunkDocs[tableKey]) chunkDocs[tableKey] = [];
+            chunkDocs[tableKey].push({ index: chunkIndex, data: doc.data().data || [] });
+          } else {
+            rawDocs[doc.id] = doc.data();
           }
         });
 
@@ -155,8 +167,31 @@ async function readDB(tenantId) {
           'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
           'bills', 'notifications', 'vehicles', 'vehicle_stock',
           'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
-          'delivery_audit_trail', 'settings'
+          'delivery_audit_trail', 'settings', 'rough_bills'
         ];
+
+        // Process all docs retrieved
+        for (const [docId, docData] of Object.entries(rawDocs)) {
+          if (docData && docData.is_chunked) {
+            const chunks = chunkDocs[docId] || [];
+            chunks.sort((a, b) => a.index - b.index);
+            dbData[docId] = chunks.flatMap(c => c.data);
+            cachedChunkCounts[tenantId][docId] = docData.total_chunks || chunks.length;
+          } else if (docData) {
+            dbData[docId] = docData.data !== undefined ? docData.data : docData;
+            cachedChunkCounts[tenantId][docId] = 0;
+          }
+        }
+
+        // Catch any chunks whose master doc might not have been indexed in rawDocs
+        for (const [tableKey, chunks] of Object.entries(chunkDocs)) {
+          if (!dbData[tableKey]) {
+            chunks.sort((a, b) => a.index - b.index);
+            dbData[tableKey] = chunks.flatMap(c => c.data);
+            cachedChunkCounts[tenantId][tableKey] = chunks.length;
+          }
+        }
+
         for (const key of tableKeys) {
           if (key === 'settings') {
             if (!dbData[key] || Array.isArray(dbData[key]) || Object.keys(dbData[key]).length === 0) {
@@ -177,7 +212,7 @@ async function readDB(tenantId) {
         cachedTimestamps[tenantId] = lastUpdated || Date.now();
         cachedTableSnapshots[tenantId] = {};
         for (const key of tableKeys) {
-          cachedTableSnapshots[tenantId][key] = JSON.stringify(dbData[key] || []);
+          cachedTableSnapshots[tenantId][key] = JSON.stringify(dbData[key] || (key === 'settings' ? {} : []));
         }
       }
     } catch (err) {
@@ -213,36 +248,99 @@ async function writeDB(tenantId, data, modifiedKeys = null) {
     if (!cachedTableSnapshots[tenantId]) {
       cachedTableSnapshots[tenantId] = {};
     }
+    if (!cachedChunkCounts[tenantId]) {
+      cachedChunkCounts[tenantId] = {};
+    }
 
-    if (modifiedKeys && Array.isArray(modifiedKeys) && modifiedKeys.length > 0) {
-      for (const key of modifiedKeys) {
-        if (data[key] !== undefined) {
-          const docRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(key);
-          batch.set(docRef, { data: data[key] });
-          hasChanges = true;
-          cachedTableSnapshots[tenantId][key] = JSON.stringify(data[key]);
-        }
+    const CHUNK_THRESHOLD_BYTES = 500 * 1024; // 500 KB limit for chunking
+
+    const tableKeys = [
+      'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
+      'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
+      'bills', 'notifications', 'vehicles', 'vehicle_stock',
+      'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
+      'delivery_audit_trail', 'settings', 'rough_bills'
+    ];
+
+    const keysToProcess = (modifiedKeys && Array.isArray(modifiedKeys) && modifiedKeys.length > 0)
+      ? modifiedKeys
+      : tableKeys;
+
+    for (const key of keysToProcess) {
+      if (data[key] === undefined) continue;
+
+      const oldDataStr = cachedTableSnapshots[tenantId][key] || '';
+      const newDataStr = JSON.stringify(data[key] || (key === 'settings' ? {} : []));
+
+      const isExplicitModified = modifiedKeys && Array.isArray(modifiedKeys) && modifiedKeys.includes(key);
+      if (!isExplicitModified && oldDataStr === newDataStr) {
+        continue;
       }
-    } else {
-      const tableKeys = [
-        'users', 'routes', 'shops', 'products', 'purchases', 'stock_ledger',
-        'orders', 'order_items', 'deliveries', 'payments', 'outstanding_history',
-        'bills', 'notifications', 'vehicles', 'vehicle_stock',
-        'vehicle_dispatches', 'vehicle_sales', 'vehicle_reconciliations', 'recycle_bin',
-        'delivery_audit_trail', 'settings'
-      ];
 
-      for (const key of tableKeys) {
-        const oldDataStr = cachedTableSnapshots[tenantId][key] || '';
-        const newDataStr = JSON.stringify(data[key] || []);
+      const tableData = data[key];
+      const tableRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(key);
+      const prevChunkCount = cachedChunkCounts[tenantId][key] || 0;
 
-        if (oldDataStr !== newDataStr) {
-          const docRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(key);
-          batch.set(docRef, { data: data[key] || [] });
-          hasChanges = true;
-          cachedTableSnapshots[tenantId][key] = newDataStr;
+      if (Array.isArray(tableData)) {
+        const byteLen = Buffer.byteLength(newDataStr, 'utf8');
+        if (byteLen > CHUNK_THRESHOLD_BYTES) {
+          // Table needs chunking
+          const itemsCount = tableData.length;
+          const bytesPerItem = itemsCount > 0 ? (byteLen / itemsCount) : 1;
+          const targetChunkItems = Math.max(50, Math.floor((350 * 1024) / bytesPerItem));
+
+          const chunks = [];
+          for (let i = 0; i < tableData.length; i += targetChunkItems) {
+            chunks.push(tableData.slice(i, i + targetChunkItems));
+          }
+
+          // Master document
+          batch.set(tableRef, {
+            is_chunked: true,
+            total_chunks: chunks.length,
+            total_records: tableData.length,
+            updated_at: timestamp
+          });
+
+          // Chunk documents
+          for (let i = 0; i < chunks.length; i++) {
+            const chunkRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(`${key}__chunk_${i}`);
+            batch.set(chunkRef, {
+              data: chunks[i],
+              chunk_index: i,
+              total_chunks: chunks.length
+            });
+          }
+
+          // Clean up excess old chunks
+          if (prevChunkCount > chunks.length) {
+            for (let i = chunks.length; i < prevChunkCount; i++) {
+              const oldChunkRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(`${key}__chunk_${i}`);
+              batch.delete(oldChunkRef);
+            }
+          }
+
+          cachedChunkCounts[tenantId][key] = chunks.length;
+        } else {
+          // Normal single document
+          batch.set(tableRef, { data: tableData });
+
+          // If previously chunked, clean up old chunk docs
+          if (prevChunkCount > 0) {
+            for (let i = 0; i < prevChunkCount; i++) {
+              const oldChunkRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc(`${key}__chunk_${i}`);
+              batch.delete(oldChunkRef);
+            }
+            cachedChunkCounts[tenantId][key] = 0;
+          }
         }
+      } else {
+        // Non-array data (e.g., settings)
+        batch.set(tableRef, { data: tableData });
       }
+
+      hasChanges = true;
+      cachedTableSnapshots[tenantId][key] = newDataStr;
     }
 
     // Update in-memory cache immediately so all subsequent reads are instantaneous
@@ -252,7 +350,7 @@ async function writeDB(tenantId, data, modifiedKeys = null) {
     if (hasChanges) {
       const metaRef = firestoreDb.collection('tenants').doc(tenantId).collection('tables').doc('_metadata');
       batch.set(metaRef, { last_updated: timestamp }, { merge: true });
-      
+
       await batch.commit();
     }
   } catch (err) {
@@ -1965,10 +2063,7 @@ app.get('/api/orders/:id', async (req, res) => {
 
 app.get('/api/orders', async (req, res) => {
   const db = await readDB(req.tenantId);
-  if (db.shops) {
-    db.shops.forEach(s => autoAllocatePaymentsAndFulfillOrders(db, s.id));
-  }
-  res.json(db.orders);
+  res.json(db.orders || []);
 });
 
 app.get('/api/orders/items', async (req, res) => {
