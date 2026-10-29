@@ -104,6 +104,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   
   // Outstanding Collection states
   const [paymentMode, setPaymentMode] = useState('cash'); // 'cash' | 'gpay' | 'split'
+  const [paymentPreset, setPaymentPreset] = useState('current'); // 'current' | 'old_balance' | 'credit'
   const [orderPaymentAmount, setOrderPaymentAmount] = useState(0);
   const [prevOutstandingAmount, setPrevOutstandingAmount] = useState(0);
   const [gpayTxn, setGpayTxn] = useState('');
@@ -319,6 +320,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
             setFulfillDeliveryDate(initialDate);
             setRemarks('');
             setPaymentMode('cash');
+            setPaymentPreset('current');
             setOrderPaymentAmount(matchedOrder ? matchedOrder.net_amount : 0);
             setPrevOutstandingAmount(0);
             setGpayTxn('');
@@ -344,6 +346,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     setFulfillDeliveryDate(initialDate);
     setRemarks('');
     setPaymentMode('cash');
+    setPaymentPreset('current');
     setOrderPaymentAmount(remainingDue);
     setPrevOutstandingAmount(0);
     setGpayTxn('');
@@ -480,8 +483,8 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
     // 3. Background asynchronous API persistence
     try {
+      const paymentsToSubmit = [];
       if (status === 'delivered' && (ordAmt > 0 || prevAmt > 0)) {
-        const paymentsToSubmit = [];
 
         if (paymentMode === 'split') {
           const orderPayments = (payments || []).filter(p => p.order_id === order.id);
@@ -1399,11 +1402,12 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                 padding: '0.45rem 0.5rem',
                                 fontSize: '0.8rem',
                                 fontWeight: '600',
-                                borderColor: (orderPaymentAmount > 0 && prevOutstandingAmount === 0) ? 'var(--success)' : 'var(--border-color)',
-                                background: (orderPaymentAmount > 0 && prevOutstandingAmount === 0) ? 'rgba(16, 185, 129, 0.12)' : 'none',
-                                color: (orderPaymentAmount > 0 && prevOutstandingAmount === 0) ? 'var(--success)' : 'var(--text-muted)'
+                                borderColor: paymentPreset === 'current' ? 'var(--success)' : 'var(--border-color)',
+                                background: paymentPreset === 'current' ? 'rgba(16, 185, 129, 0.12)' : 'none',
+                                color: paymentPreset === 'current' ? 'var(--success)' : 'var(--text-muted)'
                               }}
                               onClick={() => {
+                                setPaymentPreset('current');
                                 setOrderPaymentAmount(initialInvoiceDue);
                                 setPrevOutstandingAmount(0);
                               }}
@@ -1419,16 +1423,17 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                   padding: '0.45rem 0.5rem',
                                   fontSize: '0.8rem',
                                   fontWeight: '600',
-                                  borderColor: prevOutstandingAmount > 0 ? 'var(--warning)' : 'var(--border-color)',
-                                  background: prevOutstandingAmount > 0 ? 'rgba(245, 158, 11, 0.12)' : 'none',
-                                  color: prevOutstandingAmount > 0 ? 'var(--warning)' : 'var(--text-muted)'
+                                  borderColor: paymentPreset === 'old_balance' ? 'var(--warning)' : 'var(--border-color)',
+                                  background: paymentPreset === 'old_balance' ? 'rgba(245, 158, 11, 0.12)' : 'none',
+                                  color: paymentPreset === 'old_balance' ? 'var(--warning)' : 'var(--text-muted)'
                                 }}
                                 onClick={() => {
-                                  setOrderPaymentAmount(initialInvoiceDue);
+                                  setPaymentPreset('old_balance');
+                                  setOrderPaymentAmount(0);
                                   setPrevOutstandingAmount(prevShopBal);
                                 }}
                               >
-                                🟠 {lang === 'ta' ? 'மொத்த நிலுவையும் (₹' : 'Full Outstanding (₹'}{totalShopBal})
+                                🟠 {lang === 'ta' ? 'பழைய நிலுவை (₹' : 'Old Balance (₹'}{prevShopBal})
                               </button>
                             )}
                             <button
@@ -1439,11 +1444,12 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                 padding: '0.45rem 0.5rem',
                                 fontSize: '0.8rem',
                                 fontWeight: '600',
-                                borderColor: (orderPaymentAmount === 0 && prevOutstandingAmount === 0) ? 'var(--accent-blue)' : 'var(--border-color)',
-                                background: (orderPaymentAmount === 0 && prevOutstandingAmount === 0) ? 'rgba(59, 130, 246, 0.12)' : 'none',
-                                color: (orderPaymentAmount === 0 && prevOutstandingAmount === 0) ? 'var(--accent-blue)' : 'var(--text-muted)'
+                                borderColor: paymentPreset === 'credit' ? 'var(--accent-blue)' : 'var(--border-color)',
+                                background: paymentPreset === 'credit' ? 'rgba(59, 130, 246, 0.12)' : 'none',
+                                color: paymentPreset === 'credit' ? 'var(--accent-blue)' : 'var(--text-muted)'
                               }}
                               onClick={() => {
+                                setPaymentPreset('credit');
                                 setOrderPaymentAmount(0);
                                 setPrevOutstandingAmount(0);
                               }}
@@ -1512,8 +1518,30 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                 />
                               </div>
                             </div>
+                          ) : paymentPreset === 'old_balance' ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                              {/* Only Previous Outstanding Payment */}
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--warning)', marginBottom: '0.3rem' }}>
+                                  💼 {lang === 'ta' ? 'முந்தைய நிலுவைத் தொகை (₹)' : 'Pay Previous Outstanding (₹)'}
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  className="form-input"
+                                  style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.2rem', padding: '0.5rem 0.75rem' }}
+                                  value={prevOutstandingAmount === '' || prevOutstandingAmount === 0 ? (prevOutstandingAmount === '' ? '' : '0') : prevOutstandingAmount}
+                                  onChange={e => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    setPrevOutstandingAmount(val === '' ? '' : parseInt(val, 10));
+                                  }}
+                                  placeholder="0"
+                                />
+                              </div>
+                            </div>
                           ) : (
-                            <div style={{ display: 'grid', gridTemplateColumns: prevShopBal > 0 ? '1fr 1fr' : '1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
                               {/* 1. Current Order Payment */}
                               <div className="form-group" style={{ marginBottom: 0 }}>
                                 <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--accent-cyan)', marginBottom: '0.3rem' }}>
@@ -1533,28 +1561,6 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                                   placeholder="0"
                                 />
                               </div>
-
-                              {/* 2. Previous Outstanding Payment */}
-                              {prevShopBal > 0 && (
-                                <div className="form-group" style={{ marginBottom: 0 }}>
-                                  <label style={{ fontSize: '0.85rem', display: 'block', fontWeight: 700, color: 'var(--warning)', marginBottom: '0.3rem' }}>
-                                    💼 {lang === 'ta' ? 'முந்தைய நிலுவைத் தொகை (₹)' : 'Pay Previous Outstanding (₹)'}
-                                  </label>
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    pattern="[0-9]*"
-                                    className="form-input"
-                                    style={{ width: '100%', boxSizing: 'border-box', fontWeight: 700, fontSize: '1.2rem', padding: '0.5rem 0.75rem' }}
-                                    value={prevOutstandingAmount === '' || prevOutstandingAmount === 0 ? (prevOutstandingAmount === '' ? '' : '0') : prevOutstandingAmount}
-                                    onChange={e => {
-                                      const val = e.target.value.replace(/\D/g, '');
-                                      setPrevOutstandingAmount(val === '' ? '' : parseInt(val, 10));
-                                    }}
-                                    placeholder="0"
-                                  />
-                                </div>
-                              )}
                             </div>
                           )}
 
@@ -1575,7 +1581,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                           {/* Live calculation for collection */}
                           {(() => {
                             const totalCollected = Number(orderPaymentAmount || 0) + Number(prevOutstandingAmount || 0);
-                            const remainingInvoice = Math.max(0, initialInvoiceDue - totalCollected);
+                            const remainingInvoice = Math.max(0, initialInvoiceDue - (paymentMode === 'split' ? Math.min(totalCollected, initialInvoiceDue) : Number(orderPaymentAmount || 0)));
                             const remainingTotalOutstanding = Math.max(0, totalShopBal - totalCollected);
 
                             return (
