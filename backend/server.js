@@ -1608,7 +1608,7 @@ app.post('/api/products/import', async (req, res) => {
         if (item.mrp !== undefined) existing.mrp = Number(item.mrp);
         if (item.gst !== undefined) existing.gst = Number(item.gst);
         if (item.min_stock !== undefined) existing.min_stock = Number(item.min_stock);
-        if (item.status !== undefined) existing.status = item.status || existing.status;
+        if (item.status !== undefined) existing.status = (item.status || existing.status || 'active').toLowerCase();
 
         results.push(existing);
       } else {
@@ -1626,7 +1626,7 @@ app.post('/api/products/import', async (req, res) => {
           retail_price: Number(item.retail_price || 0),
           current_stock_bottles: initialStockBottles,
           min_stock: Number(item.min_stock || 0),
-          status: item.status || 'active',
+          status: (item.status || 'active').toLowerCase(),
           mrp: Number(item.mrp || 0),
           gst: Number(item.gst || 0)
         };
@@ -3245,7 +3245,7 @@ app.get('/api/reports/summary', async (req, res) => {
   const grossProfit = Math.round(totalRevenue - totalCost);
 
   // 4. Low stock count
-  const lowStockCount = db.products.filter(p => p.current_stock_bottles <= p.min_stock && p.status === 'active').length;
+  const lowStockCount = db.products.filter(p => p.current_stock_bottles <= p.min_stock && (p.status || 'active').toLowerCase() === 'active').length;
 
   res.json({
     todaySales,

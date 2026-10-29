@@ -176,7 +176,7 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
   // ---------------- DISPATCH STOCK ACTIONS ----------------
   const getFilteredDispatchProducts = () => {
     return products
-      .filter(p => p.status === 'active')
+      .filter(p => (p.status || 'active').toLowerCase() === 'active')
       .filter(p => !dispatchOnlyInStock || (p.current_stock_bottles || 0) > 0)
       .filter(p => {
         if (!dispatchSearch) return true;
@@ -843,7 +843,7 @@ export default function VehicleDirectSales({ t, lang, onBillSelected, session })
                       </thead>
                       <tbody>
                         {products
-                          .filter(p => p.status === 'active')
+                          .filter(p => (p.status || 'active').toLowerCase() === 'active')
                           .filter(p => !salesSearch || p.name_en.toLowerCase().includes(salesSearch.toLowerCase()) || (p.name_ta && p.name_ta.includes(salesSearch)))
                           .filter(p => !brandFilter || p.brand === brandFilter)
                           .filter(p => !categoryFilter || p.category === categoryFilter)

@@ -450,7 +450,7 @@ export default function ProductMgr({ t, lang }) {
             gst: Number(getVal(row, ['GST']) || 0),
             opening_stock: Number(getVal(row, ['OpeningStock', 'Stock']) || 0),
             min_stock: Number(getVal(row, ['MinStock']) || 24),
-            status: getVal(row, ['Status']) || 'active'
+            status: String(getVal(row, ['Status']) || 'active').trim().toLowerCase()
           };
         }));
 

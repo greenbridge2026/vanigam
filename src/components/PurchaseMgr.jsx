@@ -304,7 +304,7 @@ export default function PurchaseMgr({ t, lang }) {
                   <option value="__CREATE_NEW__" style={{ fontWeight: '700', color: 'var(--accent-cyan)' }}>
                     ➕ {lang === 'ta' ? 'புதிய தயாரிப்பை உருவாக்கவும்...' : 'Create New Product...'}
                   </option>
-                  {products.filter(p => p.status === 'active').map(p => (
+                  {products.filter(p => (p.status || 'active').toLowerCase() === 'active').map(p => (
                     <option key={p.id} value={p.id}>
                       {lang === 'ta' ? p.name_ta : p.name_en} ({p.size}) - {lang === 'ta' ? 'இருப்பு:' : 'Stock:'} {Math.floor((p.current_stock_bottles || 0) / (p.case_qty_rule || 24))} C
                     </option>
@@ -403,7 +403,7 @@ export default function PurchaseMgr({ t, lang }) {
                   <label>{t('select_products')}</label>
                   <select className="form-select" value={productId} onChange={e => handleProductChange(e.target.value)} required>
                     <option value="">-- Select Product --</option>
-                    {products.filter(p => p.status === 'active' || p.id === productId).map(p => (
+                    {products.filter(p => (p.status || 'active').toLowerCase() === 'active' || p.id === productId).map(p => (
                       <option key={p.id} value={p.id}>{lang === 'ta' ? p.name_ta : p.name_en} ({p.size})</option>
                     ))}
                   </select>

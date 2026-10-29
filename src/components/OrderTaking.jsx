@@ -285,7 +285,7 @@ export default function OrderTaking({ t, lang, currentUser, onOrderCreated, edit
   };
 
   const shopObj = shops.find(s => s.id === selectedShop);
-  const activeProducts = products.filter(p => p.status === 'active');
+  const activeProducts = products.filter(p => (p.status || 'active').toLowerCase() === 'active');
 
   function parseVolumeInMl(sizeStr) {
     if (!sizeStr) return 999999;

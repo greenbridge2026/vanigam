@@ -51,8 +51,8 @@ export default function Dashboard({ t, lang, onNavigate }) {
   const maxRouteAmount = Math.max(...routeStats.map(rs => rs.amount), 1);
 
   // Filter low stock and out of stock products
-  const lowStockProds = products.filter(p => p.current_stock_bottles <= p.min_stock && p.status === 'active');
-  const outOfStockProds = products.filter(p => p.current_stock_bottles === 0 && p.status === 'active');
+  const lowStockProds = products.filter(p => p.current_stock_bottles <= p.min_stock && (p.status || 'active').toLowerCase() === 'active');
+  const outOfStockProds = products.filter(p => p.current_stock_bottles === 0 && (p.status || 'active').toLowerCase() === 'active');
 
   // Filter pending deliveries for today
   const pendingDeliveries = orders.filter(o => o.status === 'pending');
