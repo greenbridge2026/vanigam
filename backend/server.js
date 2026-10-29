@@ -2765,10 +2765,7 @@ app.put('/api/orders/:id', async (req, res) => {
 // Deliveries Management
 app.get('/api/deliveries', async (req, res) => {
   const db = await readDB(req.tenantId);
-  if (db.shops) {
-    db.shops.forEach(s => autoAllocatePaymentsAndFulfillOrders(db, s.id));
-  }
-  res.json(db.deliveries);
+  res.json(db.deliveries || []);
 });
 
 app.post('/api/deliveries/:id/complete', async (req, res) => {
@@ -3026,9 +3023,9 @@ function autoAllocatePaymentsAndFulfillOrders(db, shopId) {
     .filter(o => o.shop_id === shopId && o.status !== 'cancelled')
     .sort((a, b) => new Date(a.order_date).getTime() - new Date(b.order_date).getTime());
 
-  // 2. Unassigned payments pool for this shop
+  // 2. Unassigned payments pool for this shop (exclude explicit ledger-only payments)
   const unassignedPayments = (db.payments || [])
-    .filter(p => p.shop_id === shopId && (!p.order_id || p.order_id === '' || p.order_id === 'LEDGER_ONLY'));
+    .filter(p => p.shop_id === shopId && (!p.order_id || p.order_id === ''));
   let unassignedPool = unassignedPayments.reduce((sum, p) => sum + (Number(p.collected_amount) || 0), 0);
 
   // Calculate Previous Outstanding Balance of shop prior to pending orders
@@ -3063,8 +3060,9 @@ function autoAllocatePaymentsAndFulfillOrders(db, shopId) {
     const del = (db.deliveries || []).find(d => d.order_id === order.id);
 
     if (remainingDue <= 0) {
-      // FULLY PAID
-      if (order.status === 'pending' || (del && del.status === 'pending')) {
+      // FULLY PAID: Only auto-update bill records if the order was already physically delivered
+      // Never auto-deliver a pending delivery for newly placed orders
+      if (order.status === 'delivered') {
         fulfillOrderInDb(db, order, shop);
       }
     } else {
