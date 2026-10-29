@@ -32,6 +32,7 @@ export default function OrderTaking({ t, lang, currentUser, onOrderCreated, edit
   const [discount, setDiscount] = useState(0);
   const getTodayDateStr = () => new Date().toISOString().split('T')[0];
   const [orderDate, setOrderDate] = useState(getTodayDateStr);
+  const [deliveryDate, setDeliveryDate] = useState(getTodayDateStr);
   const [loading, setLoading] = useState(() => !api.getCached('products') || api.getCached('products').length === 0);
   const [submitting, setSubmitting] = useState(false);
   const [orderPlacedPopupInfo, setOrderPlacedPopupInfo] = useState(null);
@@ -458,7 +459,7 @@ export default function OrderTaking({ t, lang, currentUser, onOrderCreated, edit
     setSubmitting(true);
     try {
       const orderDateIso = orderDate ? new Date(orderDate).toISOString() : new Date().toISOString();
-      const deliveryDateIso = orderDateIso;
+      const deliveryDateIso = deliveryDate ? new Date(deliveryDate).toISOString() : orderDateIso;
 
       if (editingOrder) {
         await api.updateOrder(editingOrder.id, {
