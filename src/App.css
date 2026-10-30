@@ -1202,17 +1202,19 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: center;
   z-index: 1100;
   animation: fadeIn 0.2s ease-out;
+  overflow-y: auto;
+  padding: 1rem 0.5rem;
 }
 
 .modal-card {
   max-width: 650px;
   width: 95%;
-  padding: 2rem;
+  padding: 1.5rem;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
   border: 1px solid var(--border-color);
   border-radius: 16px;
-  margin: 0 1rem;
-  max-height: 85vh;
+  margin: auto;
+  max-height: calc(100vh - 2rem);
   display: flex;
   flex-direction: column;
 }
@@ -1617,3 +1619,94 @@ html, body, #root, .app-container {
   }
 }
 
+
+
+/* =========================================================
+   Redesigned Minimalist Sidebar & ERP Layout
+   ========================================================= */
+.app-sidebar {
+  width: 240px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-x: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.app-sidebar.compact {
+  width: 68px !important;
+}
+
+.app-sidebar.compact .menu-header-btn {
+  justify-content: center !important;
+  padding: 0.65rem 0 !important;
+}
+
+.app-sidebar.compact .submenu-container,
+.app-sidebar.compact .sidebar-search,
+.app-sidebar.compact .menu-header-btn span,
+.app-sidebar.compact .menu-header-btn div > span {
+  display: none !important;
+}
+
+.menu-header-btn {
+  outline: none;
+}
+
+.menu-header-btn:hover {
+  background: rgba(6, 182, 212, 0.08) !important;
+  color: var(--text-main) !important;
+}
+
+.menu-header-btn.active {
+  background: rgba(6, 182, 212, 0.12) !important;
+  color: var(--text-main) !important;
+  border-color: rgba(6, 182, 212, 0.3) !important;
+  box-shadow: inset 3px 0 0 var(--accent-cyan);
+}
+
+.sidebar-toggle-btn:hover {
+  color: var(--accent-cyan) !important;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.submenu-container button:hover {
+  background: rgba(6, 182, 212, 0.08) !important;
+  color: var(--text-main) !important;
+}
+
+/* Dashboard Clean Style Enhancements */
+.clean-dashboard .stat-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  border: 1px solid var(--border-color);
+}
+
+.clean-dashboard .stat-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(6, 182, 212, 0.3);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 768px) {
+  .app-sidebar {
+    position: fixed !important;
+    top: 57px;
+    left: 0;
+    bottom: 0;
+    z-index: 10000 !important;
+    background: var(--bg-sidebar-mobile) !important;
+    backdrop-filter: blur(20px);
+    width: 260px !important;
+    box-shadow: 8px 0 25px rgba(0, 0, 0, 0.5);
+    transform: translateX(0);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .app-sidebar.mobile-hidden {
+    transform: translateX(-100%) !important;
+    box-shadow: none;
+  }
+}

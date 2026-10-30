@@ -2,9 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { translations } from './translations';
 import api from './api';
 
+// Icons
+import { Menu, Globe, Sun, Moon, Bell, LogOut } from 'lucide-react';
+
 // Components
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+import Sidebar from './components/Sidebar';
 import RouteMgr from './components/RouteMgr';
 import ShopMgr from './components/ShopMgr';
 import ProductMgr from './components/ProductMgr';
@@ -21,6 +25,7 @@ import VehicleDirectSales from './components/VehicleDirectSales';
 import SuperAdminDashboard from './components/SuperAdminDashboard';
 import BulkPrintLayout from './components/BulkPrintLayout';
 import OutstandingCollection from './components/OutstandingCollection';
+import AgencySettings from './components/AgencySettings';
 
 function formatNotificationTime(dateStr, lang = 'en') {
   if (!dateStr) return '';
@@ -89,7 +94,11 @@ export default function App() {
   });
   const [orderTakingSubTab, setOrderTakingSubTab] = useState('regular');
   const [menuHidden, setMenuHidden] = useState(() => window.innerWidth <= 768);
+  const [isCompact, setIsCompact] = useState(() => localStorage.getItem('sidebar_compact') === 'true');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [pendingDeliveriesCount, setPendingDeliveriesCount] = useState(0);
+  const [stockAlertsCount, setStockAlertsCount] = useState(0);
+
   const [settings, setSettings] = useState({
     company_name: "GSK Agency",
     company_address: "Cooldrinks Shop - Tindivanam",
@@ -97,6 +106,10 @@ export default function App() {
     company_phone: "9345463415",
     upi_mobile: "gskumar9345@okicici"
   });
+
+  useEffect(() => {
+    localStorage.setItem('sidebar_compact', isCompact);
+  }, [isCompact]);
 
   useEffect(() => {
     async function initApp() {
@@ -114,6 +127,32 @@ export default function App() {
     }
     initApp();
   }, [session]);
+
+  // Load badge counts for sidebar
+  useEffect(() => {
+    if (!session) return;
+    async function loadBadges() {
+      try {
+        const [orders, products] = await Promise.all([
+          api.getOrders(),
+          api.getProducts()
+        ]);
+        if (Array.isArray(orders)) {
+          const pending = orders.filter(o => o.status === 'pending').length;
+          setPendingDeliveriesCount(pending);
+        }
+        if (Array.isArray(products)) {
+          const alerts = products.filter(p => p.current_stock_bottles <= p.min_stock && (p.status || 'active').toLowerCase() === 'active').length;
+          setStockAlertsCount(alerts);
+        }
+      } catch (e) {
+        // Silently catch background badge poll error
+      }
+    }
+    loadBadges();
+    const timer = setInterval(loadBadges, 25000);
+    return () => clearInterval(timer);
+  }, [session, activeTab]);
 
   useEffect(() => {
     localStorage.setItem('lang', lang);
@@ -351,7 +390,6 @@ export default function App() {
   const handleNotificationClick = async (n) => {
     setShowNotifications(false);
 
-    // Mark as read in state & server
     if (n.status === 'unread') {
       try {
         await api.markNotificationsRead();
@@ -364,7 +402,6 @@ export default function App() {
     const msg = (n.message_en || n.message_ta || '').toLowerCase();
     const type = n.type || '';
 
-    // Extract invoice number (e.g., INV-1001, INV-1002) or order ID from notification
     const invMatch = (n.message_en || '').match(/INV-\d+/i) || (n.message_ta || '').match(/INV-\d+/i);
     const targetInvoice = invMatch ? invMatch[0].toUpperCase() : null;
     const targetOrderId = n.order_id || null;
@@ -385,7 +422,6 @@ export default function App() {
       console.warn('Failed to load orders for notification click:', err);
     }
 
-    // Route to respective module fallback
     if (type === 'pending_delivery' || msg.includes('delivery') || msg.includes('invoice') || msg.includes('order')) {
       if (msg.includes('pending') || type === 'pending_delivery') {
         localStorage.setItem('deliveryStatusFilter', 'pending');
@@ -408,7 +444,6 @@ export default function App() {
     }
   };
 
-  // Translation helper
   const t = (key) => {
     return translations[lang][key] || key;
   };
@@ -432,57 +467,6 @@ export default function App() {
     );
   }
 
-  // Sidebar link details
-  const getSidebarLinks = () => {
-    const role = session.role;
-    if (role === 'superadmin') {
-      return [{ id: 'dashboard', label: 'Super Admin', icon: '👑' }];
-    }
-
-    const allLinks = [
-      { id: 'dashboard', label: t('dashboard'), icon: '📊' },
-      { id: 'routes', label: t('route_mgmt'), icon: '🗺️' },
-      { id: 'shops', label: t('shop_mgmt'), icon: '🏢' },
-      { id: 'products', label: t('product_mgmt'), icon: '🥤' },
-      { id: 'purchases', label: t('purchase_entry'), icon: '📥' },
-      { id: 'stock', label: t('stock_ledger'), icon: '📈' },
-      { id: 'orders', label: t('order_taking'), icon: '🛒' },
-      { id: 'deliveries', label: t('deliveries'), icon: '🚚' },
-      { id: 'vehicle_loading', label: lang === 'ta' ? 'வண்டி ஏற்றுதல்' : 'Vehicle Loading', icon: '📦' },
-      { id: 'outstanding_collection', label: t('outstanding_collection'), icon: '💵' },
-      { id: 'vehicle_sales', label: t('vehicle_direct_sales'), icon: '🚛' },
-      { id: 'reports', label: t('reports'), icon: '📈' },
-      { id: 'users', label: t('staff_mgmt'), icon: '👥' },
-      { id: 'recycle_bin', label: t('recycle_bin'), icon: '♻️' }
-    ];
-
-    const permissions = session.permissions;
-    if (permissions && Array.isArray(permissions)) {
-      return allLinks.filter(link => permissions.includes(link.id));
-    }
-
-    // Legacy fallback based on role
-    const links = [{ id: 'dashboard', label: t('dashboard'), icon: '📊' }];
-    if (role === 'admin') {
-      links.push(...allLinks.slice(1));
-    } else if (role === 'salesman') {
-      links.push(
-        { id: 'shops', label: t('shop_mgmt'), icon: '🏢' },
-        { id: 'stock', label: t('stock_ledger'), icon: '📈' },
-        { id: 'orders', label: t('order_taking'), icon: '🛒' },
-        { id: 'deliveries', label: t('deliveries'), icon: '🚚' },
-        { id: 'outstanding_collection', label: t('outstanding_collection'), icon: '💵' },
-        { id: 'vehicle_sales', label: t('vehicle_direct_sales'), icon: '🚛' }
-      );
-    } else if (role === 'delivery') {
-      links.push(
-        { id: 'deliveries', label: t('deliveries'), icon: '🚚' }
-      );
-    }
-
-    return links;
-  };
-
   // Handle invoice display redirection
   const handleOrderCreated = (orderId, orderData = null, orderItems = null) => {
     setSelectedOrderId(orderId);
@@ -502,16 +486,29 @@ export default function App() {
   const renderContent = () => {
     // Page level permission check
     if (session.role !== 'superadmin' && activeTab !== 'dashboard' && activeTab !== 'billing') {
-      const permissions = session.permissions;
-      if (permissions && Array.isArray(permissions) && !permissions.includes(activeTab)) {
-        return (
-          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--danger)' }}>
-            <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>🚫 Access Denied / அனுமதி மறுக்கப்பட்டது</h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>
-              You do not have permission to access this module. Please contact Super Admin.
-            </p>
-          </div>
-        );
+      if (activeTab === 'settings') {
+        if (session.role !== 'admin') {
+          return (
+            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--danger)' }}>
+              <h2 style={{ fontSize: '1.8rem', marginBottom: '1rem' }}>🚫 Access Denied / அனுமதி மறுக்கப்பட்டது</h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>
+                Only Administrators can access Agency Settings.
+              </p>
+            </div>
+          );
+        }
+      } else {
+        const permissions = session.permissions;
+        if (permissions && Array.isArray(permissions) && !permissions.includes(activeTab)) {
+          return (
+            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--danger)' }}>
+              <h2 style={{ fontSize: '1.8rem', marginBottom: '1rem' }}>🚫 Access Denied / அனுமதி மறுக்கப்பட்டது</h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>
+                You do not have permission to access this module. Please contact Super Admin.
+              </p>
+            </div>
+          );
+        }
       }
     }
 
@@ -622,6 +619,8 @@ export default function App() {
         return <OutstandingCollection t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} />;
       case 'vehicle_sales':
         return <VehicleDirectSales t={t} lang={lang} onBillSelected={handleViewBillFromDelivery} />;
+      case 'settings':
+        return <AgencySettings t={t} lang={lang} onSettingsUpdated={(s) => setSettings(s)} />;
       default:
         return <Dashboard t={t} lang={lang} />;
     }
@@ -634,32 +633,51 @@ export default function App() {
       {/* Top Navbar */}
       <header className="navbar no-print">
         <div className="brand">
-          <button className="menu-toggle-btn" onClick={() => setMenuHidden(!menuHidden)} title="Toggle Menu">
-            ☰
+          <button
+            className="menu-toggle-btn"
+            onClick={() => {
+              if (window.innerWidth <= 768) {
+                setMenuHidden(!menuHidden);
+              } else {
+                setIsCompact(!isCompact);
+              }
+            }}
+            title="Toggle Menu"
+          >
+            <Menu size={18} />
           </button>
-          <span>{t('title')}</span>
+          <span>{settings?.company_name || t('title')}</span>
         </div>
 
         <div className="nav-controls">
           {/* Theme Toggle */}
-          <button className="theme-toggle-btn" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} title="Toggle theme">
-            {theme === 'light' ? '🌙' : '☀️'}
+          <button
+            className="theme-toggle-btn"
+            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+            title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+          >
+            {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
           </button>
 
           {/* Instant Translation Switch */}
-          <button className="language-btn" onClick={() => setLang(lang === 'en' ? 'ta' : 'en')}>
-            🌐 {t('switch_language')}
+          <button
+            className="language-btn"
+            onClick={() => setLang(lang === 'en' ? 'ta' : 'en')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+          >
+            <Globe size={14} />
+            <span>{t('switch_language')}</span>
           </button>
 
           {/* User Badge */}
           <div className={`role-badge ${session.role}`}>
-            {currentUserName || session.name} ({t(session.role)})
+            {currentUserName || session.name} ({t(session.role) || session.role})
           </div>
 
           {/* Notification bell & popup container */}
           <div ref={notificationContainerRef} style={{ position: 'relative' }}>
             <div className="notification-bell" onClick={() => setShowNotifications(!showNotifications)}>
-              🔔
+              <Bell size={16} />
               {unreadNotifications.length > 0 && (
                 <span className="badge-count">{unreadNotifications.length}</span>
               )}
@@ -671,9 +689,10 @@ export default function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', marginBottom: '0.75rem' }}>
                   <div>
                     <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <span>🔔</span> {t('notifications')}
+                      <Bell size={14} style={{ color: 'var(--accent-cyan)' }} />
+                      <span>{t('notifications')}</span>
                       <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', borderRadius: '10px' }}>
-                        Live Recent
+                        Live
                       </span>
                     </strong>
                   </div>
@@ -692,158 +711,93 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-              <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
-                {notifications.length === 0 ? (
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>{t('no_notifications')}</p>
-                ) : (
-                  sortNotifications(notifications).map(n => {
-                    const isUnread = n.status === 'unread';
-                    let typeIcon = '🔔';
-                    if (n.type === 'pending_delivery' || (n.message_en && n.message_en.includes('delivery'))) typeIcon = '📦';
-                    if (n.type === 'stock_refill' || (n.message_en && n.message_en.includes('stock'))) typeIcon = '🥤';
-                    if (n.type === 'payment' || (n.message_en && n.message_en.includes('Paid'))) typeIcon = '💰';
+                <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                  {notifications.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '1rem' }}>{t('no_notifications')}</p>
+                  ) : (
+                    sortNotifications(notifications).map(n => {
+                      const isUnread = n.status === 'unread';
+                      let typeIcon = '🔔';
+                      if (n.type === 'pending_delivery' || (n.message_en && n.message_en.includes('delivery'))) typeIcon = '📦';
+                      if (n.type === 'stock_refill' || (n.message_en && n.message_en.includes('stock'))) typeIcon = '🥤';
+                      if (n.type === 'payment' || (n.message_en && n.message_en.includes('Paid'))) typeIcon = '💰';
 
-                    return (
-                      <div
-                        key={n.id}
-                        className={`notification-item ${n.type}`}
-                        onClick={() => handleNotificationClick(n)}
-                        title="Click to view details / பக்கத்திற்கு செல்ல கிளிக் செய்க"
-                        style={{
-                          background: isUnread ? 'rgba(6, 182, 212, 0.08)' : 'rgba(255, 255, 255, 0.02)',
-                          borderLeft: isUnread ? '3px solid var(--accent-cyan)' : '3px solid transparent',
-                          padding: '0.65rem 0.75rem',
-                          borderRadius: '6px',
-                          marginBottom: '0.5rem',
-                          position: 'relative',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                      >
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                          <span style={{ fontSize: '1rem', marginTop: '1px' }}>{typeIcon}</span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.82rem', fontWeight: isUnread ? '600' : '400', color: 'var(--text-main)', lineHeight: '1.3' }}>
-                              {lang === 'ta' ? (n.message_ta || n.message_en) : (n.message_en || n.message_ta)}
-                            </div>
-                            <div style={{ fontSize: '0.7rem', color: isUnread ? 'var(--accent-cyan)' : 'var(--text-muted)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                              <span>⏱️</span>
-                              <span>{formatNotificationTime(n.created_at, lang)}</span>
-                              {isUnread && (
-                                <span style={{ marginLeft: 'auto', fontSize: '0.65rem', background: 'var(--accent-cyan)', color: '#000', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>
-                                  NEW
-                                </span>
-                              )}
+                      return (
+                        <div
+                          key={n.id}
+                          className={`notification-item ${n.type}`}
+                          onClick={() => handleNotificationClick(n)}
+                          title="Click to view details"
+                          style={{
+                            background: isUnread ? 'rgba(6, 182, 212, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                            borderLeft: isUnread ? '3px solid var(--accent-cyan)' : '3px solid transparent',
+                            padding: '0.65rem 0.75rem',
+                            borderRadius: '6px',
+                            marginBottom: '0.5rem',
+                            position: 'relative',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                            <span style={{ fontSize: '1rem', marginTop: '1px' }}>{typeIcon}</span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '0.82rem', fontWeight: isUnread ? '600' : '400', color: 'var(--text-main)', lineHeight: '1.3' }}>
+                                {lang === 'ta' ? (n.message_ta || n.message_en) : (n.message_en || n.message_ta)}
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: isUnread ? 'var(--accent-cyan)' : 'var(--text-muted)', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                <span>⏱️</span>
+                                <span>{formatNotificationTime(n.created_at, lang)}</span>
+                                {isUnread && (
+                                  <span style={{ marginLeft: 'auto', fontSize: '0.65rem', background: 'var(--accent-cyan)', color: '#000', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                    NEW
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })
-                )}
+                      );
+                    })
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
           </div>
 
-          {/* Settings Option */}
-          {session?.role === 'admin' && (
-            <button className="language-btn" onClick={() => setShowSettingsModal(true)} title="Settings" style={{ padding: '0.4rem 0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-              ⚙️ {lang === 'ta' ? 'அமைப்புகள்' : 'Settings'}
-            </button>
-          )}
-
           {/* Logout */}
-          <button className="logout-btn" onClick={handleLogout}>
-            🚪 {t('logout')}
+          <button className="logout-btn" onClick={handleLogout} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+            <LogOut size={15} />
+            <span>{t('logout')}</span>
           </button>
         </div>
       </header>
 
       {/* Main Area */}
       <div className="workspace">
-        {/* Mobile Backdrop Overlay */}
-        {!menuHidden && (
-          <div 
-            className="sidebar-backdrop-mobile no-print" 
-            onClick={() => setMenuHidden(true)}
-          />
-        )}
-
-        {/* Sidebar */}
-        <aside className={`sidebar no-print ${menuHidden ? 'hidden' : ''}`}>
-          {getSidebarLinks().map(link => {
-            const isOrders = link.id === 'orders';
-            const isActive = activeTab === link.id;
-
-            return (
-              <React.Fragment key={link.id}>
-                <button
-                  onClick={() => {
-                    setActiveTab(link.id);
-                    if (isOrders) setOrderTakingSubTab('regular');
-                    setSelectedOrderId(null);
-                    setEditingOrder(null);
-                    setBulkPrintOrderIds(null);
-                    if (window.innerWidth <= 768) {
-                      setMenuHidden(true);
-                    }
-                  }}
-                  className={`sidebar-link ${isActive && (!isOrders || orderTakingSubTab === 'regular') ? 'active' : ''}`}
-                >
-                  <span>{link.icon}</span>
-                  <span>{link.label}</span>
-                </button>
-
-                {/* Sub Menu under Order Taking in Sidebar */}
-                {isOrders && (
-                  <div style={{ paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '2px', margin: '2px 0 6px 0' }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('orders');
-                        setOrderTakingSubTab('regular');
-                        setSelectedOrderId(null);
-                        setEditingOrder(null);
-                        if (window.innerWidth <= 768) setMenuHidden(true);
-                      }}
-                      className={`sidebar-link ${activeTab === 'orders' && orderTakingSubTab === 'regular' ? 'active' : ''}`}
-                      style={{
-                        fontSize: '0.8rem',
-                        padding: '0.35rem 0.75rem',
-                        opacity: activeTab === 'orders' && orderTakingSubTab === 'regular' ? 1 : 0.75,
-                        background: activeTab === 'orders' && orderTakingSubTab === 'regular' ? 'rgba(6, 182, 212, 0.15)' : 'transparent'
-                      }}
-                    >
-                      <span style={{ fontSize: '0.85rem' }}>🛒</span>
-                      <span>{lang === 'ta' ? 'வழக்கமான ஆர்டர்' : 'Regular Order'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('orders');
-                        setOrderTakingSubTab('rough_bill');
-                        setSelectedOrderId(null);
-                        setEditingOrder(null);
-                        if (window.innerWidth <= 768) setMenuHidden(true);
-                      }}
-                      className={`sidebar-link ${activeTab === 'orders' && orderTakingSubTab === 'rough_bill' ? 'active' : ''}`}
-                      style={{
-                        fontSize: '0.8rem',
-                        padding: '0.35rem 0.75rem',
-                        opacity: activeTab === 'orders' && orderTakingSubTab === 'rough_bill' ? 1 : 0.75,
-                        background: activeTab === 'orders' && orderTakingSubTab === 'rough_bill' ? 'rgba(6, 182, 212, 0.15)' : 'transparent'
-                      }}
-                    >
-                      <span style={{ fontSize: '0.85rem' }}>🧾</span>
-                      <span>{lang === 'ta' ? 'ரஃப் பில் (Rough Bill)' : 'Rough Bill (Walk-in)'}</span>
-                    </button>
-                  </div>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </aside>
+        {/* Redesigned Compact Modern Sidebar */}
+        <Sidebar
+          session={session}
+          activeTab={activeTab}
+          orderTakingSubTab={orderTakingSubTab}
+          onSelectTab={(tabId, subTabId) => {
+            setActiveTab(tabId);
+            if (tabId === 'orders') {
+              setOrderTakingSubTab(subTabId || 'regular');
+            }
+            setSelectedOrderId(null);
+            setEditingOrder(null);
+            setBulkPrintOrderIds(null);
+          }}
+          lang={lang}
+          t={t}
+          menuHidden={menuHidden}
+          setMenuHidden={setMenuHidden}
+          isCompact={isCompact}
+          setIsCompact={setIsCompact}
+          pendingDeliveriesCount={pendingDeliveriesCount}
+          stockAlertsCount={stockAlertsCount}
+        />
 
         {/* Dynamic Panels */}
         <main className="main-content">
@@ -851,24 +805,36 @@ export default function App() {
         </main>
       </div>
 
-      {/* Settings Modal */}
+      {/* Settings Modal (kept for backward compatibility) */}
       {showSettingsModal && (
         <div className="modal-overlay" style={{ zIndex: 1000 }}>
-          <div className="glass-card modal-card" style={{ maxWidth: '500px', width: '95%', margin: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0 }}>
+          <div 
+            className="glass-card modal-card" 
+            style={{ 
+              maxWidth: '520px', 
+              width: '95%', 
+              maxHeight: 'min(90vh, 580px)', 
+              padding: '1.25rem 1.5rem', 
+              margin: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              boxSizing: 'border-box'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.65rem', flexShrink: 0 }}>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: '700', margin: 0 }}>
                 ⚙️ {lang === 'ta' ? 'அமைப்புகள்' : 'Billing & Agency Settings'}
               </h2>
               <button 
                 type="button" 
                 onClick={() => setShowSettingsModal(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer', lineHeight: 1 }}
               >
                 ✕
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', overflowY: 'auto', flex: 1, paddingRight: '0.35rem', marginBottom: '0.85rem' }}>
               <div className="form-group">
                 <label style={{ fontWeight: '600', fontSize: '0.85rem' }}>Company Name / நிறுவனத்தின் பெயர்</label>
                 <input 
@@ -930,7 +896,7 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.85rem', flexShrink: 0 }}>
               <button 
                 type="button" 
                 className="btn btn-secondary" 
