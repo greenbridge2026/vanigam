@@ -1625,15 +1625,36 @@ html, body, #root, .app-container {
    Redesigned Minimalist Sidebar & ERP Layout
    ========================================================= */
 .app-sidebar {
+  --sb-bg: #0f172a;
+  --sb-bg-gradient: linear-gradient(180deg, #0f172a 0%, #0b1120 100%);
+  --sb-bg-hover: rgba(255, 255, 255, 0.08);
+  --sb-bg-active: linear-gradient(90deg, rgba(6, 182, 212, 0.22) 0%, rgba(6, 182, 212, 0.08) 100%);
+  --sb-bg-expanded: rgba(255, 255, 255, 0.04);
+  --sb-bg-sub-active: rgba(6, 182, 212, 0.18);
+  --sb-border: rgba(255, 255, 255, 0.08);
+  --sb-border-active: rgba(6, 182, 212, 0.45);
+  --sb-text-title: #64748b;
+  --sb-text-main: #ffffff;
+  --sb-text-menu: #cbd5e1;
+  --sb-text-muted: #94a3b8;
+  --sb-text-dim: #64748b;
+  --sb-accent: #06b6d4;
+  --sb-accent-bright: #22d3ee;
+  --sb-search-bg: rgba(255, 255, 255, 0.06);
+  --sb-search-border: rgba(255, 255, 255, 0.12);
+  --sb-sub-line: rgba(6, 182, 212, 0.35);
+
   width: 240px;
-  background: var(--bg-sidebar);
-  border-right: 1px solid var(--border-color);
+  background: var(--sb-bg-gradient) !important;
+  border-right: 1px solid var(--sb-border) !important;
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   overflow-x: hidden;
   position: relative;
   flex-shrink: 0;
+  color: var(--sb-text-menu);
 }
 
 .app-sidebar.compact {
@@ -1657,25 +1678,56 @@ html, body, #root, .app-container {
 }
 
 .menu-header-btn:hover {
-  background: rgba(6, 182, 212, 0.08) !important;
-  color: var(--text-main) !important;
+  background: var(--sb-bg-hover) !important;
+  color: var(--sb-text-main) !important;
+}
+
+.menu-header-btn:hover svg {
+  color: var(--sb-accent-bright) !important;
+}
+
+.menu-header-btn.expanded {
+  background: var(--sb-bg-expanded) !important;
+  color: var(--sb-text-main) !important;
 }
 
 .menu-header-btn.active {
-  background: rgba(6, 182, 212, 0.12) !important;
-  color: var(--text-main) !important;
-  border-color: rgba(6, 182, 212, 0.3) !important;
-  box-shadow: inset 3px 0 0 var(--accent-cyan);
+  background: var(--sb-bg-active) !important;
+  color: var(--sb-text-main) !important;
+  border-color: var(--sb-border-active) !important;
+  box-shadow: inset 3px 0 0 var(--sb-accent), 0 2px 8px rgba(6, 182, 212, 0.15) !important;
+}
+
+.menu-header-btn.active svg {
+  color: var(--sb-accent-bright) !important;
 }
 
 .sidebar-toggle-btn:hover {
-  color: var(--accent-cyan) !important;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--sb-accent-bright) !important;
+  background: var(--sb-bg-hover) !important;
 }
 
 .submenu-container button:hover {
-  background: rgba(6, 182, 212, 0.08) !important;
-  color: var(--text-main) !important;
+  background: var(--sb-bg-hover) !important;
+  color: var(--sb-text-main) !important;
+}
+
+.submenu-container button:hover svg {
+  color: var(--sb-accent-bright) !important;
+}
+
+.app-sidebar ::-webkit-scrollbar {
+  width: 5px;
+}
+.app-sidebar ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.app-sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+.app-sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 /* Dashboard Clean Style Enhancements */
@@ -1697,16 +1749,17 @@ html, body, #root, .app-container {
     left: 0;
     bottom: 0;
     z-index: 10000 !important;
-    background: var(--bg-sidebar-mobile) !important;
+    background: #0f172a !important;
     backdrop-filter: blur(20px);
     width: 260px !important;
-    box-shadow: 8px 0 25px rgba(0, 0, 0, 0.5);
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.8) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
     transform: translateX(0);
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .app-sidebar.mobile-hidden {
     transform: translateX(-100%) !important;
-    box-shadow: none;
+    box-shadow: none !important;
   }
 }

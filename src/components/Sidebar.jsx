@@ -436,11 +436,12 @@ export default function Sidebar({
           transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
           display: 'flex',
           flexDirection: 'column',
-          borderRight: '1px solid var(--border-color)',
-          background: 'var(--bg-sidebar)',
+          borderRight: '1px solid var(--sb-border)',
+          background: 'var(--sb-bg-gradient)',
           backdropFilter: 'blur(10px)',
           userSelect: 'none',
-          zIndex: 9999
+          zIndex: 9999,
+          boxShadow: '2px 0 12px rgba(0, 0, 0, 0.18)'
         }}
       >
         {/* Sidebar Header / Quick Action */}
@@ -450,12 +451,12 @@ export default function Sidebar({
             display: 'flex',
             alignItems: 'center',
             justifyContent: isCompact ? 'center' : 'space-between',
-            borderBottom: '1px solid var(--border-color)',
+            borderBottom: '1px solid var(--sb-border)',
             minHeight: '52px'
           }}
         >
           {!isCompact && (
-            <span style={{ fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--sb-text-title)' }}>
               {lang === 'ta' ? 'முதன்மை மெனு' : 'Navigation'}
             </span>
           )}
@@ -470,7 +471,7 @@ export default function Sidebar({
               background: 'transparent',
               border: 'none',
               cursor: 'pointer',
-              color: 'var(--text-muted)',
+              color: 'var(--sb-text-muted)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -485,19 +486,20 @@ export default function Sidebar({
 
         {/* Quick Menu Search (Shown when not compact) */}
         {!isCompact && (
-          <div style={{ padding: '0.65rem 0.85rem', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ padding: '0.65rem 0.85rem', borderBottom: '1px solid var(--sb-border)' }}>
             <div
+              className="sidebar-search-box"
               style={{
                 position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
-                background: 'var(--bg-search, rgba(255, 255, 255, 0.04))',
-                border: '1px solid var(--border-color)',
+                background: 'var(--sb-search-bg)',
+                border: '1px solid var(--sb-search-border)',
                 borderRadius: '8px',
                 padding: '0 0.5rem'
               }}
             >
-              <Search size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+              <Search size={14} style={{ color: 'var(--sb-text-muted)', flexShrink: 0 }} />
               <input
                 type="text"
                 placeholder={lang === 'ta' ? 'தேடுக...' : 'Quick search...'}
@@ -508,7 +510,7 @@ export default function Sidebar({
                   background: 'transparent',
                   border: 'none',
                   outline: 'none',
-                  color: 'var(--text-main)',
+                  color: 'var(--sb-text-main)',
                   fontSize: '0.82rem',
                   padding: '0.45rem 0.4rem',
                   fontFamily: 'inherit'
@@ -521,7 +523,7 @@ export default function Sidebar({
                   style={{
                     background: 'none',
                     border: 'none',
-                    color: 'var(--text-muted)',
+                    color: 'var(--sb-text-muted)',
                     cursor: 'pointer',
                     padding: '2px',
                     display: 'flex',
@@ -549,7 +551,7 @@ export default function Sidebar({
           {/* If Search is Active */}
           {searchQuery ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', padding: '0.25rem 0.5rem', fontWeight: '600' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--sb-text-title)', padding: '0.25rem 0.5rem', fontWeight: '600' }}>
                 {searchResults.length > 0 
                   ? `${searchResults.length} ${lang === 'ta' ? 'முடிவுகள்' : 'results'}`
                   : (lang === 'ta' ? 'முடிவுகள் இல்லை' : 'No menus found')}
@@ -567,23 +569,23 @@ export default function Sidebar({
                       gap: '0.6rem',
                       width: '100%',
                       padding: '0.5rem 0.65rem',
-                      border: '1px solid transparent',
+                      border: '1px solid var(--sb-border)',
                       borderRadius: '6px',
-                      background: 'rgba(6, 182, 212, 0.05)',
-                      color: 'var(--text-main)',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      color: 'var(--sb-text-main)',
                       fontSize: '0.82rem',
                       cursor: 'pointer',
                       textAlign: 'left',
                       transition: 'background 0.15s ease'
                     }}
                   >
-                    <ItemIcon size={15} style={{ color: 'var(--accent-cyan)', flexShrink: 0 }} />
+                    <ItemIcon size={15} style={{ color: 'var(--sb-accent-bright)', flexShrink: 0 }} />
                     <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                      <span style={{ fontWeight: '600', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                      <span style={{ fontWeight: '600', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', color: 'var(--sb-text-main)' }}>
                         {item.label}
                       </span>
                       {item.parentLabel && (
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--sb-text-muted)' }}>
                           {item.parentLabel}
                         </span>
                       )}
@@ -617,26 +619,27 @@ export default function Sidebar({
                       padding: isCompact ? '0.65rem 0' : '0.55rem 0.75rem',
                       borderRadius: '8px',
                       background: isSectionActive
-                        ? 'rgba(6, 182, 212, 0.12)'
+                        ? 'var(--sb-bg-active)'
                         : isExpanded
-                        ? 'rgba(255, 255, 255, 0.04)'
+                        ? 'var(--sb-bg-expanded)'
                         : 'transparent',
                       border: isSectionActive
-                        ? '1px solid rgba(6, 182, 212, 0.3)'
+                        ? '1px solid var(--sb-border-active)'
                         : '1px solid transparent',
-                      color: isSectionActive ? 'var(--text-main)' : 'var(--text-muted)',
+                      color: isSectionActive ? 'var(--sb-text-main)' : 'var(--sb-text-menu)',
                       fontWeight: isSectionActive ? '600' : '500',
                       fontSize: '0.86rem',
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',
-                      position: 'relative'
+                      position: 'relative',
+                      boxShadow: isSectionActive ? 'inset 3px 0 0 var(--sb-accent), 0 2px 8px rgba(6, 182, 212, 0.15)' : 'none'
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: isCompact ? '0' : '0.65rem', overflow: 'hidden' }}>
                       <MenuIcon
                         size={17}
                         style={{
-                          color: isSectionActive ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                          color: isSectionActive ? 'var(--sb-accent-bright)' : 'var(--sb-text-muted)',
                           flexShrink: 0
                         }}
                       />
@@ -656,8 +659,8 @@ export default function Sidebar({
                               fontSize: '0.68rem',
                               padding: '1px 6px',
                               borderRadius: '10px',
-                              background: 'var(--accent-cyan)',
-                              color: '#000',
+                              background: 'var(--sb-accent)',
+                              color: '#02121e',
                               fontWeight: '700'
                             }}
                           >
@@ -665,7 +668,7 @@ export default function Sidebar({
                           </span>
                         )}
                         {hasSubmenus && (
-                          <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
+                          <span style={{ color: isSectionActive ? 'var(--sb-accent-bright)' : isExpanded ? 'var(--sb-accent)' : 'var(--sb-text-dim)', display: 'flex', alignItems: 'center' }}>
                             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </span>
                         )}
@@ -683,7 +686,7 @@ export default function Sidebar({
                         gap: '2px',
                         paddingLeft: '1.4rem',
                         margin: '3px 0 6px 0',
-                        borderLeft: '2px solid rgba(6, 182, 212, 0.25)',
+                        borderLeft: '2px solid var(--sb-sub-line)',
                         marginLeft: '1rem'
                       }}
                     >
@@ -706,9 +709,9 @@ export default function Sidebar({
                               width: '100%',
                               padding: '0.42rem 0.6rem',
                               borderRadius: '6px',
-                              background: isSubActive ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                              border: '1px solid transparent',
-                              color: isSubActive ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                              background: isSubActive ? 'var(--sb-bg-sub-active)' : 'transparent',
+                              border: isSubActive ? '1px solid var(--sb-border-active)' : '1px solid transparent',
+                              color: isSubActive ? 'var(--sb-accent-bright)' : 'var(--sb-text-muted)',
                               fontWeight: isSubActive ? '600' : '400',
                               fontSize: '0.8rem',
                               cursor: 'pointer',
@@ -716,7 +719,7 @@ export default function Sidebar({
                               transition: 'all 0.15s ease'
                             }}
                           >
-                            <SubIcon size={14} style={{ flexShrink: 0 }} />
+                            <SubIcon size={14} style={{ flexShrink: 0, color: isSubActive ? 'var(--sb-accent-bright)' : 'var(--sb-text-dim)' }} />
                             <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
                               {subLabel}
                             </span>
@@ -735,9 +738,9 @@ export default function Sidebar({
         <div
           style={{
             padding: isCompact ? '0.65rem 0.25rem' : '0.65rem 0.85rem',
-            borderTop: '1px solid var(--border-color)',
+            borderTop: '1px solid var(--sb-border)',
             fontSize: '0.72rem',
-            color: 'var(--text-muted)',
+            color: 'var(--sb-text-muted)',
             textAlign: isCompact ? 'center' : 'left',
             display: 'flex',
             alignItems: 'center',
@@ -746,15 +749,15 @@ export default function Sidebar({
         >
           {!isCompact ? (
             <div>
-              <span style={{ fontWeight: '600', color: 'var(--text-main)', display: 'block' }}>
+              <span style={{ fontWeight: '600', color: 'var(--sb-text-main)', display: 'block' }}>
                 {session?.name || session?.username}
               </span>
-              <span style={{ textTransform: 'capitalize' }}>
+              <span style={{ textTransform: 'capitalize', color: 'var(--sb-text-dim)' }}>
                 {t(session?.role) || session?.role}
               </span>
             </div>
           ) : (
-            <span style={{ fontWeight: '700', color: 'var(--accent-cyan)' }}>
+            <span style={{ fontWeight: '700', color: 'var(--sb-accent-bright)' }}>
               {(session?.name || session?.username || 'U')[0].toUpperCase()}
             </span>
           )}

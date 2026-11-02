@@ -2236,6 +2236,8 @@ app.post('/api/orders', async (req, res) => {
     const modifiedTables = [
       'orders',
       'order_items',
+      'deliveries',
+      'bills',
       'products',
       'stock_ledger',
       'deliveries',
@@ -2585,8 +2587,19 @@ app.put('/api/orders/:id', async (req, res) => {
     }
 
     const order = db.orders[orderIndex];
-    if (order.status !== 'pending') {
-      return res.status(400).json({ error: 'Cannot edit completed or fulfilled invoices. Only open pending invoices can be edited.' });
+    if (order.status === 'cancelled') {
+      return res.status(400).json({ error: 'Cannot edit cancelled orders.' });
+    }
+
+    // Only unfulfilled orders can be edited. Completed or delivered invoices cannot be edited.
+    const isCompleted = order.status === 'delivered' || order.status === 'completed';
+    const delivery = (db.deliveries || []).find(d => d.order_id === order.id);
+    const isDeliveryDelivered = delivery && delivery.status === 'delivered';
+
+    if (isCompleted || isDeliveryDelivered) {
+      return res.status(400).json({
+        error: 'Cannot edit completed or fulfilled invoices. Only open/unfulfilled invoices can be edited. / பூர்த்தி செய்யப்பட்ட பில்களை திருத்த முடியாது. விநியோகிக்கப்படாத ஆர்டர்களை மட்டுமே திருத்த முடியும்.'
+      });
     }
 
     const shop = db.shops.find(s => s.id === order.shop_id);
@@ -2596,13 +2609,16 @@ app.put('/api/orders/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invoice must contain at least one product item' });
     }
 
-    // 1. Temporarily revert stock for existing order items
+    // 1. Temporarily revert stock for existing order items (only if active/delivered, not returned)
     const oldOrderItems = db.order_items.filter(oi => oi.order_id === orderId);
-    for (const oldItem of oldOrderItems) {
-      const product = db.products.find(p => p.id === oldItem.product_id);
-      if (product) {
-        const qtyToRestore = (Number(oldItem.cases || 0) * product.case_qty_rule) + Number(oldItem.bottles || 0);
-        product.current_stock_bottles += qtyToRestore;
+    const shouldRevertOldStock = order.status !== 'not_delivered' && order.status !== 'returned';
+    if (shouldRevertOldStock) {
+      for (const oldItem of oldOrderItems) {
+        const product = db.products.find(p => p.id === oldItem.product_id);
+        if (product) {
+          const qtyToRestore = (Number(oldItem.cases || 0) * product.case_qty_rule) + Number(oldItem.bottles || 0);
+          product.current_stock_bottles += qtyToRestore;
+        }
       }
     }
 
@@ -2614,11 +2630,13 @@ app.put('/api/orders/:id', async (req, res) => {
       const product = db.products.find(p => p.id === item.product_id);
       if (!product) {
         // Revert stock restoration on error
-        for (const oldItem of oldOrderItems) {
-          const p = db.products.find(prod => prod.id === oldItem.product_id);
-          if (p) {
-            const qty = (Number(oldItem.cases || 0) * p.case_qty_rule) + Number(oldItem.bottles || 0);
-            p.current_stock_bottles -= qty;
+        if (shouldRevertOldStock) {
+          for (const oldItem of oldOrderItems) {
+            const p = db.products.find(prod => prod.id === oldItem.product_id);
+            if (p) {
+              const qty = (Number(oldItem.cases || 0) * p.case_qty_rule) + Number(oldItem.bottles || 0);
+              p.current_stock_bottles -= qty;
+            }
           }
         }
         return res.status(400).json({ error: `Product not found: ${item.product_id}` });
@@ -2627,11 +2645,13 @@ app.put('/api/orders/:id', async (req, res) => {
       const totalQtyRequested = (Number(item.cases || 0) * product.case_qty_rule) + Number(item.bottles || 0);
       if (product.current_stock_bottles < totalQtyRequested) {
         // Revert stock restoration on error
-        for (const oldItem of oldOrderItems) {
-          const p = db.products.find(prod => prod.id === oldItem.product_id);
-          if (p) {
-            const qty = (Number(oldItem.cases || 0) * p.case_qty_rule) + Number(oldItem.bottles || 0);
-            p.current_stock_bottles -= qty;
+        if (shouldRevertOldStock) {
+          for (const oldItem of oldOrderItems) {
+            const p = db.products.find(prod => prod.id === oldItem.product_id);
+            if (p) {
+              const qty = (Number(oldItem.cases || 0) * p.case_qty_rule) + Number(oldItem.bottles || 0);
+              p.current_stock_bottles -= qty;
+            }
           }
         }
         return res.status(400).json({
@@ -2713,6 +2733,14 @@ app.put('/api/orders/:id', async (req, res) => {
       order.invoice_date = req.body.delivery_date;
     } else if (req.body.invoice_date) {
       order.invoice_date = req.body.invoice_date;
+    }
+
+    // Sync with deliveries and bills if existing
+    if (db.bills) {
+      const existingBill = db.bills.find(b => b.order_id === order.id);
+      if (existingBill && order.delivery_date) {
+        existingBill.date = order.delivery_date;
+      }
     }
 
     // 8. Log in Audit Trail

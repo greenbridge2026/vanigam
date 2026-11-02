@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx';
 import { calculateOrderGstBreakdown } from '../utils/gstUtils';
 import { translateShopName, translateRouteName, translateProductName, translateAddress } from '../translations';
 
-export default function Billing({ orderId, initialData, t, lang, onBack, onNewBill }) {
+export default function Billing({ orderId, initialData, t, lang, onBack, onNewBill, onEditOrder, session }) {
   const [order, setOrder] = useState(() => initialData?.order || null);
   const [orderItems, setOrderItems] = useState(() => initialData?.items || []);
   const [products, setProducts] = useState(() => api.getCached('products') || []);
@@ -527,6 +527,22 @@ export default function Billing({ orderId, initialData, t, lang, onBack, onNewBi
                 }}
               >
                 ➕ {lang === 'ta' ? 'புதிய பில்' : 'New Bill'}
+              </button>
+            )}
+            {onEditOrder && order && order.status !== 'delivered' && order.status !== 'completed' && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => onEditOrder(order)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: '600'
+                }}
+                title={lang === 'ta' ? 'பில் திருத்துக' : 'Edit Bill'}
+              >
+                ✏️ {lang === 'ta' ? 'பில் திருத்து' : 'Edit Bill'}
               </button>
             )}
             <button className="btn btn-secondary" onClick={onBack}>

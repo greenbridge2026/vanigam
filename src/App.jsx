@@ -530,10 +530,17 @@ export default function App() {
           initialData={selectedOrderInitialData}
           t={t}
           lang={lang}
+          session={session}
           onNewBill={() => {
             setSelectedOrderId(null);
             setSelectedOrderInitialData(null);
             setOrderTakingSubTab('regular');
+            setActiveTab('orders');
+          }}
+          onEditOrder={(order) => {
+            setSelectedOrderId(null);
+            setSelectedOrderInitialData(null);
+            setEditingOrder(order);
             setActiveTab('orders');
           }}
           onBack={() => {
