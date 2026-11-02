@@ -236,41 +236,59 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       return;
     }
 
-    setSavingEdit(true);
-    try {
-      const deliveryDateIso = editDeliveryDate ? new Date(editDeliveryDate).toISOString() : (orderToEdit.delivery_date || orderToEdit.order_date);
-      await api.updateOrder(orderToEdit.id, {
-        items: editItems.map(item => ({
-          ...item,
-          cases: Number(item.cases || 0),
-          bottles: Number(item.bottles || 0),
-          rate: Number(item.rate || 0),
-          amount: Number(item.amount || 0)
-        })),
-        discount: Number(editDiscount || 0),
-        delivery_date: deliveryDateIso,
-        invoice_date: deliveryDateIso
-      });
+    const deliveryDateIso = editDeliveryDate ? new Date(editDeliveryDate).toISOString() : (orderToEdit.delivery_date || orderToEdit.order_date);
+    const updatedItems = editItems.map(item => ({
+      ...item,
+      cases: Number(item.cases || 0),
+      bottles: Number(item.bottles || 0),
+      rate: Number(item.rate || 0),
+      amount: Number(item.amount || 0)
+    }));
 
-      alert(lang === 'ta' ? 'விலைப்பட்டியல் வெற்றிகரமாக மாற்றப்பட்டது!' : 'Invoice updated successfully!');
+    const totalAmount = updatedItems.reduce((sum, item) => sum + item.amount, 0);
+    const discountAmt = Number(editDiscount || 0);
+    const netAmount = Math.max(0, totalAmount - discountAmt);
+    const oldNetAmount = Number(orderToEdit.net_amount || 0);
+    const netDiff = netAmount - oldNetAmount;
 
-      // Reload dataset
-      const [dData, oData, sData] = await Promise.all([
-        api.getDeliveries(),
-        api.getOrders(),
-        api.getShops()
-      ]);
-      setDeliveries(dData);
-      setOrders(oData);
-      setShops(sData);
+    const updatedOrder = {
+      ...orderToEdit,
+      delivery_date: deliveryDateIso,
+      invoice_date: deliveryDateIso,
+      total_amount: totalAmount,
+      discount: discountAmt,
+      net_amount: netAmount
+    };
 
-      setEditModalOpen(false);
-      setOrderToEdit(null);
-    } catch (err) {
-      alert('Failed to update invoice: ' + (err.message || err));
-    } finally {
-      setSavingEdit(false);
+    // 1. Instant local state & cache update (0ms)
+    setOrders(prev => prev.map(o => o.id === orderToEdit.id ? updatedOrder : o));
+    const cachedOrders = api.getCached('orders') || [];
+    api.setCached('orders', cachedOrders.map(o => o.id === orderToEdit.id ? updatedOrder : o));
+
+    const cachedItems = api.getCached('order_items') || [];
+    api.setCached('order_items', [
+      ...cachedItems.filter(i => i.order_id !== orderToEdit.id),
+      ...updatedItems
+    ]);
+
+    if (netDiff !== 0 && orderToEdit.shop_id) {
+      setShops(prev => prev.map(s => s.id === orderToEdit.shop_id ? { ...s, outstanding_amount: Number(s.outstanding_amount || 0) + netDiff } : s));
+      const cachedShops = api.getCached('shops') || [];
+      api.setCached('shops', cachedShops.map(s => s.id === orderToEdit.shop_id ? { ...s, outstanding_amount: Number(s.outstanding_amount || 0) + netDiff } : s));
     }
+
+    setEditModalOpen(false);
+    setOrderToEdit(null);
+
+    // 2. Sync to cloud in background without UI blocking
+    api.updateOrder(orderToEdit.id, {
+      items: updatedItems,
+      discount: discountAmt,
+      delivery_date: deliveryDateIso,
+      invoice_date: deliveryDateIso
+    }).catch(err => {
+      console.error('Failed to sync updated invoice:', err);
+    });
   };
 
 

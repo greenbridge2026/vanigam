@@ -438,7 +438,24 @@ export const api = {
       body: JSON.stringify(orderData)
     });
     const result = await parseJsonResponse(res, 'Failed to update order/invoice');
-    invalidateCache(['orders', 'order_items', 'products', 'deliveries', 'shops', 'stock_ledger', 'outstanding_history']);
+    
+    // In-place cache update for instant 0ms access without wiping warm data
+    if (result && result.order) {
+      const cachedOrders = getCached('orders');
+      if (Array.isArray(cachedOrders)) {
+        setCached('orders', cachedOrders.map(o => o.id === result.order.id ? result.order : o));
+      }
+    }
+    if (result && result.items) {
+      const cachedItems = getCached('order_items');
+      if (Array.isArray(cachedItems)) {
+        setCached('order_items', [
+          ...cachedItems.filter(i => i.order_id !== id),
+          ...result.items
+        ]);
+      }
+    }
+    invalidateCache(['stock_ledger', 'outstanding_history', 'delivery_audit_trail']);
     return result;
   },
   async confirmOrder(id) {

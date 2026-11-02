@@ -470,16 +470,84 @@ export default function OrderTaking({ t, lang, currentUser, onOrderCreated, edit
       const deliveryDateIso = deliveryDate ? new Date(deliveryDate).toISOString() : orderDateIso;
 
       if (editingOrder) {
-        await api.updateOrder(editingOrder.id, {
+        const invNum = editingOrder.invoice_number || `ORD-${editingOrder.id}`;
+
+        // 1. Calculate updated line items and totals
+        const updatedOrderItems = items.map((it, idx) => {
+          const prod = products.find(p => p.id === it.product_id) || {};
+          const rate = it.rate !== undefined ? Number(it.rate) : (shopObj?.shop_type === 'wholesale' ? prod.wholesale_price : prod.retail_price);
+          const totalQty = (Number(it.cases || 0) * (prod.case_qty_rule || 1)) + Number(it.bottles || 0);
+          const amount = it.amount !== undefined ? Number(it.amount) : Math.round(totalQty * (rate / (prod.case_qty_rule || 1)));
+          return {
+            id: it.id || `oi_${Date.now()}_${idx}`,
+            order_id: editingOrder.id,
+            product_id: it.product_id,
+            cases: Number(it.cases || 0),
+            bottles: Number(it.bottles || 0),
+            rate: Number(rate),
+            amount: Number(amount)
+          };
+        });
+
+        const totalAmount = updatedOrderItems.reduce((sum, item) => sum + item.amount, 0);
+        const discountAmt = Number(discount || 0);
+        const netAmount = Math.max(0, totalAmount - discountAmt);
+        const oldNetAmount = Number(editingOrder.net_amount || 0);
+        const netDiff = netAmount - oldNetAmount;
+
+        const updatedOrder = {
+          ...editingOrder,
           shop_id: selectedShop,
           route_id: selectedRoute,
-          items,
-          discount: Number(discount || 0),
           order_date: orderDateIso,
           delivery_date: deliveryDateIso,
-          invoice_date: deliveryDateIso
+          invoice_date: deliveryDateIso,
+          total_amount: totalAmount,
+          discount: discountAmt,
+          net_amount: netAmount
+        };
+
+        // 2. Instant Optimistic State & Cache Update (0ms)
+        const cachedOrders = api.getCached('orders') || [];
+        const newCachedOrders = cachedOrders.map(o => o.id === editingOrder.id ? updatedOrder : o);
+        api.setCached('orders', newCachedOrders);
+        setOrders(newCachedOrders);
+
+        const cachedItems = api.getCached('order_items') || [];
+        const newCachedItems = [
+          ...cachedItems.filter(i => i.order_id !== editingOrder.id),
+          ...updatedOrderItems
+        ];
+        api.setCached('order_items', newCachedItems);
+        setOrderItems(newCachedItems);
+
+        if (netDiff !== 0 && selectedShop) {
+          const cachedShops = api.getCached('shops') || [];
+          const newCachedShops = cachedShops.map(s => {
+            if (s.id === selectedShop) {
+              return { ...s, outstanding_amount: Number(s.outstanding_amount || 0) + netDiff };
+            }
+            return s;
+          });
+          api.setCached('shops', newCachedShops);
+          setShops(newCachedShops);
+        }
+
+        const cachedDeliveries = api.getCached('deliveries') || [];
+        const newCachedDeliveries = cachedDeliveries.map(d => {
+          if (d.order_id === editingOrder.id) {
+            return { ...d, delivery_date: deliveryDateIso };
+          }
+          return d;
         });
-        const invNum = editingOrder.invoice_number || `ORD-${editingOrder.id}`;
+        api.setCached('deliveries', newCachedDeliveries);
+
+        // 3. Reset inputs and stop submit state immediately
+        setCart({});
+        setDiscount(0);
+        setSubmitting(false);
+
+        // 4. Instant UI Feedback (0ms - no waiting for server!)
         setOrderPlacedPopupInfo({
           title: lang === 'ta' ? 'ஆர்டர் புதுப்பிக்கப்பட்டது' : 'Order Updated',
           message: lang === 'ta'
@@ -492,6 +560,33 @@ export default function OrderTaking({ t, lang, currentUser, onOrderCreated, edit
             }
           }
         });
+
+        // 5. Asynchronous Cloud Sync in background (non-blocking)
+        api.updateOrder(editingOrder.id, {
+          shop_id: selectedShop,
+          route_id: selectedRoute,
+          items,
+          discount: discountAmt,
+          order_date: orderDateIso,
+          delivery_date: deliveryDateIso,
+          invoice_date: deliveryDateIso
+        }).then(result => {
+          if (result && result.order) {
+            const freshOrders = (api.getCached('orders') || []).map(o => o.id === result.order.id ? result.order : o);
+            api.setCached('orders', freshOrders);
+          }
+          if (result && result.items) {
+            const freshItems = [
+              ...(api.getCached('order_items') || []).filter(i => i.order_id !== editingOrder.id),
+              ...result.items
+            ];
+            api.setCached('order_items', freshItems);
+          }
+        }).catch(err => {
+          console.error('Background order update sync error:', err);
+        });
+
+        return;
       } else {
         const tempOrderId = `ord_${Date.now()}`;
         const cachedOrders = api.getCached('orders') || [];
