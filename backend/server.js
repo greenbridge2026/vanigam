@@ -4173,6 +4173,8 @@ app.post('/api/rough-bills', async (req, res) => {
       taxable_amount: Number(req.body.taxable_amount || 0),
       total_cgst: Number(req.body.total_cgst || 0),
       total_sgst: Number(req.body.total_sgst || 0),
+      total_igst: Number(req.body.total_igst || 0),
+      tax_type: req.body.tax_type || (Number(req.body.total_igst) > 0 ? 'igst' : 'gst'),
       final_amount: Number(req.body.final_amount || req.body.total_amount || 0),
       payment_mode: req.body.payment_mode || 'Cash',
       created_at: new Date().toISOString()
