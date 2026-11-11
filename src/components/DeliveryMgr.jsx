@@ -412,10 +412,28 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         api.getShops(),
         api.getPayments()
       ]);
-      setDeliveries(dData);
-      setOrders(oData);
-      setShops(sData);
-      setPayments(pData);
+      setDeliveries(prev => {
+        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        return (dData || []).map(d => {
+          const local = localDelivered.get(d.id);
+          if (local && d.status === 'pending') {
+            return local;
+          }
+          return d;
+        });
+      });
+      setOrders(prev => {
+        const localDelivered = new Map((prev || []).filter(o => o.status === 'delivered').map(o => [o.id, o]));
+        return (oData || []).map(o => {
+          const local = localDelivered.get(o.id);
+          if (local && (o.status === 'confirmed' || o.status === 'pending')) {
+            return local;
+          }
+          return o;
+        });
+      });
+      if (sData) setShops(sData);
+      if (pData) setPayments(pData);
     } catch (err) {
       console.error('Error fulfilling credit delivery:', err);
       const [dData, oData, sData, pData] = await Promise.all([
@@ -424,10 +442,28 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         api.getShops(),
         api.getPayments()
       ]);
-      setDeliveries(dData);
-      setOrders(oData);
-      setShops(sData);
-      setPayments(pData);
+      setDeliveries(prev => {
+        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        return (dData || []).map(d => {
+          const local = localDelivered.get(d.id);
+          if (local && d.status === 'pending') {
+            return local;
+          }
+          return d;
+        });
+      });
+      setOrders(prev => {
+        const localDelivered = new Map((prev || []).filter(o => o.status === 'delivered').map(o => [o.id, o]));
+        return (oData || []).map(o => {
+          const local = localDelivered.get(o.id);
+          if (local && (o.status === 'confirmed' || o.status === 'pending')) {
+            return local;
+          }
+          return o;
+        });
+      });
+      if (sData) setShops(sData);
+      if (pData) setPayments(pData);
       alert('Error updating credit delivery: ' + (err.message || err));
     }
   };
@@ -608,30 +644,66 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         payments: paymentsToSubmit
       });
 
-      // Reload dataset in background to ensure sync
+      // Reload dataset in background to ensure sync without reverting already delivered orders
       const [dData, oData, sData, pData] = await Promise.all([
         api.getDeliveries(),
         api.getOrders(),
         api.getShops(),
         api.getPayments()
       ]);
-      setDeliveries(dData);
-      setOrders(oData);
-      setShops(sData);
-      setPayments(pData);
+      setDeliveries(prev => {
+        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        return (dData || []).map(d => {
+          const local = localDelivered.get(d.id);
+          if (local && d.status === 'pending') {
+            return local;
+          }
+          return d;
+        });
+      });
+      setOrders(prev => {
+        const localDelivered = new Map((prev || []).filter(o => o.status === 'delivered').map(o => [o.id, o]));
+        return (oData || []).map(o => {
+          const local = localDelivered.get(o.id);
+          if (local && (o.status === 'confirmed' || o.status === 'pending')) {
+            return local;
+          }
+          return o;
+        });
+      });
+      if (sData) setShops(sData);
+      if (pData) setPayments(pData);
     } catch (err) {
       console.error('Error in background delivery fulfillment:', err);
-      // Fallback reload if backend error occurred
+      // Fallback safe reload if backend error occurred
       const [dData, oData, sData, pData] = await Promise.all([
         api.getDeliveries(),
         api.getOrders(),
         api.getShops(),
         api.getPayments()
       ]);
-      setDeliveries(dData);
-      setOrders(oData);
-      setShops(sData);
-      setPayments(pData);
+      setDeliveries(prev => {
+        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        return (dData || []).map(d => {
+          const local = localDelivered.get(d.id);
+          if (local && d.status === 'pending') {
+            return local;
+          }
+          return d;
+        });
+      });
+      setOrders(prev => {
+        const localDelivered = new Map((prev || []).filter(o => o.status === 'delivered').map(o => [o.id, o]));
+        return (oData || []).map(o => {
+          const local = localDelivered.get(o.id);
+          if (local && (o.status === 'confirmed' || o.status === 'pending')) {
+            return local;
+          }
+          return o;
+        });
+      });
+      if (sData) setShops(sData);
+      if (pData) setPayments(pData);
       alert('Error updating delivery logistics: ' + (err.message || err));
     }
   };
@@ -671,10 +743,28 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         api.getShops(),
         api.getPayments()
       ]);
-      setDeliveries(dData);
-      setOrders(oData);
-      setShops(sData);
-      setPayments(pData);
+      setDeliveries(prev => {
+        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        return (dData || []).map(d => {
+          const local = localDelivered.get(d.id);
+          if (local && d.status === 'pending') {
+            return local;
+          }
+          return d;
+        });
+      });
+      setOrders(prev => {
+        const localDelivered = new Map((prev || []).filter(o => o.status === 'delivered').map(o => [o.id, o]));
+        return (oData || []).map(o => {
+          const local = localDelivered.get(o.id);
+          if (local && (o.status === 'confirmed' || o.status === 'pending')) {
+            return local;
+          }
+          return o;
+        });
+      });
+      if (sData) setShops(sData);
+      if (pData) setPayments(pData);
       
       setActiveDelivery(null);
     } catch (err) {

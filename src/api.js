@@ -490,17 +490,22 @@ export const api = {
     });
     const result = await parseJsonResponse(res, 'Failed to complete delivery');
 
+    const updatedDelivery = result?.delivery || (result?.id ? result : null);
+    const targetOrderId = result?.order?.id || updatedDelivery?.order_id || result?.order_id;
+    const targetStatus = payload.status || updatedDelivery?.status || 'delivered';
+
     // Optimistically update cached deliveries immediately
     const cachedDeliveries = getCached('deliveries');
     if (cachedDeliveries && Array.isArray(cachedDeliveries)) {
-      setCached('deliveries', cachedDeliveries.map(d => d.id === id ? { ...d, status: payload.status || 'delivered', remarks: payload.remarks || '' } : d));
+      setCached('deliveries', cachedDeliveries.map(d => d.id === id ? { ...d, ...(updatedDelivery || {}), status: targetStatus, remarks: payload.remarks || updatedDelivery?.remarks || '' } : d));
     }
     const cachedOrders = getCached('orders');
-    if (cachedOrders && Array.isArray(cachedOrders) && result?.order_id) {
-      setCached('orders', cachedOrders.map(o => o.id === result.order_id ? { ...o, status: payload.status || 'delivered' } : o));
+    if (cachedOrders && Array.isArray(cachedOrders) && targetOrderId) {
+      setCached('orders', cachedOrders.map(o => o.id === targetOrderId ? { ...o, ...(result?.order || {}), status: targetStatus } : o));
     }
 
-    invalidateCache(['deliveries', 'orders', 'shops', 'payments', 'outstanding_history', 'stock_ledger']);
+    // Invalidate dependent tables, keeping deliveries and orders caches valid and updated
+    invalidateCache(['shops', 'payments', 'outstanding_history', 'stock_ledger', 'bills']);
     return result;
   },
   async getDeliveryAuditTrail() {

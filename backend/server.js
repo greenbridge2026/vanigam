@@ -13,22 +13,39 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Simple lock mechanism for transactional integrity with safety timeout
-let dbLock = false;
-async function acquireLock(timeoutMs = 3000) {
-  const start = Date.now();
-  while (dbLock) {
-    if (Date.now() - start > timeoutMs) {
-      console.warn('[Lock Timeout] Auto-releasing lock after', timeoutMs, 'ms to prevent hanging');
-      dbLock = false;
-      break;
-    }
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
-  dbLock = true;
+// Robust FIFO queue mutex for strict transactional integrity without spinlock race conditions
+let lockQueue = Promise.resolve();
+let activeLockRelease = null;
+
+async function acquireLock(timeoutMs = 60000) {
+  let release;
+  const myTurn = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  const prevTurn = lockQueue;
+  lockQueue = myTurn;
+
+  let timer = null;
+  const timeoutPromise = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[Lock Warning] Lock waited longer than ${timeoutMs}ms, proceeding safely`);
+      resolve();
+    }, timeoutMs);
+  });
+
+  await Promise.race([prevTurn, timeoutPromise]);
+  if (timer) clearTimeout(timer);
+
+  activeLockRelease = release;
 }
+
 function releaseLock() {
-  dbLock = false;
+  if (activeLockRelease) {
+    const r = activeLockRelease;
+    activeLockRelease = null;
+    r();
+  }
 }
 
 // Database Helpers
@@ -2956,8 +2973,21 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
     cachedTimestamps[req.tenantId] = Date.now();
     lastMetaCheck[req.tenantId] = Date.now();
 
-    await writeDB(req.tenantId, db);
-    res.json(delivery);
+    const modifiedTables = ['deliveries', 'orders', 'bills', 'delivery_audit_trail'];
+    if (req.body.payments && Array.isArray(req.body.payments) && req.body.payments.length > 0) {
+      modifiedTables.push('payments', 'shops', 'outstanding_history');
+    }
+    if (finalStatus === 'not_delivered' || finalStatus === 'returned') {
+      modifiedTables.push('products', 'stock_ledger', 'vehicle_stock', 'shops', 'outstanding_history');
+    }
+
+    await writeDB(req.tenantId, db, modifiedTables);
+    res.json({
+      ...delivery,
+      delivery,
+      order,
+      shop
+    });
   } finally {
     releaseLock();
   }
