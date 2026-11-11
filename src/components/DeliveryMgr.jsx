@@ -26,8 +26,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [isPrintSheetOpen, setIsPrintSheetOpen] = useState(false);
   const [printScope, setPrintScope] = useState('filtered'); // 'filtered' | 'selected'
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, routeFilter, searchQuery, startDate, endDate, pageSize]);
 
   useEffect(() => {
     if (isPrintSheetOpen) {
@@ -44,14 +50,6 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     setSelectedDeliveryIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
-  };
-
-  const handleToggleSelectAll = () => {
-    if (selectedDeliveryIds.length === filteredDeliveries.length && filteredDeliveries.length > 0) {
-      setSelectedDeliveryIds([]);
-    } else {
-      setSelectedDeliveryIds(filteredDeliveries.map(d => d.id));
-    }
   };
 
   const getPreviousOutstanding = (ord, shp) => {
@@ -958,6 +956,94 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     return dateB - dateA;
   });
 
+  // Helper to extract YYYY-MM-DD from an order
+  const getOrderDateKey = (ord) => {
+    if (!ord) return '';
+    const raw = ord.delivery_date || ord.order_date;
+    return raw ? raw.split('T')[0] : '';
+  };
+
+  const todayStr = getTodayDateStr();
+
+  // Partition filtered deliveries: Today's orders vs. older orders
+  const todayDeliveries = [];
+  const olderDeliveries = [];
+
+  filteredDeliveries.forEach(d => {
+    const ord = orders.find(o => o.id === d.order_id);
+    const dDate = getOrderDateKey(ord);
+    if (dDate === todayStr) {
+      todayDeliveries.push(d);
+    } else {
+      olderDeliveries.push(d);
+    }
+  });
+
+  const isCustomDateFilter = Boolean(startDate || endDate);
+  let firstPageDeliveries = todayDeliveries;
+  let remainingDeliveries = olderDeliveries;
+  let primaryDateLabel = todayStr;
+
+  // If today has 0 orders, but there are deliveries and no custom date filter is active:
+  // Fallback to the latest order's date as the active primary run for Page 1
+  if (!isCustomDateFilter && firstPageDeliveries.length === 0 && filteredDeliveries.length > 0) {
+    const latestOrder = orders.find(o => o.id === filteredDeliveries[0].order_id);
+    const latestDate = getOrderDateKey(latestOrder);
+    if (latestDate) {
+      primaryDateLabel = latestDate;
+      firstPageDeliveries = filteredDeliveries.filter(d => {
+        const ord = orders.find(o => o.id === d.order_id);
+        return getOrderDateKey(ord) === latestDate;
+      });
+      remainingDeliveries = filteredDeliveries.filter(d => !firstPageDeliveries.includes(d));
+    }
+  }
+
+  // Calculate total pages and current page items
+  let totalPages = 1;
+  let paginatedDeliveries = [];
+
+  if (isCustomDateFilter || firstPageDeliveries.length === 0) {
+    totalPages = Math.max(1, Math.ceil(filteredDeliveries.length / pageSize));
+    const safePage = Math.min(currentPage, totalPages);
+    const startIdx = (safePage - 1) * pageSize;
+    paginatedDeliveries = filteredDeliveries.slice(startIdx, startIdx + pageSize);
+  } else {
+    const remainingPages = Math.ceil(remainingDeliveries.length / pageSize);
+    totalPages = Math.max(1, 1 + remainingPages);
+    const safePage = Math.min(currentPage, totalPages);
+
+    if (safePage === 1) {
+      paginatedDeliveries = firstPageDeliveries;
+    } else {
+      const startIdx = (safePage - 2) * pageSize;
+      paginatedDeliveries = remainingDeliveries.slice(startIdx, startIdx + pageSize);
+    }
+  }
+
+  const getPageNumbers = (current, total) => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1);
+    }
+    if (current <= 4) {
+      return [1, 2, 3, 4, 5, '...', total];
+    }
+    if (current >= total - 3) {
+      return [1, '...', total - 4, total - 3, total - 2, total - 1, total];
+    }
+    return [1, '...', current - 1, current, current + 1, '...', total];
+  };
+
+  const handleToggleSelectAll = () => {
+    const pageIds = paginatedDeliveries.map(d => d.id);
+    const allSelectedOnPage = pageIds.length > 0 && pageIds.every(id => selectedDeliveryIds.includes(id));
+    if (allSelectedOnPage) {
+      setSelectedDeliveryIds(prev => prev.filter(id => !pageIds.includes(id)));
+    } else {
+      setSelectedDeliveryIds(prev => Array.from(new Set([...prev, ...pageIds])));
+    }
+  };
+
   if (loading) return <div style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading Delivery Logistics...</div>;
 
   return (
@@ -977,6 +1063,52 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', flex: 1 }}>
                 <h2 style={{ margin: 0, fontSize: '1.2rem', whiteSpace: 'nowrap' }}>{t('assigned_orders')}</h2>
+
+                {/* Quick Date Switcher Tabs */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <button
+                    type="button"
+                    className="language-btn"
+                    onClick={() => {
+                      setCurrentPage(1);
+                      setStartDate('');
+                      setEndDate('');
+                    }}
+                    style={{
+                      padding: '0.25rem 0.65rem',
+                      fontSize: '0.8rem',
+                      fontWeight: currentPage === 1 && !startDate && !endDate ? 700 : 500,
+                      borderColor: currentPage === 1 && !startDate && !endDate ? 'var(--accent-cyan)' : 'var(--border-color)',
+                      background: currentPage === 1 && !startDate && !endDate ? 'rgba(6, 182, 212, 0.15)' : 'none',
+                      color: currentPage === 1 && !startDate && !endDate ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                      borderRadius: '20px'
+                    }}
+                    title={lang === 'ta' ? 'இன்றைய ஆர்டர்கள் மட்டும்' : "Show only today's orders"}
+                  >
+                    ⚡ {lang === 'ta' ? 'இன்றைய ஆர்டர்கள்' : "Today's Orders"} ({firstPageDeliveries.length})
+                  </button>
+                  <button
+                    type="button"
+                    className="language-btn"
+                    onClick={() => {
+                      if (currentPage === 1 && !startDate && !endDate && totalPages > 1) {
+                        setCurrentPage(2);
+                      }
+                    }}
+                    style={{
+                      padding: '0.25rem 0.65rem',
+                      fontSize: '0.8rem',
+                      fontWeight: currentPage > 1 || startDate || endDate ? 700 : 500,
+                      borderColor: currentPage > 1 || startDate || endDate ? 'var(--accent-blue)' : 'var(--border-color)',
+                      background: currentPage > 1 || startDate || endDate ? 'rgba(59, 130, 246, 0.15)' : 'none',
+                      color: currentPage > 1 || startDate || endDate ? 'var(--accent-blue)' : 'var(--text-muted)',
+                      borderRadius: '20px'
+                    }}
+                    title={lang === 'ta' ? 'அனைத்து பக்க ஆர்டர்கள்' : 'Show all historical orders across pages'}
+                  >
+                    📚 {lang === 'ta' ? 'அனைத்து ஆர்டர்கள்' : 'All Orders'} ({filteredDeliveries.length})
+                  </button>
+                </div>
                 
                 <div style={{ position: 'relative', display: 'inline-block' }}>
                   <input
@@ -1076,7 +1208,11 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                   }}
                 >
                   🖨️ {lang === 'ta' ? 'விநியோகத் தாள் அச்சிடு' : 'Print Delivery Sheet'}
-                  {selectedDeliveryIds.length > 0 ? ` (${selectedDeliveryIds.length})` : ` (${filteredDeliveries.length})`}
+                  {selectedDeliveryIds.length > 0 
+                    ? ` (${selectedDeliveryIds.length})` 
+                    : (currentPage === 1 && !isCustomDateFilter 
+                        ? ` (${paginatedDeliveries.length})` 
+                        : ` (${filteredDeliveries.length})`)}
                 </button>
               </div>
             </div>
@@ -1140,6 +1276,45 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
             </div>
           </div>
 
+          {/* Selected Orders Banner */}
+          {selectedDeliveryIds.length > 0 && (
+            <div style={{
+              background: 'rgba(6, 182, 212, 0.08)',
+              border: '1px solid rgba(6, 182, 212, 0.25)',
+              borderRadius: '6px',
+              padding: '0.4rem 0.75rem',
+              marginBottom: '0.75rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '0.85rem'
+            }}>
+              <span>
+                ✓ <strong>{selectedDeliveryIds.length}</strong> {lang === 'ta' ? 'ஆர்டர்கள் தேர்ந்தெடுக்கப்பட்டுள்ளன' : 'orders selected'}
+              </span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {selectedDeliveryIds.length < filteredDeliveries.length && (
+                  <button
+                    type="button"
+                    className="language-btn"
+                    onClick={() => setSelectedDeliveryIds(filteredDeliveries.map(d => d.id))}
+                    style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                  >
+                    {lang === 'ta' ? `அனைத்து ${filteredDeliveries.length} ஆர்டர்களையும் தேர்ந்தெடு` : `Select all ${filteredDeliveries.length} orders`}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="language-btn"
+                  onClick={() => setSelectedDeliveryIds([])}
+                  style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                >
+                  {lang === 'ta' ? 'தேர்வை நீக்கு' : 'Clear Selection'}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="table-container" style={{ overflowX: 'auto' }}>
             <table className="custom-table" style={{ width: '100%', fontSize: '0.85rem' }}>
               <thead>
@@ -1148,7 +1323,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                     <input
                       type="checkbox"
                       className="form-checkbox"
-                      checked={filteredDeliveries.length > 0 && selectedDeliveryIds.length === filteredDeliveries.length}
+                      checked={paginatedDeliveries.length > 0 && paginatedDeliveries.every(d => selectedDeliveryIds.includes(d.id))}
                       onChange={handleToggleSelectAll}
                       style={{ cursor: 'pointer', transform: 'scale(1.2)' }}
                     />
@@ -1164,7 +1339,14 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                 </tr>
               </thead>
               <tbody>
-                {filteredDeliveries.map(d => {
+                {paginatedDeliveries.length === 0 ? (
+                  <tr>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
+                      {lang === 'ta' ? 'ஆர்டர்கள் எதுவும் கிடைக்கவில்லை' : 'No delivery tasks found'}
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedDeliveries.map(d => {
                   const order = orders.find(o => o.id === d.order_id);
                   if (!order) return null;
                   const shop = shops.find(s => s.id === order.shop_id);
@@ -1335,10 +1517,177 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
                       </td>
                     </tr>
                   );
-                })}
+                }))}
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {filteredDeliveries.length > 0 && (
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '1rem',
+              marginTop: '1.25rem',
+              paddingTop: '1rem',
+              borderTop: '1px solid var(--border-color)',
+              fontSize: '0.85rem'
+            }}>
+              {/* Range & Context Description */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+                <span>
+                  {lang === 'ta' ? 'காண்பிக்கப்படுகிறது' : 'Showing'}{' '}
+                  <strong style={{ color: 'var(--text-main)' }}>
+                    {currentPage === 1 && !isCustomDateFilter
+                      ? (paginatedDeliveries.length > 0 ? `1 - ${paginatedDeliveries.length}` : '0')
+                      : `${Math.min(filteredDeliveries.length, (currentPage === 1 ? 1 : ((currentPage - 2) * pageSize + firstPageDeliveries.length + 1)))} - ${Math.min(filteredDeliveries.length, (currentPage === 1 ? firstPageDeliveries.length : ((currentPage - 1) * pageSize + firstPageDeliveries.length)))}`}
+                  </strong>{' '}
+                  {lang === 'ta' ? 'மொத்தம்' : 'of'}{' '}
+                  <strong style={{ color: 'var(--accent-cyan)' }}>{filteredDeliveries.length}</strong>{' '}
+                  {lang === 'ta' ? 'ஆர்டர்கள்' : 'orders'}
+                </span>
+
+                {currentPage === 1 && !isCustomDateFilter && (
+                  <span style={{
+                    background: 'rgba(6, 182, 212, 0.12)',
+                    color: 'var(--accent-cyan)',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    border: '1px solid rgba(6, 182, 212, 0.3)'
+                  }}>
+                    ⚡ {primaryDateLabel === todayStr ? (lang === 'ta' ? 'இன்றைய ஆர்டர்கள்' : "Today's Orders") : `${lang === 'ta' ? 'சமீபத்திய ஆர்டர்கள்' : 'Latest Run'}: ${primaryDateLabel}`}
+                  </span>
+                )}
+                {currentPage > 1 && !isCustomDateFilter && (
+                  <span style={{
+                    background: 'rgba(59, 130, 246, 0.12)',
+                    color: 'var(--accent-blue)',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    border: '1px solid rgba(59, 130, 246, 0.3)'
+                  }}>
+                    📚 {lang === 'ta' ? 'முந்தைய ஆர்டர்கள்' : 'Previous Orders'}
+                  </span>
+                )}
+              </div>
+
+              {/* Page Buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="language-btn"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: '0.3rem 0.6rem',
+                    fontSize: '0.8rem',
+                    opacity: currentPage === 1 ? 0.4 : 1,
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                  }}
+                  title="First Page"
+                >
+                  « {lang === 'ta' ? 'முதல்' : 'First'}
+                </button>
+
+                <button
+                  type="button"
+                  className="language-btn"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: '0.3rem 0.65rem',
+                    fontSize: '0.8rem',
+                    opacity: currentPage === 1 ? 0.4 : 1,
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                  }}
+                  title="Previous Page"
+                >
+                  ‹ {lang === 'ta' ? 'முந்தைய' : 'Prev'}
+                </button>
+
+                {getPageNumbers(currentPage, totalPages).map((pNum, idx) => (
+                  pNum === '...' ? (
+                    <span key={`ellipsis_${idx}`} style={{ padding: '0.3rem 0.4rem', color: 'var(--text-muted)' }}>...</span>
+                  ) : (
+                    <button
+                      key={pNum}
+                      type="button"
+                      className="language-btn"
+                      onClick={() => setCurrentPage(pNum)}
+                      style={{
+                        padding: '0.3rem 0.65rem',
+                        fontSize: '0.8rem',
+                        fontWeight: currentPage === pNum ? '700' : '500',
+                        borderColor: currentPage === pNum ? 'var(--accent-cyan)' : 'var(--border-color)',
+                        background: currentPage === pNum ? 'var(--accent-cyan)' : 'transparent',
+                        color: currentPage === pNum ? '#000' : 'var(--text-main)',
+                        borderRadius: 'var(--radius)'
+                      }}
+                    >
+                      {pNum === 1 && !isCustomDateFilter ? `1 (${lang === 'ta' ? 'இன்று' : 'Today'})` : pNum}
+                    </button>
+                  )
+                ))}
+
+                <button
+                  type="button"
+                  className="language-btn"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: '0.3rem 0.65rem',
+                    fontSize: '0.8rem',
+                    opacity: currentPage === totalPages ? 0.4 : 1,
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+                  }}
+                  title="Next Page"
+                >
+                  {lang === 'ta' ? 'அடுத்த' : 'Next'} ›
+                </button>
+
+                <button
+                  type="button"
+                  className="language-btn"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: '0.3rem 0.6rem',
+                    fontSize: '0.8rem',
+                    opacity: currentPage === totalPages ? 0.4 : 1,
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+                  }}
+                  title="Last Page"
+                >
+                  {lang === 'ta' ? 'கடைசி' : 'Last'} »
+                </button>
+
+                {/* Page Size Dropdown */}
+                <div style={{ marginLeft: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{lang === 'ta' ? 'பக்கத்திற்கு:' : 'Per page:'}</span>
+                  <select
+                    className="form-select"
+                    value={pageSize}
+                    onChange={e => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    style={{ width: '80px', padding: '0.2rem 0.4rem', fontSize: '0.8rem', height: '30px', margin: 0 }}
+                  >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Complete delivery sidebar details */}
@@ -2260,7 +2609,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
           {(() => {
             const itemsToPrint = selectedDeliveryIds.length > 0
               ? filteredDeliveries.filter(d => selectedDeliveryIds.includes(d.id))
-              : filteredDeliveries;
+              : (currentPage === 1 && !isCustomDateFilter ? firstPageDeliveries : filteredDeliveries);
 
             if (itemsToPrint.length === 0) return null;
 
