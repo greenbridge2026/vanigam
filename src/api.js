@@ -370,8 +370,8 @@ export const api = {
   },
 
   // Orders
-  async getOrders() {
-    const orders = await getTableData('orders', `${API_BASE}/orders`);
+  async getOrders(forceRefresh = false) {
+    const orders = await getTableData('orders', `${API_BASE}/orders`, null, forceRefresh);
     if (orders && orders.length > 0) {
       orders.sort((a, b) => {
         const dateA = a.order_date ? new Date(a.order_date).getTime() : 0;
@@ -479,8 +479,8 @@ export const api = {
   },
 
   // Deliveries
-  async getDeliveries() {
-    return getTableData('deliveries', `${API_BASE}/deliveries`);
+  async getDeliveries(forceRefresh = false) {
+    return getTableData('deliveries', `${API_BASE}/deliveries`, null, forceRefresh);
   },
   async completeDelivery(id, payload) {
     const res = await apiFetch(`${API_BASE}/deliveries/${id}/complete`, {
@@ -497,7 +497,11 @@ export const api = {
     // Optimistically update cached deliveries immediately
     const cachedDeliveries = getCached('deliveries');
     if (cachedDeliveries && Array.isArray(cachedDeliveries)) {
-      setCached('deliveries', cachedDeliveries.map(d => d.id === id ? { ...d, ...(updatedDelivery || {}), status: targetStatus, remarks: payload.remarks || updatedDelivery?.remarks || '' } : d));
+      setCached('deliveries', cachedDeliveries.map(d => 
+        (d.id === id || d.order_id === targetOrderId || d.id === `del_${targetOrderId}` || `del_${d.order_id}` === id) 
+          ? { ...d, ...(updatedDelivery || {}), status: targetStatus, remarks: payload.remarks || updatedDelivery?.remarks || '' } 
+          : d
+      ));
     }
     const cachedOrders = getCached('orders');
     if (cachedOrders && Array.isArray(cachedOrders) && targetOrderId) {
@@ -505,7 +509,7 @@ export const api = {
     }
 
     // Invalidate dependent tables, keeping deliveries and orders caches valid and updated
-    invalidateCache(['shops', 'payments', 'outstanding_history', 'stock_ledger', 'bills']);
+    invalidateCache(['deliveries', 'orders', 'shops', 'payments', 'outstanding_history', 'stock_ledger', 'bills']);
     return result;
   },
   async getDeliveryAuditTrail() {

@@ -591,23 +591,22 @@ export default function OrderTaking({ t, lang, currentUser, onOrderCreated, edit
         const tempOrderId = `ord_${Date.now()}`;
         const cachedOrders = api.getCached('orders') || [];
 
-        // Find lowest available candidate starting from INV-1001
+        // Determine next sequential invoice number without filling past gaps or re-using numbers
+        let maxNum = 1000;
         const usedNumbers = new Set();
         cachedOrders.forEach(o => {
           if (o.invoice_number) {
             const match = String(o.invoice_number).match(/INV-(\d+)/i);
             if (match) {
               const num = parseInt(match[1], 10);
-              if (!isNaN(num)) usedNumbers.add(num);
+              if (!isNaN(num)) {
+                usedNumbers.add(num);
+                if (num > maxNum) maxNum = num;
+              }
             }
           }
         });
-
-        let candidate = 1001;
-        while (usedNumbers.has(candidate)) {
-          candidate++;
-        }
-        const invoiceNum = `INV-${candidate}`;
+        const invoiceNum = `INV-${maxNum + 1}`;
 
         // Map items with deterministic IDs matching client and server
         const orderItemsList = items.map((it, idx) => {

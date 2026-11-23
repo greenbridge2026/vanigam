@@ -109,6 +109,16 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
   const [submitting, setSubmitting] = useState(false);
   const [deliveryCompletedPopup, setDeliveryCompletedPopup] = useState(null);
 
+  // Auto-dismiss completed delivery popup after 2.5 seconds so it never traps the user or stays open
+  useEffect(() => {
+    if (deliveryCompletedPopup) {
+      const timer = setTimeout(() => {
+        setDeliveryCompletedPopup(null);
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [deliveryCompletedPopup]);
+
   // Order Deletion states
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState(null);
@@ -405,17 +415,21 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       });
 
       const [dData, oData, sData, pData] = await Promise.all([
-        api.getDeliveries(),
-        api.getOrders(),
+        api.getDeliveries(true),
+        api.getOrders(true),
         api.getShops(),
         api.getPayments()
       ]);
       setDeliveries(prev => {
-        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        const localDelivered = new Map();
+        (prev || []).filter(d => d.status === 'delivered').forEach(d => {
+          localDelivered.set(d.id, d);
+          if (d.order_id) localDelivered.set(d.order_id, d);
+        });
         return (dData || []).map(d => {
-          const local = localDelivered.get(d.id);
+          const local = localDelivered.get(d.id) || (d.order_id ? localDelivered.get(d.order_id) : null);
           if (local && d.status === 'pending') {
-            return local;
+            return { ...d, status: 'delivered', remarks: local.remarks || d.remarks };
           }
           return d;
         });
@@ -425,7 +439,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         return (oData || []).map(o => {
           const local = localDelivered.get(o.id);
           if (local && (o.status === 'confirmed' || o.status === 'pending')) {
-            return local;
+            return { ...o, status: 'delivered' };
           }
           return o;
         });
@@ -435,17 +449,21 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
     } catch (err) {
       console.error('Error fulfilling credit delivery:', err);
       const [dData, oData, sData, pData] = await Promise.all([
-        api.getDeliveries(),
-        api.getOrders(),
+        api.getDeliveries(true),
+        api.getOrders(true),
         api.getShops(),
         api.getPayments()
       ]);
       setDeliveries(prev => {
-        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        const localDelivered = new Map();
+        (prev || []).filter(d => d.status === 'delivered').forEach(d => {
+          localDelivered.set(d.id, d);
+          if (d.order_id) localDelivered.set(d.order_id, d);
+        });
         return (dData || []).map(d => {
-          const local = localDelivered.get(d.id);
+          const local = localDelivered.get(d.id) || (d.order_id ? localDelivered.get(d.order_id) : null);
           if (local && d.status === 'pending') {
-            return local;
+            return { ...d, status: 'delivered', remarks: local.remarks || d.remarks };
           }
           return d;
         });
@@ -455,7 +473,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         return (oData || []).map(o => {
           const local = localDelivered.get(o.id);
           if (local && (o.status === 'confirmed' || o.status === 'pending')) {
-            return local;
+            return { ...o, status: 'delivered' };
           }
           return o;
         });
@@ -644,17 +662,21 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
       // Reload dataset in background to ensure sync without reverting already delivered orders
       const [dData, oData, sData, pData] = await Promise.all([
-        api.getDeliveries(),
-        api.getOrders(),
+        api.getDeliveries(true),
+        api.getOrders(true),
         api.getShops(),
         api.getPayments()
       ]);
       setDeliveries(prev => {
-        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        const localDelivered = new Map();
+        (prev || []).filter(d => d.status === 'delivered').forEach(d => {
+          localDelivered.set(d.id, d);
+          if (d.order_id) localDelivered.set(d.order_id, d);
+        });
         return (dData || []).map(d => {
-          const local = localDelivered.get(d.id);
+          const local = localDelivered.get(d.id) || (d.order_id ? localDelivered.get(d.order_id) : null);
           if (local && d.status === 'pending') {
-            return local;
+            return { ...d, status: 'delivered', remarks: local.remarks || d.remarks };
           }
           return d;
         });
@@ -664,7 +686,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         return (oData || []).map(o => {
           const local = localDelivered.get(o.id);
           if (local && (o.status === 'confirmed' || o.status === 'pending')) {
-            return local;
+            return { ...o, status: 'delivered' };
           }
           return o;
         });
@@ -675,17 +697,21 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
       console.error('Error in background delivery fulfillment:', err);
       // Fallback safe reload if backend error occurred
       const [dData, oData, sData, pData] = await Promise.all([
-        api.getDeliveries(),
-        api.getOrders(),
+        api.getDeliveries(true),
+        api.getOrders(true),
         api.getShops(),
         api.getPayments()
       ]);
       setDeliveries(prev => {
-        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        const localDelivered = new Map();
+        (prev || []).filter(d => d.status === 'delivered').forEach(d => {
+          localDelivered.set(d.id, d);
+          if (d.order_id) localDelivered.set(d.order_id, d);
+        });
         return (dData || []).map(d => {
-          const local = localDelivered.get(d.id);
+          const local = localDelivered.get(d.id) || (d.order_id ? localDelivered.get(d.order_id) : null);
           if (local && d.status === 'pending') {
-            return local;
+            return { ...d, status: 'delivered', remarks: local.remarks || d.remarks };
           }
           return d;
         });
@@ -695,7 +721,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         return (oData || []).map(o => {
           const local = localDelivered.get(o.id);
           if (local && (o.status === 'confirmed' || o.status === 'pending')) {
-            return local;
+            return { ...o, status: 'delivered' };
           }
           return o;
         });
@@ -736,17 +762,21 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
       // Reload dataset
       const [dData, oData, sData, pData] = await Promise.all([
-        api.getDeliveries(),
-        api.getOrders(),
+        api.getDeliveries(true),
+        api.getOrders(true),
         api.getShops(),
         api.getPayments()
       ]);
       setDeliveries(prev => {
-        const localDelivered = new Map((prev || []).filter(d => d.status === 'delivered').map(d => [d.id, d]));
+        const localDelivered = new Map();
+        (prev || []).filter(d => d.status === 'delivered').forEach(d => {
+          localDelivered.set(d.id, d);
+          if (d.order_id) localDelivered.set(d.order_id, d);
+        });
         return (dData || []).map(d => {
-          const local = localDelivered.get(d.id);
+          const local = localDelivered.get(d.id) || (d.order_id ? localDelivered.get(d.order_id) : null);
           if (local && d.status === 'pending') {
-            return local;
+            return { ...d, status: 'delivered', remarks: local.remarks || d.remarks };
           }
           return d;
         });
@@ -756,7 +786,7 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
         return (oData || []).map(o => {
           const local = localDelivered.get(o.id);
           if (local && (o.status === 'confirmed' || o.status === 'pending')) {
-            return local;
+            return { ...o, status: 'delivered' };
           }
           return o;
         });
@@ -2192,34 +2222,40 @@ export default function DeliveryMgr({ t, lang, onBillSelected, session, onBulkPr
 
       {/* Top Modal Popup for Completed Delivery */}
       {deliveryCompletedPopup && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.65)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 99999,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'flex-start',
-          paddingTop: '40px'
-        }}>
-          <div style={{
-            background: 'var(--bg-card, #0f172a)',
-            border: '2px solid var(--success, #10b981)',
-            borderRadius: '14px',
-            boxShadow: '0 20px 45px rgba(0, 0, 0, 0.7), 0 0 25px rgba(16, 185, 129, 0.35)',
-            padding: '1.5rem 2rem',
-            width: '90%',
-            maxWidth: '440px',
-            textAlign: 'center',
+        <div 
+          onClick={() => setDeliveryCompletedPopup(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 99999,
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            animation: 'fadeInDown 0.25s ease-out'
+            justifyContent: 'center',
+            alignItems: 'flex-start',
+            paddingTop: '40px',
+            cursor: 'pointer'
           }}>
+          <div 
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-card, #0f172a)',
+              border: '2px solid var(--success, #10b981)',
+              borderRadius: '14px',
+              boxShadow: '0 20px 45px rgba(0, 0, 0, 0.7), 0 0 25px rgba(16, 185, 129, 0.35)',
+              padding: '1.5rem 2rem',
+              width: '90%',
+              maxWidth: '440px',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              animation: 'fadeInDown 0.25s ease-out',
+              cursor: 'default'
+            }}>
             <div style={{
               width: '56px',
               height: '56px',

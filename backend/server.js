@@ -57,48 +57,8 @@ let lastMetaCheck = {}; // { [tenantId]: number }
 let firestoreWriteQueues = {}; // { [tenantId]: Promise }
 
 function sanitizeAndReindexOrders(dbData) {
-  if (!dbData || !Array.isArray(dbData.orders) || dbData.orders.length === 0) return false;
-  
-  // Sort orders by order_date or creation time
-  dbData.orders.sort((a, b) => {
-    const dateA = a.order_date ? new Date(a.order_date).getTime() : 0;
-    const dateB = b.order_date ? new Date(b.order_date).getTime() : 0;
-    if (dateA !== dateB) return dateA - dateB;
-    return (a.id || '').localeCompare(b.id || '');
-  });
-
-  let changed = false;
-  dbData.orders.forEach((order, index) => {
-    const expectedInvoiceNum = `INV-${1001 + index}`;
-    if (order.invoice_number !== expectedInvoiceNum) {
-      const oldInv = order.invoice_number;
-      order.invoice_number = expectedInvoiceNum;
-      changed = true;
-
-      // Update references in bills if present
-      if (Array.isArray(dbData.bills)) {
-        dbData.bills.forEach(bill => {
-          if (bill.order_id === order.id || bill.invoice_number === oldInv) {
-            bill.invoice_number = expectedInvoiceNum;
-          }
-        });
-      }
-
-      // Update references in outstanding_history if present
-      if (Array.isArray(dbData.outstanding_history)) {
-        dbData.outstanding_history.forEach(oh => {
-          if (oh.order_number === oldInv) {
-            oh.order_number = expectedInvoiceNum;
-          }
-          if (oh.description && oldInv && oh.description.includes(oldInv)) {
-            oh.description = oh.description.replace(oldInv, expectedInvoiceNum);
-          }
-        });
-      }
-    }
-  });
-
-  return changed;
+  // Permanently disabled: Invoices are permanent tax records and must NEVER be automatically renumbered!
+  return false;
 }
 
 function cleanSyntheticOpeningOrders(dbData) {
@@ -119,7 +79,7 @@ function cleanSyntheticOpeningOrders(dbData) {
   return false;
 }
 
-async function readDB(tenantId) {
+async function readDB(tenantId, forceFresh = false) {
   let dbData = null;
 
   if (isFirebaseMock) {
@@ -138,7 +98,8 @@ async function readDB(tenantId) {
   } else {
     try {
       const now = Date.now();
-      const hasFreshCache = cachedDBs[tenantId] && (now - (lastMetaCheck[tenantId] || 0) < 60000);
+      // Keep cache TTL short (2 seconds) to avoid multi-user/multi-instance stale cache overwrites
+      const hasFreshCache = !forceFresh && cachedDBs[tenantId] && (now - (lastMetaCheck[tenantId] || 0) < 2000);
       
       let lastUpdated = 0;
       if (!hasFreshCache) {
@@ -150,7 +111,7 @@ async function readDB(tenantId) {
         lastMetaCheck[tenantId] = now;
       }
 
-      if (cachedDBs[tenantId] && (hasFreshCache || cachedTimestamps[tenantId] >= lastUpdated)) {
+      if (!forceFresh && cachedDBs[tenantId] && (hasFreshCache || cachedTimestamps[tenantId] >= lastUpdated)) {
         dbData = cachedDBs[tenantId];
         if (!cachedTableSnapshots[tenantId]) {
           cachedTableSnapshots[tenantId] = {};
@@ -272,10 +233,11 @@ async function readDB(tenantId) {
     }
 
     const cleaned = cleanSyntheticOpeningOrders(dbData);
-    const reindexedChanged = (dbData.orders && dbData.orders.length > 0) ? sanitizeAndReindexOrders(dbData) : false;
-    if (cleaned || reindexedChanged || pruned) {
+    // Invoice numbers must NEVER be renumbered on reads or deletes because they are printed tax records!
+    const reindexedChanged = false;
+    if (cleaned || pruned) {
       cachedDBs[tenantId] = dbData;
-      writeDB(tenantId, dbData).catch(err => console.error(`Error auto-persisting database cleanup/reindexing for ${tenantId}:`, err));
+      writeDB(tenantId, dbData).catch(err => console.error(`Error auto-persisting database cleanup for ${tenantId}:`, err));
     }
   }
 
@@ -1825,7 +1787,7 @@ app.post('/api/purchases', async (req, res) => {
     lastMetaCheck[req.tenantId] = Date.now();
 
     if (process.env.VERCEL) {
-      await writeDB(req.tenantId, db, modifiedTables);
+      await queueFirestoreWrite(req.tenantId, db, modifiedTables);
     } else {
       writeDB(req.tenantId, db, modifiedTables).catch(err => {
         console.error('[Background Firestore write error on purchase create]:', err);
@@ -1918,7 +1880,7 @@ app.put('/api/purchases/:id', async (req, res) => {
     lastMetaCheck[req.tenantId] = Date.now();
 
     if (process.env.VERCEL) {
-      await writeDB(req.tenantId, db, modifiedTables);
+      await queueFirestoreWrite(req.tenantId, db, modifiedTables);
     } else {
       writeDB(req.tenantId, db, modifiedTables).catch(err => {
         console.error('[Background Firestore write error on purchase edit]:', err);
@@ -1997,7 +1959,7 @@ app.delete('/api/purchases/:id', async (req, res) => {
     lastMetaCheck[req.tenantId] = Date.now();
 
     if (process.env.VERCEL) {
-      await writeDB(req.tenantId, db, modifiedTables);
+      await queueFirestoreWrite(req.tenantId, db, modifiedTables);
     } else {
       writeDB(req.tenantId, db, modifiedTables).catch(err => {
         console.error('[Background Firestore write error on purchase delete]:', err);
@@ -2028,7 +1990,7 @@ app.get('/api/stock/ledger', async (req, res) => {
 app.post('/api/orders', async (req, res) => {
   await acquireLock();
   try {
-    const db = await readDB(req.tenantId);
+    const db = await readDB(req.tenantId, true);
 
     if (!db.orders) db.orders = [];
     if (!db.order_items) db.order_items = [];
@@ -2140,23 +2102,23 @@ app.post('/api/orders', async (req, res) => {
     const discountAmt = Number(discount || 0);
     const netAmount = Math.max(0, totalAmount - discountAmt);
 
-    // Find lowest available candidate starting from INV-1001 (fills gaps if any invoice was deleted!)
+    // Determine next sequential invoice number without filling past gaps or re-using numbers
     const usedNumbers = new Set();
+    let maxNum = 1000;
     (db.orders || []).forEach(o => {
       if (o.invoice_number) {
         const match = String(o.invoice_number).match(/INV-(\d+)/i);
         if (match) {
           const num = parseInt(match[1], 10);
-          if (!isNaN(num)) usedNumbers.add(num);
+          if (!isNaN(num)) {
+            usedNumbers.add(num);
+            if (num > maxNum) maxNum = num;
+          }
         }
       }
     });
 
-    let candidate = 1001;
-    while (usedNumbers.has(candidate)) {
-      candidate++;
-    }
-    let invoiceNum = `INV-${candidate}`;
+    let invoiceNum = `INV-${maxNum + 1}`;
     if (req.body.invoice_number) {
       const match = String(req.body.invoice_number).match(/INV-(\d+)/i);
       const reqNum = match ? parseInt(match[1], 10) : null;
@@ -2268,11 +2230,9 @@ app.post('/api/orders', async (req, res) => {
     lastMetaCheck[req.tenantId] = Date.now();
 
     if (process.env.VERCEL) {
-      await writeDB(req.tenantId, db, modifiedTables);
+      await queueFirestoreWrite(req.tenantId, db, modifiedTables);
     } else {
-      writeDB(req.tenantId, db, modifiedTables).catch(err => {
-        console.error('[Background Firestore write error]:', err);
-      });
+      await queueFirestoreWrite(req.tenantId, db, modifiedTables);
     }
 
     res.status(201).json({
@@ -2294,7 +2254,7 @@ app.post('/api/orders', async (req, res) => {
 app.post('/api/orders/:id/confirm', async (req, res) => {
   await acquireLock();
   try {
-    const db = await readDB(req.tenantId);
+    const db = await readDB(req.tenantId, true);
     const order = (db.orders || []).find(o => o.id === req.params.id);
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
@@ -2460,7 +2420,7 @@ app.post('/api/orders/:id/confirm', async (req, res) => {
     lastMetaCheck[req.tenantId] = Date.now();
 
     if (process.env.VERCEL) {
-      await writeDB(req.tenantId, db, modifiedTables);
+      await queueFirestoreWrite(req.tenantId, db, modifiedTables);
     } else {
       writeDB(req.tenantId, db, modifiedTables).catch(err => {
         console.error('[Background Firestore write error on confirm]:', err);
@@ -2486,7 +2446,7 @@ app.post('/api/orders/:id/confirm', async (req, res) => {
 app.post('/api/orders/:id/cancel', async (req, res) => {
   await acquireLock();
   try {
-    const db = await readDB(req.tenantId);
+    const db = await readDB(req.tenantId, true);
     const order = (db.orders || []).find(o => o.id === req.params.id);
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
@@ -2555,7 +2515,7 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
     lastMetaCheck[req.tenantId] = Date.now();
 
     if (process.env.VERCEL) {
-      await writeDB(req.tenantId, db, modifiedTables);
+      await queueFirestoreWrite(req.tenantId, db, modifiedTables);
     } else {
       writeDB(req.tenantId, db, modifiedTables).catch(err => {
         console.error('[Background Firestore write error on cancel]:', err);
@@ -2596,7 +2556,7 @@ app.get('/api/orders/:id', async (req, res) => {
 app.put('/api/orders/:id', async (req, res) => {
   await acquireLock();
   try {
-    const db = await readDB(req.tenantId);
+    const db = await readDB(req.tenantId, true);
     const orderId = req.params.id;
     const orderIndex = db.orders.findIndex(o => o.id === orderId);
     if (orderIndex === -1) {
@@ -2794,7 +2754,7 @@ app.put('/api/orders/:id', async (req, res) => {
     lastMetaCheck[req.tenantId] = Date.now();
 
     if (process.env.VERCEL) {
-      await writeDB(req.tenantId, db, modifiedTables);
+      await queueFirestoreWrite(req.tenantId, db, modifiedTables);
     } else {
       writeDB(req.tenantId, db, modifiedTables).catch(err => {
         console.error('[Background Firestore write error on update]:', err);
@@ -2816,10 +2776,37 @@ app.get('/api/deliveries', async (req, res) => {
 app.post('/api/deliveries/:id/complete', async (req, res) => {
   await acquireLock();
   try {
-    const db = await readDB(req.tenantId);
-    const deliveryIndex = db.deliveries.findIndex(d => d.id === req.params.id);
+    const db = await readDB(req.tenantId, true);
+    if (!db.deliveries) db.deliveries = [];
+    if (!db.orders) db.orders = [];
+
+    let deliveryIndex = db.deliveries.findIndex(d => 
+      d.id === req.params.id || 
+      d.order_id === req.params.id || 
+      d.id === `del_${req.params.id}` ||
+      `del_${d.order_id}` === req.params.id
+    );
+
     if (deliveryIndex === -1) {
-      return res.status(404).json({ error: 'Delivery not found' });
+      const orderMatch = db.orders.find(o => 
+        o.id === req.params.id || 
+        `del_${o.id}` === req.params.id || 
+        o.invoice_number === req.params.id
+      );
+      if (orderMatch) {
+        const newDel = {
+          id: req.params.id.startsWith('del_') ? req.params.id : `del_${orderMatch.id}`,
+          order_id: orderMatch.id,
+          delivery_man_id: orderMatch.delivery_man_id || '',
+          status: 'pending',
+          delivery_time: null,
+          remarks: ''
+        };
+        db.deliveries.push(newDel);
+        deliveryIndex = db.deliveries.length - 1;
+      } else {
+        return res.status(404).json({ error: 'Delivery and associated Order not found' });
+      }
     }
     
     const delivery = db.deliveries[deliveryIndex];
@@ -2981,7 +2968,7 @@ app.post('/api/deliveries/:id/complete', async (req, res) => {
       modifiedTables.push('products', 'stock_ledger', 'vehicle_stock', 'shops', 'outstanding_history');
     }
 
-    await writeDB(req.tenantId, db, modifiedTables);
+    await queueFirestoreWrite(req.tenantId, db, modifiedTables);
     res.json({
       ...delivery,
       delivery,
@@ -3009,6 +2996,60 @@ app.get('/api/settings', async (req, res) => {
     company_phone: "9345463415",
     upi_mobile: "gskumar9345@okicici"
   });
+});
+
+app.post('/api/admin/reconcile-today-invoices', async (req, res) => {
+  await acquireLock();
+  try {
+    const db = await readDB(req.tenantId, true);
+    if (!db.orders) db.orders = [];
+    if (!db.deliveries) db.deliveries = [];
+    if (!db.bills) db.bills = [];
+
+    const mappings = [
+      { id: 'ord_1795417148861', inv: 'INV-1600', shop: 'Sakthi Cool Drinks' },
+      { id: 'ord_1795417150000', inv: 'INV-1601', shop: 'Rafik Maligai' },
+      { id: 'ord_1795417175048', inv: 'INV-1602', shop: 'Kandhan' },
+      { id: 'ord_1795417378655', inv: 'INV-1603', shop: 'Jaya Surya' },
+    ];
+
+    mappings.forEach(m => {
+      const ord = db.orders.find(o => o.id === m.id);
+      if (ord) {
+        ord.invoice_number = m.inv;
+        ord.status = 'confirmed';
+      }
+      let del = db.deliveries.find(d => d.order_id === m.id);
+      if (del) {
+        del.status = 'pending';
+        del.delivery_time = null;
+        del.remarks = '';
+      } else {
+        db.deliveries.push({
+          id: `del_${m.id}`,
+          order_id: m.id,
+          delivery_man_id: 'u3',
+          status: 'pending',
+          delivery_time: null,
+          remarks: ''
+        });
+      }
+      const bill = db.bills.find(b => b.order_id === m.id);
+      if (bill) {
+        bill.invoice_number = m.inv;
+        bill.pdf_path = `/invoices/${m.inv}.pdf`;
+      }
+    });
+
+    cachedDBs[req.tenantId] = db;
+    cachedTimestamps[req.tenantId] = Date.now();
+    lastMetaCheck[req.tenantId] = Date.now();
+
+    await writeDB(req.tenantId, db, ['orders', 'deliveries', 'bills', 'outstanding_history']);
+    res.json({ success: true, updated: mappings });
+  } finally {
+    releaseLock();
+  }
 });
 
 app.put('/api/settings', async (req, res) => {
@@ -3517,7 +3558,7 @@ app.post('/api/products/bulk-delete', async (req, res) => {
 app.delete('/api/orders/:id', async (req, res) => {
   await acquireLock();
   try {
-    const db = await readDB(req.tenantId);
+    const db = await readDB(req.tenantId, true);
     const orderId = req.params.id;
     const orderIndex = db.orders.findIndex(o => o.id === orderId);
     if (orderIndex === -1) {
